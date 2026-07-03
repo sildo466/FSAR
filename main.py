@@ -47,6 +47,7 @@ from src.tools import create_default_registry, ToolRegistry
 from src.core.strategy_injector import StrategyInjector
 from src.utils import render
 from src.utils.config import get_config
+from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 
 
@@ -301,8 +302,11 @@ class FSAR:
         try:
             # Initialize orchestrator lazily
             if self.orchestrator is None:
-                model = self.config.get("llm", {}).get("model", "mimo-v2.5")
-                self.orchestrator = FSAROrchestrator(self._get_llm(), model)
+                fsar_cfg = FsarConfig()
+                active = fsar_cfg.get_active_provider()
+                if not active:
+                    logger.warning("no active LLM provider configured — set llm.active in fsar.yaml")
+                self.orchestrator = FSAROrchestrator(self._get_llm(), active.get("model", ""))
 
             # Get optional foreground window as initial target
             from src.computer_use.window_manager import get_foreground_window
