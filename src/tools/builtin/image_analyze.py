@@ -52,7 +52,7 @@ class ImageAnalyzeTool(Tool):
             from src.utils.llm_factory import cached_chat_completion, make_llm_client
 
             config = get_config()
-            llm_config = config.get_llm_config("primary")
+            llm_config = config.get_active_provider()
             skip_cache = config.llm_cache_skip_vision
 
             # Build image URL
@@ -78,7 +78,7 @@ class ImageAnalyzeTool(Tool):
                 b64 = base64.b64encode(img_bytes).decode("ascii")
                 image_url = f"data:{mime};base64,{b64}"
 
-            client = make_llm_client("primary")
+            client = make_llm_client(config.get("llm.active", ""))
             model = llm_config.get("model", "gpt-4o")
 
             resp = cached_chat_completion(

@@ -74,9 +74,9 @@ class PdfAnalyzeTool(Tool):
             from src.utils.llm_factory import cached_chat_completion, make_llm_client
 
             config = get_config()
-            llm_config = config.get_llm_config("primary")
+            llm_config = config.get_active_provider()
 
-            client = make_llm_client("primary")
+            client = make_llm_client(config.get("llm.active", ""))
 
             if len(text) > max_chars:
                 text = text[:max_chars] + f"\n\n... (truncated at {max_chars} chars)"
