@@ -1,6 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "@fontsource-variable/inter";
+@import "@fontsource/geist-sans";
+@import "@fontsource/geist-mono";
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+}
 
 :root {
   --bg: #fafafa;
@@ -26,9 +36,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
 }
 
 @media (prefers-reduced-motion: reduce) {
