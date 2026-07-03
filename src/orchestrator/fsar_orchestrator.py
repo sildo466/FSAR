@@ -166,7 +166,7 @@ TOOLS = [
 
 class FSAROrchestrator:
 
-    def __init__(self, llm_client, model: str = "mimo-v2.5",
+    def __init__(self, llm_client, model: str,
                  task_reflector=None, session_id: str = ""):
         self._llm = llm_client
         self._model = model
