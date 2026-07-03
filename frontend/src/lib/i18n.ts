@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+export const t = {
+  appName: "FSAR",
+  navChat: "Chat",
+  navReflection: "Reflection",
+  navMemory: "Memory",
+  navLibrary: "Library",
+  navInsights: "Insights",
+  navSettings: "Settings",
+  navUsage: "Usage",
+  wsConnecting: "Connecting…",
+  wsReconnecting: "Reconnecting…",
+  wsDisconnected: "Disconnected",
+  greetingAfternoon: "Good afternoon",
+  greetingMorning: "Good morning",
+  greetingEvening: "Good evening",
+  greetingNight: "Still up",
+  greetingAsk: "What shall we do today?",
+  placeholderInput: "Ask FSAR anything…",
+};
