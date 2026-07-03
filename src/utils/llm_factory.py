@@ -20,7 +20,7 @@ are no-ops for that provider today but available the moment a different
 provider is configured.
 
 Public surface:
-- make_llm_client(config_name="primary") -> OpenAI-compatible client
+- make_llm_client(provider_id: str) -> OpenAI-compatible client
 - cached_chat_completion(client, **kwargs) -> OpenAI-compatible response
   (drop-in replacement for `client.chat.completions.create(**kwargs)`)
 - detect_provider_family(model, base_url) -> "anthropic" | "gemini" | "openai"
@@ -149,18 +149,18 @@ def _derive_cache_key(model: str, messages: list[dict]) -> str:
     return hashlib.sha256(stable_dumps({"model": model, "messages": messages}).encode("utf-8")).hexdigest()[:32]
 
 
-def make_llm_client(config_name: str = "primary") -> OpenAI:
-    """Return a singleton OpenAI client for the named config block.
+def make_llm_client(provider_id: str) -> OpenAI:
+    """Return a singleton OpenAI client for the named provider.
 
     All call sites that need an LLM should use this instead of constructing
     `OpenAI(...)` themselves, so cache wiring is uniform.
     """
-    if config_name in _CLIENTS:
-        return _CLIENTS[config_name]
+    if provider_id in _CLIENTS:
+        return _CLIENTS[provider_id]
     with _FACTORY_LOCK:
-        if config_name in _CLIENTS:
-            return _CLIENTS[config_name]
-        cfg = get_config().get_llm_config(config_name)
+        if provider_id in _CLIENTS:
+            return _CLIENTS[provider_id]
+        cfg = get_config().get_llm_config(provider_id)
         ctx = ssl.create_default_context()
         try:
             client = OpenAI(
@@ -174,7 +174,7 @@ def make_llm_client(config_name: str = "primary") -> OpenAI:
                 api_key=cfg.get("api_key", ""),
                 base_url=cfg.get("base_url", ""),
             )
-        _CLIENTS[config_name] = client
+        _CLIENTS[provider_id] = client
         return client
 
 
@@ -299,14 +299,14 @@ def cached_chat_completion(
 _GEMINI_LOCK = __import__("threading").Lock()
 
 
-def make_gemini_client(config_name: str = "primary"):
-    """Singleton `google.genai.Client` for the named config block."""
-    if config_name in _GEMINI_CLIENTS:
-        return _GEMINI_CLIENTS[config_name]
+def make_gemini_client(provider_id: str):
+    """Singleton `google.genai.Client` for the named provider."""
+    if provider_id in _GEMINI_CLIENTS:
+        return _GEMINI_CLIENTS[provider_id]
     with _GEMINI_LOCK:
-        if config_name in _GEMINI_CLIENTS:
-            return _GEMINI_CLIENTS[config_name]
-        cfg = get_config().get_llm_config(config_name)
+        if provider_id in _GEMINI_CLIENTS:
+            return _GEMINI_CLIENTS[provider_id]
+        cfg = get_config().get_llm_config(provider_id)
         api_key = cfg.get("api_key", "")
         base_url = cfg.get("base_url", "") or None
         try:
@@ -323,7 +323,7 @@ def make_gemini_client(config_name: str = "primary"):
             client = genai.Client(**kwargs)
         except Exception:
             client = None
-        _GEMINI_CLIENTS[config_name] = client
+        _GEMINI_CLIENTS[provider_id] = client
         return client
 
 
@@ -533,14 +533,14 @@ def _gemini_response_to_openai_shape(response: Any, model: str) -> dict:
 _ANTHROPIC_LOCK = __import__("threading").Lock()
 
 
-def make_anthropic_client(config_name: str = "primary"):
-    """Singleton `anthropic.Anthropic` client for the named config block."""
-    if config_name in _ANTHROPIC_CLIENTS:
-        return _ANTHROPIC_CLIENTS[config_name]
+def make_anthropic_client(provider_id: str):
+    """Singleton `anthropic.Anthropic` client for the named provider."""
+    if provider_id in _ANTHROPIC_CLIENTS:
+        return _ANTHROPIC_CLIENTS[provider_id]
     with _ANTHROPIC_LOCK:
-        if config_name in _ANTHROPIC_CLIENTS:
-            return _ANTHROPIC_CLIENTS[config_name]
-        cfg = get_config().get_llm_config(config_name)
+        if provider_id in _ANTHROPIC_CLIENTS:
+            return _ANTHROPIC_CLIENTS[provider_id]
+        cfg = get_config().get_llm_config(provider_id)
         client = None
         try:
             import anthropic  # type: ignore
@@ -552,7 +552,7 @@ def make_anthropic_client(config_name: str = "primary"):
             client = anthropic.Anthropic(**kwargs)
         except Exception:
             client = None
-        _ANTHROPIC_CLIENTS[config_name] = client
+        _ANTHROPIC_CLIENTS[provider_id] = client
         return client
 
 
