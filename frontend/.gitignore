@@ -4,3 +4,5 @@ src-tauri/target
 src-tauri/Cargo.lock
 # Build artifacts (compiled from .tsx by tsc)
 src/*.js
+src/**/*.js
+src/**/*.js.map
