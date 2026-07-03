@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState } from "react";
-import { MessageList, type ChatMessage } from "../components/chat/MessageList";
+import {
+  MessageList,
+  type ChatMessage,
+  type PendingRisk,
+} from "../components/chat/MessageList";
 import { useWS } from "../stores/ws";
 import { t } from "../lib/i18n";
 
@@ -10,6 +14,7 @@ const nextId = () => `m_${++id}`;
 export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [pendingRisks, setPendingRisks] = useState<PendingRisk[]>([]);
   const send = useWS((s) => s.send);
   const init = useWS((s) => s.init);
   const client = useWS((s) => s.client);
@@ -35,6 +40,19 @@ export function Chat() {
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.message_id ? { ...m, thinking: false } : m))
         );
+      } else if (msg.type === "chat.tool_call") {
+        setPendingRisks((prev) => [
+          ...prev,
+          {
+            callId: msg.call_id,
+            tool: msg.tool,
+            argsPreview:
+              typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2),
+            risk: msg.risk,
+          },
+        ]);
+      } else if (msg.type === "chat.tool_result") {
+        setPendingRisks((prev) => prev.filter((r) => r.callId !== msg.call_id));
       }
     });
   }, [client, init]);
@@ -47,10 +65,18 @@ export function Chat() {
     send({ type: "chat.send", content: text, mode: "agent" });
   };
 
+  const onRiskRespond = (callId: string, response: "y" | "n" | "all" | "never") => {
+    send({ type: "risk.respond", call_id: callId, response });
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto">
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          pendingRisks={pendingRisks}
+          onRiskRespond={onRiskRespond}
+        />
       </div>
       <div className="border-t border-border bg-surface">
         <div className="max-w-[720px] mx-auto px-8 py-4 flex gap-3">
