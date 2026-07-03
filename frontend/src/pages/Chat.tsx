@@ -130,8 +130,8 @@ export function Chat() {
     <div className="flex flex-col h-full">
       {isIdle ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8">
-          <BlackHole size={96} />
-          <Greeting displayName="" />
+          <BlackHole width={64} />
+          <Greeting />
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
