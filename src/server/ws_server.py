@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
+from src.server.handlers import chat as chat_handler
 
 app = FastAPI()
 _config = FsarConfig()
@@ -33,7 +34,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 
 async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
-    """Placeholder dispatcher — replaced task by task in later phases."""
+    if await chat_handler.dispatch(ws, msg):
+        return
     if msg.get("type") == "heartbeat":
         await ws.send_json({"type": "heartbeat", "ts": 0})
 
