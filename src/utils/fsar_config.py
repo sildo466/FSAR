@@ -51,6 +51,46 @@ class FsarConfig:
                 cur = cur.setdefault(part, {})
             cur[parts[-1]] = value
 
+    def list_providers(self, *, enabled_only: bool = False) -> list[dict]:
+        with self._lock:
+            providers = list(self._settings.get("llm", {}).get("providers", []))
+        if enabled_only:
+            providers = [p for p in providers if p.get("enabled")]
+        return providers
+
+    def get_llm_config(self, provider_id: str) -> dict:
+        for p in self.list_providers():
+            if p.get("id") == provider_id:
+                return p
+        return {}
+
+    def get_active_provider(self) -> dict:
+        active_id = self.get("llm.active", "")
+        if not active_id:
+            return {}
+        return self.get_llm_config(active_id)
+
+    def set_active_provider(self, provider_id: str) -> None:
+        self.patch("llm.active", provider_id)
+
+    def add_provider(self, provider: dict) -> None:
+        providers = self.list_providers()
+        providers.append(provider)
+        self.patch("llm.providers", providers)
+
+    def update_provider(self, provider: dict) -> None:
+        providers = self.list_providers()
+        for i, p in enumerate(providers):
+            if p.get("id") == provider.get("id"):
+                providers[i] = provider
+                self.patch("llm.providers", providers)
+                return
+        raise ValueError(f"provider not found: {provider.get('id')}")
+
+    def remove_provider(self, provider_id: str) -> None:
+        providers = [p for p in self.list_providers() if p.get("id") != provider_id]
+        self.patch("llm.providers", providers)
+
     def save(self) -> None:
         with self._lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
