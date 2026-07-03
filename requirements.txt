@@ -8,8 +8,8 @@ mcp>=1.0
 
 # Communication
 websockets>=12.0
-fastapi>=0.100
-uvicorn>=0.25
+fastapi>=0.110
+uvicorn[standard]>=0.27
 
 # Utilities
 pyyaml>=6.0
@@ -25,3 +25,6 @@ httpx>=0.24
 
 # Provider SDKs — used by src/utils/llm_factory.gemini branch
 google-genai>=0.3
+
+# File watching
+watchdog>=4.0
