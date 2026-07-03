@@ -68,3 +68,16 @@ def test_get_active_provider_returns_empty_when_no_active(tmp_path: Path):
     (tmp_path / "fsar.yaml").write_text("llm:\n  providers: []\n")
     cfg = FsarConfig(tmp_path / "fsar.yaml")
     assert cfg.get_active_provider() == {}
+
+
+def test_get_llm_config_expands_env_var_in_api_key(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FSAR_TEST_KEY", "sk-from-env")
+    (tmp_path / "fsar.yaml").write_text(
+        "llm:\n"
+        "  providers:\n"
+        "    - id: p1\n"
+        "      api_key: '${FSAR_TEST_KEY}'\n"
+        "      model: model-a\n"
+    )
+    cfg = FsarConfig(tmp_path / "fsar.yaml")
+    assert cfg.get_llm_config("p1")["api_key"] == "sk-from-env"

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -12,6 +13,18 @@ from typing import Any
 import yaml
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "fsar.yaml"
+
+_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_env(value: Any) -> Any:
+    if isinstance(value, str):
+        return _ENV_RE.sub(lambda m: os.environ.get(m.group(1), m.group(0)), value)
+    if isinstance(value, list):
+        return [_expand_env(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_env(v) for k, v in value.items()}
+    return value
 
 
 class FsarConfig:
@@ -61,7 +74,7 @@ class FsarConfig:
     def get_llm_config(self, provider_id: str) -> dict:
         for p in self.list_providers():
             if p.get("id") == provider_id:
-                return p
+                return _expand_env(p)
         return {}
 
     def get_active_provider(self) -> dict:
