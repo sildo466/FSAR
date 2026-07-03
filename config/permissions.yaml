@@ -1,0 +1,51 @@
+mode: normal
+tools:
+  run_command:
+    risk: HIGH
+    mode: ask
+    blocked_patterns:
+    - rm -rf /
+    - del /s /q C:\*
+    - 'format '
+    - rd /s /q C:\
+  file_ops:
+    risk: MEDIUM
+    operations:
+      read: trust
+      write: trust
+      list: trust
+      move: ask
+      delete: ask
+      mkdir: trust
+  edit:
+    risk: MEDIUM
+    mode: ask
+  process:
+    risk: HIGH
+    mode: ask
+  web_search:
+    risk: SAFE
+    mode: trust
+  web_fetch:
+    risk: SAFE
+    mode: trust
+  app_control:
+    risk: LOW
+    mode: ask
+  image_analyze:
+    risk: LOW
+    mode: trust
+  pdf_analyze:
+    risk: LOW
+    mode: trust
+path_rules:
+- match: C:\\Windows.*
+  action: deny
+- match: C:\\Program Files.*
+  action: deny
+- match: C:\\$
+  action: deny
+  operations:
+  - delete
+  - move
+  - write

@@ -1,0 +1,73 @@
+# FSAR 配置文件
+# LLM 配置已移至 .env 文件，改 .env 即可切换模型
+
+# LLM 配置 — 从 .env 读取
+llm:
+  primary:
+    provider: ${LLM_PROVIDER}
+    base_url: ${LLM_BASE_URL}
+    model: ${LLM_MODEL}
+    api_key: ${LLM_API_KEY}
+  # L1+L2 LLM response cache — transparent to call sites via
+  # src/utils/llm_factory.cached_chat_completion().
+  # Provider cache markers (Anthropic cache_control / Gemini cached_content)
+  # are emitted via apply_provider_cache_markers().
+  cache:
+    enabled: true            # kill switch — set false to bypass all caching
+    db_path: data/llm_cache.db
+    l1_max_entries: 256      # in-process LRU + TTL
+    l1_ttl_seconds: 300      # 5 min — covers an active session
+    l2_ttl_seconds: 86400    # 24 h on disk
+    retention: short         # none | short | long
+    skip_vision: true        # skip caching for image_analyze calls (huge base64)
+    provider_override: ""    # optional: force "anthropic" | "gemini" | "openai"
+    use_responses_api: true  # route OpenAI-compatible calls through the
+                             # Responses API (POST /v1/responses) so server-side
+                             # prompt_cache_key routing can save tokens.
+                             # Falls back to chat.completions when the SDK or
+                             # endpoint lacks a `responses` surface.
+    session_id: ""           # override the persistent session id; empty =
+                             # auto-generated UUID4 written to
+                             # <db_path parent>/.llm_session_id on first call.
+
+# 记忆系统配置
+memory:
+  sqlite_path: data/memory.db
+  short_term_window: 50
+  chroma_path: data/chroma
+  # 空闲复盘间隔（小时）— 距上次复盘超过此时长且满足数据阈值时自动复盘
+  reflection_interval_hours: 12
+  # 每次 assistant 回复后是否提示用户打分
+  enable_rating_prompt: true
+  # 注入到 LLM context 的记忆最大字符数
+  recall_max_chars: 2000
+  # 反思强度 (off / low / medium / high) — 控制 per-task / on-failure 反思触发
+  # off:     no reflection
+  # low:     on_failure only (skip successful tasks)
+  # medium:  per-task + on_failure (default — moderate cost)
+  # high:    per-task + on_failure + write suggested_strategy back to user_model
+  reflection_intensity: medium
+  # Embedder 配置 — 也可由 .env 的 EMBED_* 环境变量覆盖
+  embedder:
+    provider: lmstudio        # lmstudio | ollama
+    base_url: http://192.168.5.71:1234
+    model: text-embedding-embeddinggemma-300m-qat
+    timeout: 60.0
+  #  Ollama 示例 (把上面 provider/base_url/model 改成):
+  #  provider: ollama
+  #  base_url: http://localhost:11434
+  #  model: nomic-embed-text
+
+# MCP 配置 (Phase 3.5)
+mcp:
+  servers: []
+
+# GUI 配置 (Phase 5)
+gui:
+  host: 127.0.0.1
+  port: 8765
+
+# 日志
+logging:
+  level: INFO
+  file: data/logs/fsar_{time:YYYY-MM-DD}.log
