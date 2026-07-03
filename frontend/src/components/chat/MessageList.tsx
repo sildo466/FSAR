@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ThinkingDot } from "./ThinkingDot";
 import { RiskConfirm } from "./RiskConfirm";
+import { RateStars } from "./RateStars";
 
 export interface ChatMessage {
   id: string;
@@ -21,9 +22,10 @@ interface Props {
   messages: ChatMessage[];
   pendingRisks: PendingRisk[];
   onRiskRespond: (callId: string, response: "y" | "n" | "all" | "never") => void;
+  onRate: (messageId: string, score: 1 | 2 | 3 | 4 | 5, reason?: string) => void;
 }
 
-export function MessageList({ messages, pendingRisks, onRiskRespond }: Props) {
+export function MessageList({ messages, pendingRisks, onRiskRespond, onRate }: Props) {
   return (
     <div className="flex flex-col gap-6 max-w-[720px] mx-auto px-8 py-6">
       {messages.map((m) => (
@@ -37,6 +39,9 @@ export function MessageList({ messages, pendingRisks, onRiskRespond }: Props) {
           <div className="text-text leading-relaxed whitespace-pre-wrap">
             {m.thinking ? <ThinkingDot /> : m.content}
           </div>
+          {m.role === "assistant" && !m.thinking && !m.streaming && (
+            <RateStars messageId={m.id} onRate={onRate} />
+          )}
           <hr className="border-border" />
         </div>
       ))}

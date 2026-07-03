@@ -117,6 +117,10 @@ export function Chat() {
     send({ type: "risk.respond", call_id: callId, response });
   };
 
+  const onRate = (messageId: string, score: 1 | 2 | 3 | 4 | 5, reason?: string) => {
+    send({ type: "chat.rate", message_id: messageId, score, reason });
+  };
+
   const popoverCommands = popoverOpen ? filterCommands(popoverFilter) : [];
 
   return (
@@ -126,6 +130,7 @@ export function Chat() {
           messages={messages}
           pendingRisks={pendingRisks}
           onRiskRespond={onRiskRespond}
+          onRate={onRate}
         />
       </div>
       <div className="border-t border-border bg-surface">
