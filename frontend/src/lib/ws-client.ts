@@ -23,7 +23,8 @@ export type ServerMsg =
   | { type: "chat.tool_result"; call_id: string; result: unknown; latency_ms: number }
   | { type: "chat.done"; message_id: string; outcome: "success" | "failure" | "timeout"; summary?: string }
   | { type: "chat.risk_request"; call_id: string; tool: string; args_preview: string; reason: string }
-  | { type: "reflection.event"; event: { task_id: string; outcome: string; suggested_strategy: string } }
+  | { type: "reflection.event"; event: { task_id: string; outcome: string; suggested_strategy: string; step_count: number; tools_used: string[]; created_at: string } }
+  | { type: "reflection.intensity_changed"; intensity: string; triggers?: Record<string, unknown> }
   | { type: "settings.changed"; patch: Record<string, unknown> }
   | { type: "library.changed"; op: string; name: string }
   | { type: "memory.search_results"; query: string; results: Array<{ session_id: string; snippet: string; score: number }> }
