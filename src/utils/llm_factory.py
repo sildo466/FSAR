@@ -211,7 +211,8 @@ def cached_chat_completion(
         base_url = ""
 
     payload: dict = dict(kwargs)
-    payload.setdefault("model", cfg.get_llm_config("primary").get("model", ""))
+    if not payload.get("model"):
+        raise ValueError("model must be supplied to cached_chat_completion")
 
     msgs = payload.get("messages") or []
     family = detect_provider_family(str(payload.get("model", "")), base_url)
@@ -387,8 +388,9 @@ def chat_completion_gemini(
             pass
 
     cfg = get_config()
-    api_key = cfg.get_llm_config("primary").get("api_key", "")
-    client = make_gemini_client("primary")
+    active_id = cfg.get("llm.active", "")
+    api_key = cfg.get_llm_config(active_id).get("api_key", "")
+    client = make_gemini_client(active_id)
     if client is None:
         return _rehydrate_response({"id": "no-gemini", "model": model, "choices": [{"index": 0, "message": {"role": "assistant", "content": "(google-genai SDK unavailable)"}, "finish_reason": "stop"}]})
 
@@ -624,7 +626,8 @@ def chat_completion_anthropic(
     )
     anthropic_tools = convert_tools_to_anthropic(tools)
 
-    client = make_anthropic_client("primary")
+    active_id = cfg.get("llm.active", "")
+    client = make_anthropic_client(active_id)
     if client is None:
         return _rehydrate_response({
             "id": "no-anthropic",
@@ -761,7 +764,8 @@ def chat_completion_responses(
             base_url = ""
 
     payload: dict = dict(kwargs)
-    payload.setdefault("model", cfg.get_llm_config("primary").get("model", ""))
+    if not payload.get("model"):
+        raise ValueError("model must be supplied to chat_completion_responses")
 
     msgs = payload.get("messages") or []
     system_prompt = extract_system_prompt(msgs) if msgs else ""
