@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -11,9 +10,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
+from src.server.handlers import risk as risk_handler
+from src.server.risk_bridge import RiskBridge
 
 app = FastAPI()
 _config = FsarConfig()
+_bridge = RiskBridge()
+chat_handler.set_bridge(_bridge)
 
 
 @app.get("/health")
@@ -34,6 +37,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 
 async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
+    if await risk_handler.dispatch(_bridge, ws, msg):
+        return
     if await chat_handler.dispatch(ws, msg):
         return
     if msg.get("type") == "heartbeat":
