@@ -6,6 +6,8 @@ import {
   type PendingRisk,
 } from "../components/chat/MessageList";
 import { SlashPopover } from "../components/chat/SlashPopover";
+import { BlackHole } from "../components/ui/BlackHole";
+import { Greeting } from "../components/ui/Greeting";
 import { useWS } from "../stores/ws";
 import { t } from "../lib/i18n";
 import { filterCommands } from "../lib/commands";
@@ -122,17 +124,25 @@ export function Chat() {
   };
 
   const popoverCommands = popoverOpen ? filterCommands(popoverFilter) : [];
+  const isIdle = messages.length === 0 && pendingRisks.length === 0;
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">
-        <MessageList
-          messages={messages}
-          pendingRisks={pendingRisks}
-          onRiskRespond={onRiskRespond}
-          onRate={onRate}
-        />
-      </div>
+      {isIdle ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8">
+          <BlackHole size={96} />
+          <Greeting displayName="" />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <MessageList
+            messages={messages}
+            pendingRisks={pendingRisks}
+            onRiskRespond={onRiskRespond}
+            onRate={onRate}
+          />
+        </div>
+      )}
       <div className="border-t border-border bg-surface">
         <div className="relative max-w-[720px] mx-auto px-8 py-4">
           {popoverOpen && (
