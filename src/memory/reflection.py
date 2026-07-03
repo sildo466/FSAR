@@ -396,7 +396,7 @@ class IdleReflector:
             model = self._model
             if not model:
                 from src.utils.config import get_config
-                model = get_config().get_llm_config("primary").get("model", "")
+                model = get_config().get_active_provider().get("model", "")
             resp = cached_chat_completion(
                 self._llm,
                 model=model,
@@ -648,7 +648,7 @@ class TaskReflector:
             model = self._model
             if not model:
                 from src.utils.config import get_config
-                model = get_config().get_llm_config("primary").get("model", "")
+                model = get_config().get_active_provider().get("model", "")
             resp = cached_chat_completion(
                 self._llm,
                 model=model,
