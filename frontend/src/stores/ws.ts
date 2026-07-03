@@ -28,6 +28,15 @@ export const useWS = create<WSStore>((set, get) => ({
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {
         set({ config: { ...get().config, ...msg.patch } });
+      } else if (msg.type === "reflection.intensity_changed") {
+        const current = (get().config ?? {}) as Record<string, unknown>;
+        const reflection = (current.reflection ?? {}) as Record<string, unknown>;
+        set({
+          config: {
+            ...current,
+            reflection: { ...reflection, intensity: msg.intensity },
+          },
+        });
       }
     });
     client.connect();
