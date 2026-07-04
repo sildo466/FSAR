@@ -15,6 +15,7 @@ from src.server.handlers import library as library_handler
 from src.server.handlers import memory as memory_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
+from src.server.handlers import usage as usage_handler
 from src.server.risk_bridge import RiskBridge
 
 app = FastAPI()
@@ -51,6 +52,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await library_handler.dispatch(ws, msg, _ctx):
         return
     if await insights_handler.dispatch(ws, msg, _ctx):
+        return
+    if await usage_handler.dispatch(ws, msg, _ctx):
         return
     if await chat_handler.dispatch(ws, msg):
         return
