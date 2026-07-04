@@ -17,6 +17,29 @@ def _default_cache_db() -> Path:
     return Path(__file__).resolve().parents[3] / "data" / "llm_cache.db"
 
 
+def compute_cost(prompt_tokens: int, completion_tokens: int, pricing: dict | None) -> float:
+    """Pure: (prompt/1000) * input_per_1k + (completion/1000) * output_per_1k.
+
+    Pricing dict follows FsarConfig.llm.providers[].pricing shape. Returns 0.0
+    when pricing is missing or has no rate fields.
+
+    Known deviation from plan §7.7 Task 43 spec: the plan example asserts
+    `1M prompt + 100k completion @ 0.001/0.002 per_1k = 0.0012`, but the
+    per-1k math gives `1.0 + 0.2 = 1.2`. The math-correct formula is
+    implemented here; the plan example is treated as a known doc bug. See
+    AskUserQuestion outstanding for user confirmation.
+    """
+    if not pricing:
+        return 0.0
+    in_per_1k = float(pricing.get("input_per_1k", 0) or 0)
+    out_per_1k = float(pricing.get("output_per_1k", 0) or 0)
+    return round(
+        (prompt_tokens / 1000.0) * in_per_1k
+        + (completion_tokens / 1000.0) * out_per_1k,
+        6,
+    )
+
+
 def _resolve_db(ctx: dict[str, Any] | None) -> Path:
     if ctx and ctx.get("db_path"):
         return Path(ctx["db_path"])
