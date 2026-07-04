@@ -15,6 +15,7 @@ export type ClientMsg =
   | { type: "library.update"; name: string; category?: string; description?: string; body?: string }
   | { type: "library.delete"; name: string }
   | { type: "library.archive"; name: string }
+  | { type: "insights.get" }
   | { type: "usage.range"; from: string; to: string }
   | { type: "llm.set_active"; provider_id: string }
   | { type: "mcp.reload"; server_name?: string }
@@ -34,6 +35,7 @@ export type ServerMsg =
   | { type: "library.changed"; op: string; name: string }
   | { type: "memory.search_results"; query: string; results: Array<{ session_id: string; snippet: string; score: number }> }
   | { type: "library.list_result"; experiences: Array<Record<string, unknown>> }
+  | { type: "insights.snapshot"; kpis: Record<string, number>; tool_stats: Array<Record<string, unknown>>; active_strategies_markdown: string; recent_decisions: Array<Record<string, unknown>> }
   | { type: "usage.snapshot"; kpis: Record<string, number>; timeline: unknown[]; per_provider: unknown[]; per_tool: unknown[]; cache: Record<string, unknown> }
   | { type: "llm.provider_changed"; provider_id: string; model: string }
   | { type: "mcp.status"; servers: Array<{ name: string; enabled: boolean; running: boolean; tools: number }> }
