@@ -261,6 +261,33 @@ class LLMCache:
             out["l1"] = self._l1.stats()
         return out
 
+    def get_stats(self) -> dict:
+        """Aggregated stats for the Usage page. See docs/superpowers/plans
+        §8.4 — keys are fixed for the wire schema."""
+        l1 = self._l1.stats() if self._l1 is not None else {"size": 0, "max": 0}
+        l2 = self._l2_stats()
+        l1_lookup = self._stats["l1_hit"] + self._stats["miss"]
+        l2_lookup = self._stats["l2_hit"] + self._stats["miss"]
+        return {
+            "l1_entries": int(l1.get("size", 0)),
+            "l1_capacity": int(l1.get("max", 0)),
+            "l1_hit_rate": round(self._stats["l1_hit"] / l1_lookup, 4) if l1_lookup else 0.0,
+            "l2_entries": int(l2.get("entries", 0)),
+            "l2_size_bytes": int(l2.get("size_bytes", 0)),
+            "l2_hit_rate": round(self._stats["l2_hit"] / l2_lookup, 4) if l2_lookup else 0.0,
+        }
+
+    def _l2_stats(self) -> dict:
+        try:
+            with self._db_lock, sqlite3.connect(self._db_path) as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(LENGTH(response_json)), 0) "
+                    "FROM llm_cache"
+                ).fetchone()
+            return {"entries": int(row[0] or 0), "size_bytes": int(row[1] or 0)}
+        except Exception:
+            return {"entries": 0, "size_bytes": 0}
+
     def clear(self) -> None:
         if self._l1 is not None:
             self._l1.clear()

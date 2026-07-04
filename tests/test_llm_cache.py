@@ -103,6 +103,43 @@ def test_l2_round_trip():
         assert s["l2_hit"] >= 1
 
 
+def test_get_stats_returns_aggregates():
+    """get_stats must return plan-mandated keys + computed hit rates."""
+    with tempfile.TemporaryDirectory() as d:
+        c = LLMCache(
+            db_path=str(Path(d) / "cache.db"),
+            l1_max_entries=16,
+            l1_ttl_seconds=3600,
+            l2_ttl_seconds=3600,
+        )
+        payload = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        c.put(payload, _FakeResponse(content="hello"))
+        c.get(payload)  # miss
+        c.get(payload)  # hit (l2 → l1 primed)
+        c.get(payload)  # hit (l1)
+
+        s = c.get_stats()
+        assert set(s.keys()) == {
+            "l1_entries", "l1_capacity",
+            "l1_hit_rate", "l2_entries", "l2_size_bytes", "l2_hit_rate",
+        }
+        assert s["l1_capacity"] == 16
+        assert s["l1_entries"] >= 1
+        assert 0.0 <= s["l1_hit_rate"] <= 1.0
+        assert 0.0 <= s["l2_hit_rate"] <= 1.0
+        assert s["l2_size_bytes"] >= 0
+
+
+def test_get_stats_empty_cache_is_zeros():
+    with tempfile.TemporaryDirectory() as d:
+        c = LLMCache(db_path=str(Path(d) / "cache.db"))
+        s = c.get_stats()
+        assert s["l1_entries"] == 0
+        assert s["l2_entries"] == 0
+        assert s["l1_hit_rate"] == 0
+        assert s["l2_hit_rate"] == 0
+
+
 def test_stream_skips_cache():
     with tempfile.TemporaryDirectory() as d:
         c = LLMCache(db_path=str(Path(d) / "cache.db"), l1_ttl_seconds=0, l2_ttl_seconds=3600)
