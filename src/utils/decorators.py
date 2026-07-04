@@ -73,6 +73,38 @@ def _extract_alternatives(func: Callable) -> list[str]:
     return []
 
 
+def _extract_tokens(result: Any) -> dict[str, int]:
+    """Pull prompt/completion/cached tokens from a function return value.
+
+    Accepts either a dict-style response with `usage` key, or an SDK object
+    that exposes `.usage` as a dict. Returns zeroed dict when unavailable.
+    """
+    out = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
+    try:
+        usage = None
+        if isinstance(result, dict):
+            usage = result.get("usage")
+        else:
+            usage = getattr(result, "usage", None)
+        if not usage:
+            return out
+        ud = usage if isinstance(usage, dict) else {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "cached_tokens": getattr(usage, "cached_tokens", 0) or 0,
+        }
+        out["prompt_tokens"] = int(ud.get("prompt_tokens") or 0)
+        out["completion_tokens"] = int(ud.get("completion_tokens") or 0)
+        out["cached_tokens"] = int(
+            ud.get("cached_tokens")
+            or ud.get("cache_read_input_tokens")
+            or 0
+        )
+    except Exception:
+        pass
+    return out
+
+
 def track_decision(func: Callable) -> Callable:
     """Decorator: record each invocation into decision_log.
 
@@ -103,8 +135,10 @@ def track_decision(func: Callable) -> Callable:
             t0 = time.perf_counter()
             success = True
             error_class = ""
+            tokens: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
             try:
                 result = await func(*args, **kwargs)
+                tokens = _extract_tokens(result)
                 return result
             except BaseException as e:
                 success = False
@@ -124,6 +158,7 @@ def track_decision(func: Callable) -> Callable:
                             latency_ms=latency_ms,
                             success=success,
                             error_class=error_class,
+                            **tokens,
                         )
                     except Exception as db_err:
                         logger.debug(f"decision_log write skipped: {db_err}")
@@ -145,8 +180,10 @@ def track_decision(func: Callable) -> Callable:
         t0 = time.perf_counter()
         success = True
         error_class = ""
+        tokens: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
         try:
             result = func(*args, **kwargs)
+            tokens = _extract_tokens(result)
             return result
         except BaseException as e:
             success = False
@@ -166,6 +203,7 @@ def track_decision(func: Callable) -> Callable:
                         latency_ms=latency_ms,
                         success=success,
                         error_class=error_class,
+                        **tokens,
                     )
                 except Exception as db_err:
                     logger.debug(f"decision_log write skipped: {db_err}")

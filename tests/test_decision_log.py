@@ -14,7 +14,6 @@ from src.memory.decision_log import (
     set_task_context, clear_task_context,
 )
 from src.utils.decorators import track_decision
-from src.utils.config import get_config
 
 
 def _tmp_db():
@@ -24,10 +23,9 @@ def _tmp_db():
 
 
 def _patch_config_db(db_path: str):
-    from src.utils.config import get_config
-    cfg = get_config()
-    cfg._settings.setdefault("memory", {})["sqlite_path"] = db_path
-    return cfg
+    """No-op kept for signature compatibility — DecisionLog now requires
+    explicit db_path= when FsarConfig.memory_sqlite_path is unavailable."""
+    return None
 
 
 class FakeTool:
@@ -51,7 +49,7 @@ def test_decision_log_schema():
     db = _tmp_db()
     _patch_config_db(db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         with log._connect() as conn:
             tables = [r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type IN ('table','view')"
@@ -66,7 +64,7 @@ def test_record_and_query():
     db = _tmp_db()
     _patch_config_db(db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         rid = log.record(task_id="t1", session_id="s1", step_no=1,
                         chosen_tool="file_ops", alternatives=["bash"],
                         args_summary="read x.txt", latency_ms=42,
@@ -86,7 +84,7 @@ def test_get_stats_aggregates():
     db = _tmp_db()
     _patch_config_db(db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         for i in range(4):
             log.record(task_id=f"t{i}", session_id="s", step_no=1,
                       chosen_tool="web_search", args_summary="q",
@@ -110,7 +108,7 @@ def test_top_failure_modes():
     db = _tmp_db()
     _patch_config_db(db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         for i in range(3):
             log.record(task_id=f"t{i}", session_id="s", step_no=1,
                       chosen_tool="run_command", args_summary="x",
@@ -130,9 +128,10 @@ def test_decorator_records_calls():
     db = _tmp_db()
     _patch_config_db(db)
     import src.utils.decorators as dec
-    dec._decision_log_singleton = None
+    from src.memory.decision_log import DecisionLog as _DL
+    dec._decision_log_singleton = _DL(db_path=db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         set_task_context(task_id="task_a", session_id="sess_1")
 
         tool = FakeTool()
@@ -168,7 +167,7 @@ def test_decorator_no_context_no_write():
     db = _tmp_db()
     _patch_config_db(db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         tool = FakeTool()
 
         async def run():
@@ -186,9 +185,10 @@ def test_decorator_handles_tool_method_binding():
     db = _tmp_db()
     _patch_config_db(db)
     import src.utils.decorators as dec
-    dec._decision_log_singleton = None
+    from src.memory.decision_log import DecisionLog as _DL
+    dec._decision_log_singleton = _DL(db_path=db)
     try:
-        log = DecisionLog()
+        log = DecisionLog(db_path=db)
         set_task_context(task_id="bind_test", session_id="s")
         tool = FakeTool()
         asyncio.run(tool.execute(x=1))
@@ -196,6 +196,59 @@ def test_decorator_handles_tool_method_binding():
         rows = log.get_for_task("bind_test")
         assert len(rows) == 1
         assert rows[0].chosen_tool == "fake_tool"
+    finally:
+        _cleanup(db)
+
+
+def test_record_accepts_token_columns():
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        log = DecisionLog(db_path=db)
+        rid = log.record(
+            task_id="tk1", session_id="s1", step_no=1,
+            chosen_tool="llm_call", args_summary="q",
+            latency_ms=100, success=True,
+            prompt_tokens=1200, completion_tokens=350, cached_tokens=900,
+        )
+        rows = log.get_for_task("tk1")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.prompt_tokens == 1200
+        assert r.completion_tokens == 350
+        assert r.cached_tokens == 900
+        assert rid == r.id
+    finally:
+        _cleanup(db)
+
+
+def test_decision_log_schema_has_token_columns():
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        log = DecisionLog(db_path=db)
+        with log._connect() as conn:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(decision_log)").fetchall()}
+        assert "prompt_tokens" in cols
+        assert "completion_tokens" in cols
+        assert "cached_tokens" in cols
+    finally:
+        _cleanup(db)
+
+
+def test_get_token_totals():
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        log = DecisionLog(db_path=db)
+        log.record(task_id="a", session_id="s", step_no=1, chosen_tool="llm",
+                   prompt_tokens=100, completion_tokens=50, cached_tokens=0)
+        log.record(task_id="b", session_id="s", step_no=1, chosen_tool="llm",
+                   prompt_tokens=200, completion_tokens=80, cached_tokens=120)
+        totals = log.get_token_totals()
+        assert totals["prompt_tokens"] == 300
+        assert totals["completion_tokens"] == 130
+        assert totals["cached_tokens"] == 120
     finally:
         _cleanup(db)
 

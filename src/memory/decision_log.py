@@ -33,6 +33,9 @@ class DecisionRecord:
     error_class: str
     rating: int | None
     created_at: datetime
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +51,9 @@ class DecisionRecord:
             "error_class": self.error_class,
             "rating": self.rating,
             "created_at": self.created_at.isoformat(),
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "cached_tokens": self.cached_tokens,
         }
 
 
@@ -55,8 +61,20 @@ class DecisionLog:
     """SQLite persistence for decision_log + tool_stats aggregation."""
 
     def __init__(self, db_path: str | Path | None = None):
-        config = get_config()
-        self._db_path = Path(db_path or config.memory_sqlite_path)
+        if db_path is not None:
+            self._db_path = Path(db_path)
+        else:
+            config = get_config()
+            # Prefer the new dotkey lookup; fall back to legacy attr when
+            # FsarConfig hasn't been rehydrated yet.
+            try:
+                resolved = config.get("memory.sqlite_path") if hasattr(config, "get") else None
+            except Exception:
+                resolved = None
+            if resolved:
+                self._db_path = Path(resolved)
+            else:
+                self._db_path = Path(getattr(config, "memory_sqlite_path", "data/memory.db"))
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -75,9 +93,23 @@ class DecisionLog:
                     success INTEGER NOT NULL DEFAULT 1,
                     error_class TEXT NOT NULL DEFAULT '',
                     rating INTEGER,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    cached_tokens INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(decision_log)").fetchall()}
+            for ddl, name in [
+                ("ALTER TABLE decision_log ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0", "prompt_tokens"),
+                ("ALTER TABLE decision_log ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0", "completion_tokens"),
+                ("ALTER TABLE decision_log ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0", "cached_tokens"),
+            ]:
+                if name not in existing:
+                    try:
+                        conn.execute(ddl)
+                    except Exception:
+                        pass
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_decision_task "
                 "ON decision_log(task_id)"
@@ -89,6 +121,10 @@ class DecisionLog:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_decision_created "
                 "ON decision_log(created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_provider_created "
+                "ON decision_log(chosen_tool, created_at)"
             )
             conn.execute("""
                 CREATE VIEW IF NOT EXISTS tool_stats AS
@@ -117,7 +153,10 @@ class DecisionLog:
                chosen_tool: str, alternatives: list[str] | None = None,
                args_summary: str = "", latency_ms: int = 0,
                success: bool = True, error_class: str = "",
-               rating: int | None = None) -> int:
+               rating: int | None = None,
+               prompt_tokens: int = 0,
+               completion_tokens: int = 0,
+               cached_tokens: int = 0) -> int:
         """Insert one decision row. Returns new id."""
         now = datetime.now().isoformat()
         with self._connect() as conn:
@@ -125,13 +164,15 @@ class DecisionLog:
                 INSERT INTO decision_log (
                     task_id, session_id, step_no, chosen_tool,
                     alternatives, args_summary, latency_ms,
-                    success, error_class, rating, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    success, error_class, rating, created_at,
+                    prompt_tokens, completion_tokens, cached_tokens
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task_id, session_id, step_no, chosen_tool,
                 json.dumps(alternatives or [], ensure_ascii=False),
                 args_summary[:500], latency_ms,
                 1 if success else 0, error_class[:200], rating, now,
+                prompt_tokens, completion_tokens, cached_tokens,
             ))
             conn.commit()
             return cur.lastrowid
@@ -141,10 +182,39 @@ class DecisionLog:
             rows = conn.execute("""
                 SELECT id, task_id, session_id, step_no, chosen_tool,
                        alternatives, args_summary, latency_ms,
-                       success, error_class, rating, created_at
+                       success, error_class, rating, created_at,
+                       prompt_tokens, completion_tokens, cached_tokens
                 FROM decision_log WHERE task_id = ?
                 ORDER BY step_no ASC
             """, (task_id,)).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def get_token_totals(self) -> dict[str, int]:
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(prompt_tokens), 0),
+                       COALESCE(SUM(completion_tokens), 0),
+                       COALESCE(SUM(cached_tokens), 0),
+                       COUNT(*)
+                FROM decision_log
+            """).fetchone()
+        return {
+            "prompt_tokens": int(row[0] or 0),
+            "completion_tokens": int(row[1] or 0),
+            "cached_tokens": int(row[2] or 0),
+            "total_tokens": int((row[0] or 0) + (row[1] or 0)),
+            "rows": int(row[3] or 0),
+        }
+
+    def get_recent(self, limit: int = 20) -> list[DecisionRecord]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT id, task_id, session_id, step_no, chosen_tool,
+                       alternatives, args_summary, latency_ms,
+                       success, error_class, rating, created_at,
+                       prompt_tokens, completion_tokens, cached_tokens
+                FROM decision_log ORDER BY id DESC LIMIT ?
+            """, (limit,)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
     def get_stats(self, min_uses: int = 3) -> list[dict]:
@@ -191,6 +261,9 @@ class DecisionLog:
             error_class=row[9],
             rating=row[10],
             created_at=datetime.fromisoformat(row[11]),
+            prompt_tokens=row[12] if len(row) > 12 else 0,
+            completion_tokens=row[13] if len(row) > 13 else 0,
+            cached_tokens=row[14] if len(row) > 14 else 0,
         )
 
 
