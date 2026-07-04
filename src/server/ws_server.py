@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
+from src.server.handlers import insights as insights_handler
 from src.server.handlers import library as library_handler
 from src.server.handlers import memory as memory_handler
 from src.server.handlers import reflection as reflection_handler
@@ -48,6 +49,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await memory_handler.dispatch(ws, msg, _ctx):
         return
     if await library_handler.dispatch(ws, msg, _ctx):
+        return
+    if await insights_handler.dispatch(ws, msg, _ctx):
         return
     if await chat_handler.dispatch(ws, msg):
         return
