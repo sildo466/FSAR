@@ -11,12 +11,18 @@ import { Library } from "./pages/Library";
 import { Insights } from "./pages/Insights";
 import { Settings } from "./pages/Settings";
 import { Usage } from "./pages/Usage";
+import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
 
 export function App() {
   const init = useWS((s) => s.init);
   useEffect(() => {
     init();
   }, [init]);
+
+  useThemeApplication();
+  useMotionApplication();
+  useFontScaleApplication();
+
   return (
     <BrowserRouter>
       <div className="flex h-screen">

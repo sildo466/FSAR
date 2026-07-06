@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState, useEffect, useRef } from "react";
-import { ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown, Cpu, Sun, Moon, Monitor } from "lucide-react";
 import { useWS } from "../../stores/ws";
+import { useUI, type Theme } from "../../stores/ui";
 import { cn } from "../../lib/cn";
 
 interface Provider {
@@ -30,6 +31,8 @@ function activeProvider(providers: Provider[], id: string): Provider | null {
 export function Topbar() {
   const send = useWS((s) => s.send);
   const config = useWS((s) => s.config);
+  const theme = useUI((s) => s.theme);
+  const setTheme = useUI((s) => s.setTheme);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -56,11 +59,27 @@ export function Topbar() {
     setOpen(false);
   }
 
+  function cycle() {
+    const next: Theme = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+    setTheme(next);
+    send({ type: "style.set_theme", theme: next });
+  }
+
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
   const label = active?.label || active?.model || activeId || "(no provider)";
 
   return (
     <div className="h-12 border-b border-border bg-bg flex items-center px-6 justify-between">
-      <div className="text-[13px] text-text-muted font-mono">FSAR · local-first agent</div>
+      <div className="flex items-center gap-2">
+        <div className="text-[13px] text-text-muted font-mono">FSAR · local-first agent</div>
+        <button
+          onClick={cycle}
+          title={`Theme: ${theme}`}
+          className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-surface text-text-muted hover:text-text"
+        >
+          <ThemeIcon size={12} strokeWidth={1.5} />
+        </button>
+      </div>
       <div ref={ref} className="relative">
         <button
           onClick={() => setOpen((v) => !v)}
