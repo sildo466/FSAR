@@ -30,6 +30,36 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
             pass
         await ws.send_json({"type": "settings.changed", "patch": patch, "by": "user"})
         return True
+    if t == "style.patch":
+        patch = msg.get("patch") or {}
+        if not isinstance(patch, dict):
+            await ws.send_json({"type": "error", "code": "bad_patch", "recoverable": True})
+            return True
+        for key, value in patch.items():
+            if not isinstance(key, str) or not key:
+                continue
+            full = f"style.{key}" if not key.startswith("style.") else key
+            config.patch(full, value)
+        try:
+            config.save()
+        except Exception:
+            pass
+        style = config.get("style", {})
+        await ws.send_json({"type": "style.changed", "style": style})
+        return True
+    if t == "style.set_theme":
+        theme = msg.get("theme", "")
+        if theme not in {"light", "dark", "system"}:
+            await ws.send_json({"type": "error", "code": "bad_theme", "message": theme, "recoverable": True})
+            return True
+        config.patch("style.theme", theme)
+        try:
+            config.save()
+        except Exception:
+            pass
+        style = config.get("style", {})
+        await ws.send_json({"type": "style.changed", "style": style, "by": "theme"})
+        return True
     if t == "permissions.patch":
         patch = msg.get("patch") or {}
         if not isinstance(patch, dict):
