@@ -15,6 +15,7 @@ from src.server.handlers import library as library_handler
 from src.server.handlers import memory as memory_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
+from src.server.handlers import settings as settings_handler
 from src.server.handlers import usage as usage_handler
 from src.server.risk_bridge import RiskBridge
 
@@ -46,6 +47,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await risk_handler.dispatch(_bridge, ws, msg):
         return
     if await reflection_handler.dispatch(ws, msg, _config):
+        return
+    if await settings_handler.dispatch(ws, msg, _config):
         return
     if await memory_handler.dispatch(ws, msg, _ctx):
         return
