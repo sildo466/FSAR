@@ -46,5 +46,10 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
             "provider_id": provider_id,
             "model": active.get("model", ""),
         })
+        try:
+            from src.utils.llm_factory import reset_clients
+            reset_clients()
+        except Exception:
+            pass
         return True
     return False

@@ -901,5 +901,17 @@ def _rehydrate_response(stored: Any) -> Any:
 
 
 def reset_clients() -> None:
-    """Test hook: forget cached client instances."""
-    _CLIENTS.clear()
+    """Forget cached client instances across all provider families so a
+    provider switch rebuilds fresh clients on the next call."""
+    with _FACTORY_LOCK:
+        _CLIENTS.clear()
+    try:
+        with _GEMINI_LOCK:
+            _GEMINI_CLIENTS.clear()
+    except NameError:
+        pass
+    try:
+        with _ANTHROPIC_LOCK:
+            _ANTHROPIC_CLIENTS.clear()
+    except NameError:
+        pass
