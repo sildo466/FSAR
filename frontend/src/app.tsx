@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useWS } from "./stores/ws";
 import { Sidebar } from "./components/shell/Sidebar";
+import { Topbar } from "./components/shell/Topbar";
 import { Chat } from "./pages/Chat";
 import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
@@ -20,6 +21,8 @@ export function App() {
     <BrowserRouter>
       <div className="flex h-screen">
         <Sidebar />
+        <div className="flex-1 flex flex-col">
+        <Topbar />
         <main className="flex-1 overflow-auto">
           <Routes>
             <Route path="/" element={<Chat />} />
@@ -31,6 +34,7 @@ export function App() {
             <Route path="/usage" element={<Usage />} />
           </Routes>
         </main>
+        </div>
       </div>
     </BrowserRouter>
   );
