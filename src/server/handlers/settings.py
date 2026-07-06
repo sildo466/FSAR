@@ -30,6 +30,21 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
             pass
         await ws.send_json({"type": "settings.changed", "patch": patch, "by": "user"})
         return True
+    if t == "permissions.patch":
+        patch = msg.get("patch") or {}
+        if not isinstance(patch, dict):
+            await ws.send_json({"type": "error", "code": "bad_patch", "recoverable": True})
+            return True
+        for key, value in patch.items():
+            if not isinstance(key, str) or not key:
+                continue
+            config.patch(key, value)
+        try:
+            config.save()
+        except Exception:
+            pass
+        await ws.send_json({"type": "settings.changed", "patch": patch, "by": "permissions"})
+        return True
     if t == "llm.set_active":
         provider_id = msg.get("provider_id", "")
         if not provider_id:
