@@ -18,6 +18,12 @@ export type ClientMsg =
   | { type: "insights.get" }
   | { type: "usage.range"; from: string; to: string }
   | { type: "llm.set_active"; provider_id: string }
+  | { type: "permissions.patch"; patch: Record<string, unknown> }
+  | { type: "style.patch"; patch: Record<string, unknown> }
+  | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
+  | { type: "mcp.list" }
+  | { type: "mcp.reload" }
+  | { type: "mcp.toggle"; server_name: string; enabled: boolean }
   | { type: "mcp.reload"; server_name?: string }
   | { type: "heartbeat" };
 
@@ -38,6 +44,8 @@ export type ServerMsg =
   | { type: "insights.snapshot"; kpis: Record<string, number>; tool_stats: Array<Record<string, unknown>>; active_strategies_markdown: string; recent_decisions: Array<Record<string, unknown>> }
   | { type: "usage.snapshot"; kpis: Record<string, number>; timeline: unknown[]; per_provider: unknown[]; per_tool: unknown[]; cache: Record<string, unknown> }
   | { type: "llm.provider_changed"; provider_id: string; model: string }
+  | { type: "mcp.status"; servers: Array<{ name: string; command: string; args: string[]; enabled: boolean; risk: string; running: boolean }> }
+  | { type: "style.changed"; style: Record<string, unknown>; by?: string }
   | { type: "mcp.status"; servers: Array<{ name: string; enabled: boolean; running: boolean; tools: number }> }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };

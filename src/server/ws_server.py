@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from src.utils.fsar_config import FsarConfig
@@ -30,6 +31,11 @@ chat_handler.set_bridge(_bridge)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/fsar_yaml")
+async def fsar_yaml() -> dict[str, str]:
+    return {"yaml": yaml.safe_dump(_config._settings, allow_unicode=True, sort_keys=False)}
 
 
 @app.websocket("/ws")

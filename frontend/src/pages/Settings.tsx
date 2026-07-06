@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Cpu, Plug, Shield, Palette, Wrench } from "lucide-react";
+import { Plus, Cpu, Plug, Shield, Palette, Wrench } from "lucide-react";
 import { useWS } from "../stores/ws";
 import { ProviderModal } from "../components/settings/ProviderModal";
+import { MCPTab } from "../components/settings/MCPTab";
+import { PermissionsTab } from "../components/settings/PermissionsTab";
+import { StyleTab } from "../components/settings/StyleTab";
+import { AdvancedTab } from "../components/settings/AdvancedTab";
 import { cn } from "../lib/cn";
 
 interface Provider {
@@ -35,6 +39,108 @@ function readProviders(config: Record<string, unknown> | null): Provider[] {
 function readActiveId(config: Record<string, unknown> | null): string {
   const llm = (config?.llm ?? {}) as Record<string, unknown>;
   return String(llm.active ?? "");
+}
+
+function ModelsTab({
+  providers,
+  activeId,
+  onAdd,
+  onEdit,
+  onRemove,
+  onSetActive,
+}: {
+  providers: Provider[];
+  activeId: string;
+  onAdd: () => void;
+  onEdit: (p: Provider) => void;
+  onRemove: (id: string) => void;
+  onSetActive: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-sm font-semibold">LLM providers</h2>
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-1 h-7 px-2 border border-border rounded text-[12px] hover:bg-surface"
+        >
+          <Plus size={12} strokeWidth={1.5} /> Add provider
+        </button>
+      </div>
+
+      {providers.length === 0 ? (
+        <div className="border border-border rounded p-6 text-[12px] text-text-muted text-center">
+          No providers configured. Click "Add provider" to set one up,
+          or copy <code className="font-mono">config/fsar.yaml.template</code>{" "}
+          to <code className="font-mono">config/fsar.yaml</code> and edit.
+        </div>
+      ) : (
+        <div className="border border-border rounded overflow-hidden">
+          <table className="w-full text-[12px]">
+            <thead className="bg-bg text-text-muted font-mono text-[10px] uppercase tracking-[0.1em]">
+              <tr>
+                <th className="text-left px-3 py-2">Label</th>
+                <th className="text-left px-3 py-2">Family</th>
+                <th className="text-left px-3 py-2">Model</th>
+                <th className="text-right px-3 py-2">Pricing (in/out)</th>
+                <th className="text-center px-3 py-2">Active</th>
+                <th className="text-right px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {providers.map((p) => (
+                <tr key={p.id} className="border-t border-border">
+                  <td className="px-3 py-2 font-mono">
+                    <div className="flex flex-col">
+                      <span>{p.label || p.id}</span>
+                      <span className="text-text-muted text-[10px]">{p.id}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 font-mono">{p.provider_family || "—"}</td>
+                  <td className="px-3 py-2 font-mono">{p.model || "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-text-muted">
+                    {p.pricing?.input_per_1k ?? 0} / {p.pricing?.output_per_1k ?? 0}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    {p.id === activeId ? (
+                      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-success">● active</span>
+                    ) : p.enabled === false ? (
+                      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-muted">disabled</span>
+                    ) : (
+                      <button
+                        onClick={() => onSetActive(p.id)}
+                        className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-muted hover:text-text underline"
+                      >
+                        set default
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        onClick={() => onEdit(p)}
+                        className="h-6 w-6 flex items-center justify-center hover:bg-surface rounded"
+                        title="Edit"
+                      >
+                        <span className="text-[11px]">edit</span>
+                      </button>
+                      <button
+                        onClick={() => onRemove(p.id)}
+                        className="h-6 px-2 flex items-center justify-center hover:bg-surface rounded text-warning text-[11px]"
+                        title="Delete"
+                      >
+                        del
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
 }
 
 export function Settings() {
@@ -95,99 +201,19 @@ export function Settings() {
 
         <section className="flex flex-col gap-4">
           {tab === "models" && (
-            <>
-              <div className="flex items-center justify-between">
-                <h2 className="font-display text-sm font-semibold">LLM providers</h2>
-                <button
-                  onClick={openAdd}
-                  className="flex items-center gap-1 h-7 px-2 border border-border rounded text-[12px] hover:bg-surface"
-                >
-                  <Plus size={12} strokeWidth={1.5} /> Add provider
-                </button>
-              </div>
-
-              {providers.length === 0 ? (
-                <div className="border border-border rounded p-6 text-[12px] text-text-muted text-center">
-                  No providers configured. Click "Add provider" to set one up,
-                  or copy <code className="font-mono">config/fsar.yaml.template</code>{" "}
-                  to <code className="font-mono">config/fsar.yaml</code> and edit.
-                </div>
-              ) : (
-                <div className="border border-border rounded overflow-hidden">
-                  <table className="w-full text-[12px]">
-                    <thead className="bg-bg text-text-muted font-mono text-[10px] uppercase tracking-[0.1em]">
-                      <tr>
-                        <th className="text-left px-3 py-2">Label</th>
-                        <th className="text-left px-3 py-2">Family</th>
-                        <th className="text-left px-3 py-2">Model</th>
-                        <th className="text-right px-3 py-2">Pricing (in/out)</th>
-                        <th className="text-center px-3 py-2">Active</th>
-                        <th className="text-right px-3 py-2">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {providers.map((p) => (
-                        <tr key={p.id} className="border-t border-border">
-                          <td className="px-3 py-2 font-mono">
-                            <div className="flex flex-col">
-                              <span>{p.label || p.id}</span>
-                              <span className="text-text-muted text-[10px]">{p.id}</span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 font-mono">{p.provider_family || "—"}</td>
-                          <td className="px-3 py-2 font-mono">{p.model || "—"}</td>
-                          <td className="px-3 py-2 text-right font-mono text-text-muted">
-                            {p.pricing?.input_per_1k ?? 0} / {p.pricing?.output_per_1k ?? 0}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {p.id === activeId ? (
-                              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-success">● active</span>
-                            ) : p.enabled === false ? (
-                              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-muted">disabled</span>
-                            ) : (
-                              <button
-                                onClick={() => setActive(p.id)}
-                                className="font-mono text-[10px] uppercase tracking-[0.1em] text-text-muted hover:text-text underline"
-                              >
-                                set default
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                onClick={() => openEdit(p)}
-                                className="h-6 w-6 flex items-center justify-center hover:bg-surface rounded"
-                                title="Edit"
-                              >
-                                <Pencil size={12} strokeWidth={1.5} />
-                              </button>
-                              <button
-                                onClick={() => removeProvider(p.id)}
-                                className="h-6 w-6 flex items-center justify-center hover:bg-surface rounded text-warning"
-                                title="Delete"
-                              >
-                                <Trash2 size={12} strokeWidth={1.5} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
+            <ModelsTab
+              providers={providers}
+              activeId={activeId}
+              onAdd={openAdd}
+              onEdit={openEdit}
+              onRemove={removeProvider}
+              onSetActive={setActive}
+            />
           )}
-
-          {tab !== "models" && (
-            <div className="border border-border rounded p-8 text-[12px] text-text-muted text-center">
-              <div className="font-display text-sm mb-1 text-text">
-                {TABS.find((tb) => tb.id === tab)?.label}
-              </div>
-              Wired up in P7.9 / P7.10.
-            </div>
-          )}
+          {tab === "mcp" && <MCPTab />}
+          {tab === "permissions" && <PermissionsTab />}
+          {tab === "style" && <StyleTab />}
+          {tab === "advanced" && <AdvancedTab />}
         </section>
       </div>
 
@@ -196,9 +222,7 @@ export function Settings() {
         initial={editing}
         existingIds={ids}
         onClose={() => setModalOpen(false)}
-        onSaved={() => {
-          /* settings.changed broadcast refreshes ws.config */
-        }}
+        onSaved={() => {}}
       />
     </div>
   );
