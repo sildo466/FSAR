@@ -14,12 +14,12 @@ const TOOL_NAMES = [
   "wechat_send", "remember_fact", "learn_experience",
 ];
 
-function getTools(config: Record<string, unknown> | null): PermissionsConfig["tools"] {
-  return ((config?.permissions ?? {}) as Record<string, unknown>).tools as PermissionsConfig["tools"] ?? {};
+function getTools(config: Record<string, unknown> | null): NonNullable<PermissionsConfig["tools"]> {
+  return (((config?.permissions ?? {}) as Record<string, unknown>).tools as PermissionsConfig["tools"]) ?? {};
 }
 
-function getRules(config: Record<string, unknown> | null): PermissionsConfig["path_rules"] {
-  return ((config?.permissions ?? {}) as Record<string, unknown>).path_rules as PermissionsConfig["path_rules"] ?? [];
+function getRules(config: Record<string, unknown> | null): NonNullable<PermissionsConfig["path_rules"]> {
+  return (((config?.permissions ?? {}) as Record<string, unknown>).path_rules as PermissionsConfig["path_rules"]) ?? [];
 }
 
 function getMode(config: Record<string, unknown> | null): string {

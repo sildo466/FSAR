@@ -10,6 +10,9 @@ export type ClientMsg =
   | { type: "settings.patch"; patch: Record<string, unknown> }
   | { type: "memory.search"; query: string }
   | { type: "memory.remember"; body: string }
+  | { type: "memory.sessions"; limit?: number }
+  | { type: "memory.transcript"; session_id: string }
+  | { type: "memory.facts" }
   | { type: "library.list" }
   | { type: "library.create"; name: string; category: string; description?: string; body: string; created_by?: string }
   | { type: "library.update"; name: string; category?: string; description?: string; body?: string }
@@ -22,9 +25,8 @@ export type ClientMsg =
   | { type: "style.patch"; patch: Record<string, unknown> }
   | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
   | { type: "mcp.list" }
-  | { type: "mcp.reload" }
-  | { type: "mcp.toggle"; server_name: string; enabled: boolean }
   | { type: "mcp.reload"; server_name?: string }
+  | { type: "mcp.toggle"; server_name: string; enabled: boolean }
   | { type: "heartbeat" };
 
 export type ServerMsg =
@@ -40,13 +42,15 @@ export type ServerMsg =
   | { type: "settings.changed"; patch: Record<string, unknown> }
   | { type: "library.changed"; op: string; name: string }
   | { type: "memory.search_results"; query: string; results: Array<{ session_id: string; snippet: string; score: number }> }
+  | { type: "memory.sessions_result"; sessions: Array<{ session_id: string; count: number; first_ts: string; last_ts: string }> }
+  | { type: "memory.transcript_result"; session_id: string; messages: Array<{ role: string; content: string; timestamp: string }> }
+  | { type: "memory.facts_result"; facts: Array<{ id: number; source: string; title: string; body: string; created_at: string }> }
   | { type: "library.list_result"; experiences: Array<Record<string, unknown>> }
   | { type: "insights.snapshot"; kpis: Record<string, number>; tool_stats: Array<Record<string, unknown>>; active_strategies_markdown: string; recent_decisions: Array<Record<string, unknown>> }
   | { type: "usage.snapshot"; kpis: Record<string, number>; timeline: unknown[]; per_provider: unknown[]; per_tool: unknown[]; cache: Record<string, unknown> }
   | { type: "llm.provider_changed"; provider_id: string; model: string }
   | { type: "mcp.status"; servers: Array<{ name: string; command: string; args: string[]; enabled: boolean; risk: string; running: boolean }> }
   | { type: "style.changed"; style: Record<string, unknown>; by?: string }
-  | { type: "mcp.status"; servers: Array<{ name: string; enabled: boolean; running: boolean; tools: number }> }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };
 

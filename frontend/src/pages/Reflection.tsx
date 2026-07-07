@@ -48,6 +48,10 @@ export function Reflection() {
   const triggers = reflection.triggers ?? {};
   const idle = triggers.idle_batch ?? {};
 
+  const patchTrigger = (key: string, value: unknown) => {
+    send({ type: "settings.patch", patch: { [`reflection.triggers.${key}`]: value } });
+  };
+
   const parts: string[] = [];
   if (triggers.per_task) parts.push("per-task");
   if (triggers.on_failure) parts.push("on-failure");
@@ -81,32 +85,32 @@ export function Reflection() {
           label="Per-task"
           description="every task end"
           enabled={!!triggers.per_task}
-          onToggle={() => {}}
+          onToggle={() => patchTrigger("per_task", !triggers.per_task)}
         />
         <ModeToggle
           label="On-failure"
           description="failed / timed-out / low-score"
           enabled={!!triggers.on_failure}
-          onToggle={() => {}}
+          onToggle={() => patchTrigger("on_failure", !triggers.on_failure)}
         />
         <ModeToggle
           label="Idle-batch"
           description="accumulate, reflect periodically"
           enabled={!!idle.enabled}
-          onToggle={() => {}}
+          onToggle={() => patchTrigger("idle_batch.enabled", !idle.enabled)}
         >
           <div className="flex">
             <ThresholdInput
               label="trigger when"
               value={idle.threshold_events ?? 20}
               unit="events"
-              onChange={() => {}}
+              onChange={(v) => patchTrigger("idle_batch.threshold_events", v)}
             />
             <ThresholdInput
               label="or"
               value={idle.threshold_hours ?? 12}
               unit="hours"
-              onChange={() => {}}
+              onChange={(v) => patchTrigger("idle_batch.threshold_hours", v)}
             />
           </div>
         </ModeToggle>

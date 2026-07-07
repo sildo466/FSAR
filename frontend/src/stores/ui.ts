@@ -40,7 +40,7 @@ export const useUI = create<UIState>((set) => ({
       const next = { ...s.perPageOverrides };
       const inner = { ...(next[page] || {}) };
       if (value === null) delete inner[key];
-      else inner[key] = value;
+      else (inner as Record<string, Theme | Density | Motion>)[key] = value;
       if (Object.keys(inner).length === 0) delete next[page];
       else next[page] = inner;
       return { perPageOverrides: next };

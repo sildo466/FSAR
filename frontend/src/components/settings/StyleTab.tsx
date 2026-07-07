@@ -140,7 +140,7 @@ export function StyleTab() {
                 <input
                   value={v ?? ""}
                   onChange={(e) => {
-                    const val = e.target.value || null;
+                    const val = (e.target.value || null) as Parameters<typeof setOverrideStore>[2];
                     setOverrideStore(overridePage, key, val);
                   }}
                   placeholder={`override ${key}`}

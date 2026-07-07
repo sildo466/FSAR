@@ -8,6 +8,26 @@ interface SearchResult {
   score: number;
 }
 
+interface SessionRow {
+  session_id: string;
+  count: number;
+  first_ts: string;
+  last_ts: string;
+}
+
+interface FactRow {
+  id: number;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
+interface TranscriptMsg {
+  role: string;
+  content: string;
+  timestamp: string;
+}
+
 export function Memory() {
   const config = useWS((s) => s.config);
   const send = useWS((s) => s.send);
@@ -15,19 +35,38 @@ export function Memory() {
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [facts, setFacts] = useState<FactRow[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptMsg[] | null>(null);
   const [rememberOpen, setRememberOpen] = useState(false);
   const [rememberText, setRememberText] = useState("");
   const [modalSession, setModalSession] = useState<string | null>(null);
 
   useEffect(() => {
-    return client?.on((msg) => {
+    if (!client) return;
+    const off = client.on((msg) => {
       if (msg.type === "memory.search_results") {
         if (msg.query === query) {
           setResults(msg.results);
         }
+      } else if (msg.type === "memory.sessions_result") {
+        setSessions(msg.sessions);
+      } else if (msg.type === "memory.facts_result") {
+        setFacts(msg.facts);
+      } else if (msg.type === "memory.transcript_result") {
+        setTranscript(msg.messages);
       }
     });
-  }, [client, query]);
+    send({ type: "memory.sessions" });
+    send({ type: "memory.facts" });
+    return off;
+  }, [client, query, send]);
+
+  const openSession = (sid: string) => {
+    setTranscript(null);
+    setModalSession(sid);
+    send({ type: "memory.transcript", session_id: sid });
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +138,7 @@ export function Memory() {
                     </span>
                     {r.session_id && (
                       <button
-                        onClick={() => setModalSession(r.session_id)}
+                        onClick={() => openSession(r.session_id)}
                         className="font-mono text-xs text-text underline hover:opacity-80"
                       >
                         {r.session_id.slice(0, 16)}
@@ -133,9 +172,28 @@ export function Memory() {
 
           <section>
             <div className="font-display text-[10px] font-bold uppercase tracking-[0.1em] text-text-muted mb-3">
-              Sessions
+              Sessions · {sessions.length}
             </div>
-            <p className="text-text-muted text-sm">No sessions yet.</p>
+            {sessions.length === 0 ? (
+              <p className="text-text-muted text-sm">No sessions yet.</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-border">
+                {sessions.map((s) => (
+                  <li key={s.session_id} className="py-2 flex items-center gap-3">
+                    <button
+                      onClick={() => openSession(s.session_id)}
+                      className="font-mono text-xs text-text underline hover:opacity-80"
+                    >
+                      {s.session_id.slice(0, 16)}
+                    </button>
+                    <span className="text-text-muted text-xs">{s.count} msgs</span>
+                    <span className="text-text-muted text-xs ml-auto font-mono">
+                      {String(s.last_ts).slice(0, 16)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section>
@@ -178,7 +236,18 @@ export function Memory() {
                 </div>
               </div>
             )}
-            <p className="text-text-muted text-sm">No facts yet.</p>
+            {facts.length === 0 ? (
+              <p className="text-text-muted text-sm">No facts yet.</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-border">
+                {facts.map((f) => (
+                  <li key={f.id} className="py-2">
+                    <div className="text-[13px] font-medium">{f.title}</div>
+                    <div className="text-text-muted text-xs">{f.body.slice(0, 160)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </>
       )}
@@ -202,7 +271,27 @@ export function Memory() {
                 Close
               </button>
             </div>
-            <p className="text-text-muted text-sm">Transcript not yet loaded.</p>
+            {transcript === null ? (
+              <p className="text-text-muted text-sm">Loading transcript…</p>
+            ) : transcript.length === 0 ? (
+              <p className="text-text-muted text-sm">Empty session.</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {transcript.map((m, i) => (
+                  <li key={i} className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-display text-[10px] font-bold uppercase tracking-[0.1em] text-text-muted">
+                        {m.role}
+                      </span>
+                      <span className="font-mono text-[11px] text-text-muted">
+                        {m.timestamp.slice(0, 16)}
+                      </span>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">{m.content}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </dialog>
         </div>
       )}

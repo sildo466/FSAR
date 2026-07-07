@@ -18,6 +18,8 @@ const nextId = () => `m_${++id}`;
 export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<"agent" | "companion">("agent");
+  const [busy, setBusy] = useState(false);
   const [pendingRisks, setPendingRisks] = useState<PendingRisk[]>([]);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverFilter, setPopoverFilter] = useState("");
@@ -31,6 +33,7 @@ export function Chat() {
     if (!client) return;
     return client.on((msg) => {
       if (msg.type === "chat.thinking") {
+        setBusy(true);
         setMessages((prev) => [
           ...prev,
           { id: msg.message_id, role: "assistant", content: "", thinking: true },
@@ -44,22 +47,65 @@ export function Chat() {
           )
         );
       } else if (msg.type === "chat.done") {
+        setBusy(false);
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.message_id ? { ...m, thinking: false } : m))
         );
       } else if (msg.type === "chat.tool_call") {
-        setPendingRisks((prev) => [
-          ...prev,
-          {
-            callId: msg.call_id,
-            tool: msg.tool,
-            argsPreview:
-              typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2),
-            risk: msg.risk,
-          },
-        ]);
+        const argsPreview =
+          typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msg.message_id
+              ? {
+                  ...m,
+                  tools: [
+                    ...(m.tools ?? []),
+                    { callId: msg.call_id, tool: msg.tool, argsPreview },
+                  ],
+                }
+              : m
+          )
+        );
+        if (msg.risk !== "SAFE") {
+          setPendingRisks((prev) => [
+            ...prev,
+            { callId: msg.call_id, tool: msg.tool, argsPreview, risk: msg.risk },
+          ]);
+        }
       } else if (msg.type === "chat.tool_result") {
         setPendingRisks((prev) => prev.filter((r) => r.callId !== msg.call_id));
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.tools?.some((t) => t.callId === msg.call_id)
+              ? {
+                  ...m,
+                  tools: m.tools!.map((t) =>
+                    t.callId === msg.call_id
+                      ? {
+                          ...t,
+                          result:
+                            typeof msg.result === "string"
+                              ? msg.result
+                              : JSON.stringify(msg.result),
+                          latencyMs: msg.latency_ms,
+                        }
+                      : t
+                  ),
+                }
+              : m
+          )
+        );
+      } else if (msg.type === "error") {
+        setBusy(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: "assistant",
+            content: `⚠ ${msg.code}: ${msg.message}`,
+          },
+        ]);
       }
     });
   }, [client, init]);
@@ -112,7 +158,11 @@ export function Chat() {
     setInput("");
     setPopoverOpen(false);
     setMessages((prev) => [...prev, { id: nextId(), role: "user", content: text }]);
-    send({ type: "chat.send", content: text, mode: "agent" });
+    send({ type: "chat.send", content: text, mode });
+  };
+
+  const handleCancel = () => {
+    send({ type: "chat.cancel" });
   };
 
   const onRiskRespond = (callId: string, response: "y" | "n" | "all" | "never") => {
@@ -159,6 +209,19 @@ export function Chat() {
             />
           )}
           <div className="flex gap-3 items-center">
+            <div className="flex rounded border border-border overflow-hidden shrink-0">
+              {(["agent", "companion"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 h-9 text-[11px] font-display font-semibold uppercase tracking-[0.08em] ${
+                    mode === m ? "bg-text text-surface" : "text-text-muted hover:text-text"
+                  }`}
+                >
+                  {m === "agent" ? t.modeAgent : t.modeCompanion}
+                </button>
+              ))}
+            </div>
             <input
               value={input}
               onChange={(e) => handleInputChange(e.target.value)}
@@ -166,12 +229,21 @@ export function Chat() {
               placeholder={t.placeholderInput}
               className="flex-1 bg-transparent border-none outline-none text-text placeholder:text-text-muted"
             />
-            <button
-              onClick={handleSend}
-              className="px-4 h-9 rounded border border-border-strong text-text hover:bg-bg"
-            >
-              ↵
-            </button>
+            {busy ? (
+              <button
+                onClick={handleCancel}
+                className="px-4 h-9 rounded border border-border text-text-muted hover:text-text hover:bg-bg"
+              >
+                {t.chatStop}
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                className="px-4 h-9 rounded border border-border-strong text-text hover:bg-bg"
+              >
+                ↵
+              </button>
+            )}
           </div>
         </div>
       </div>

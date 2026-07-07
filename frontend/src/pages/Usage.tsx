@@ -20,6 +20,21 @@ interface ToolRow {
   avg_latency_ms: number;
 }
 
+interface TimelineDay {
+  date: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+}
+
+interface ProviderRow {
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+}
+
 interface UsageSnapshot {
   kpis: {
     total_tokens: number;
@@ -28,12 +43,13 @@ interface UsageSnapshot {
     cached_tokens: number;
     cache_hit_pct: number;
     estimated_cost_usd: number;
+    forecast_monthly_usd: number;
     decision_rows: number;
     from: string;
     to: string;
   };
-  timeline: unknown[];
-  per_provider: unknown[];
+  timeline: TimelineDay[];
+  per_provider: ProviderRow[];
   per_tool: ToolRow[];
   cache: CacheStats;
 }
@@ -52,8 +68,8 @@ export function Usage() {
       if (msg.type === "usage.snapshot") {
         setData({
           kpis: msg.kpis as unknown as UsageSnapshot["kpis"],
-          timeline: msg.timeline,
-          per_provider: msg.per_provider,
+          timeline: msg.timeline as unknown as TimelineDay[],
+          per_provider: msg.per_provider as unknown as ProviderRow[],
           per_tool: msg.per_tool as unknown as ToolRow[],
           cache: msg.cache as unknown as CacheStats,
         });
@@ -64,6 +80,12 @@ export function Usage() {
   const k = data?.kpis;
   const cache = data?.cache;
   const tools = data?.per_tool ?? [];
+  const timeline = data?.timeline ?? [];
+  const providers = data?.per_provider ?? [];
+  const maxDay = Math.max(
+    1,
+    ...timeline.map((d) => d.prompt_tokens + d.completion_tokens),
+  );
 
   return (
     <div className="max-w-[960px] mx-auto px-8 py-10 flex flex-col gap-10">
@@ -88,6 +110,69 @@ export function Usage() {
           label="Decision rows"
           value={k ? k.decision_rows.toLocaleString() : "—"}
         />
+      </section>
+
+      <section>
+        <SectionTitle>Daily tokens</SectionTitle>
+        {timeline.length === 0 ? (
+          <p className="text-text-muted text-sm">No usage in range.</p>
+        ) : (
+          <div className="border border-border rounded p-4 flex flex-col gap-2">
+            {timeline.slice(-14).map((d) => {
+              const total = d.prompt_tokens + d.completion_tokens;
+              return (
+                <div key={d.date} className="flex items-center gap-3 text-[12px]">
+                  <span className="font-mono text-text-muted w-20 shrink-0">{d.date}</span>
+                  <div className="flex-1 h-2 bg-bg border border-border rounded overflow-hidden">
+                    <div
+                      className="h-full bg-text"
+                      style={{ width: `${(total / maxDay) * 100}%` }}
+                    />
+                  </div>
+                  <span className="font-mono w-24 text-right">{total.toLocaleString()}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <SectionTitle>Per provider</SectionTitle>
+        {providers.length === 0 ? (
+          <p className="text-text-muted text-sm">No provider usage yet.</p>
+        ) : (
+          <div className="border border-border rounded overflow-hidden">
+            <table className="w-full text-[13px]">
+              <thead className="bg-bg text-text-muted font-mono text-[11px] uppercase tracking-[0.08em]">
+                <tr>
+                  <th className="text-left px-3 py-2">Provider</th>
+                  <th className="text-left px-3 py-2">Model</th>
+                  <th className="text-right px-3 py-2">Prompt</th>
+                  <th className="text-right px-3 py-2">Completion</th>
+                  <th className="text-right px-3 py-2">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {providers.map((p) => (
+                  <tr key={p.provider} className="border-t border-border">
+                    <td className="px-3 py-2 font-mono">{p.provider}</td>
+                    <td className="px-3 py-2 font-mono">{p.model}</td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {p.prompt_tokens.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {p.completion_tokens.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      ${p.cost_usd.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section>
@@ -147,12 +232,21 @@ export function Usage() {
       <section>
         <SectionTitle>Cost forecast</SectionTitle>
         <div className="border border-border rounded p-4">
-          <p className="text-[13px] text-text-muted">
-            Forecast activates once at least one active LLM provider has its
-            <code className="font-mono px-1">input_per_1k</code>/
-            <code className="font-mono px-1">output_per_1k</code> rates
-            configured and the GUI is wired to the live LLM (P7.11).
-          </p>
+          {k && k.forecast_monthly_usd > 0 ? (
+            <p className="text-[13px]">
+              Projected monthly cost (7-day average):{" "}
+              <span className="font-display font-semibold">
+                ${k.forecast_monthly_usd.toFixed(4)}
+              </span>
+            </p>
+          ) : (
+            <p className="text-[13px] text-text-muted">
+              Forecast activates once the active LLM provider has its
+              <code className="font-mono px-1">input_per_1k</code>/
+              <code className="font-mono px-1">output_per_1k</code> rates
+              configured and usage has been recorded.
+            </p>
+          )}
         </div>
       </section>
     </div>

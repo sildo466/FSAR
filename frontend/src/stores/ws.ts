@@ -14,6 +14,23 @@ interface WSStore {
 
 const wsUrl = `ws://${window.location.hostname || "127.0.0.1"}:8765/ws`;
 
+function applyDotPatch(
+  config: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = structuredClone(config);
+  for (const [key, value] of Object.entries(patch)) {
+    const parts = key.split(".");
+    let cur: Record<string, unknown> = next;
+    for (const p of parts.slice(0, -1)) {
+      if (typeof cur[p] !== "object" || cur[p] === null) cur[p] = {};
+      cur = cur[p] as Record<string, unknown>;
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+  return next;
+}
+
 export const useWS = create<WSStore>((set, get) => ({
   status: "connecting",
   config: null,
@@ -27,7 +44,7 @@ export const useWS = create<WSStore>((set, get) => ({
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {
-        set({ config: { ...get().config, ...msg.patch } });
+        set({ config: applyDotPatch(get().config ?? {}, msg.patch) });
       } else if (msg.type === "llm.provider_changed") {
         const current = (get().config ?? {}) as Record<string, unknown>;
         const llm = (current.llm ?? {}) as Record<string, unknown>;
