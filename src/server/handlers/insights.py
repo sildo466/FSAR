@@ -44,9 +44,9 @@ def _build_snapshot(db_path: Path) -> dict[str, Any]:
 
     md_lines: list[str] = ["## Active Strategies", ""]
     try:
-        from src.memory.reflection import TaskReflectionStore
+        from src.memory.reflection import ReflectionStore
 
-        store = TaskReflectionStore(db_path=db_path)
+        store = ReflectionStore(db_path=db_path)
         recent_refl = store.list_recent(limit=8)
         if recent_refl:
             for r in recent_refl:

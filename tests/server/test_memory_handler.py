@@ -28,10 +28,12 @@ def test_memory_remember_persists_chunk(tmp_ctx):
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         ws.send_json({"type": "memory.remember", "body": "user prefers tea"})
+        m = ws.receive_json()
+        assert m["type"] == "memory.facts_result"
         time.sleep(0.1)
     from src.memory.experience_store import ExperienceStore
     store = ExperienceStore(tmp_ctx[0]["db_path"])
-    chunks = store.list_chunks(source="memory", limit=10)
+    chunks = store.list_chunks(source="user_fact", limit=10)
     assert any("tea" in c.body for c in chunks)
 
 

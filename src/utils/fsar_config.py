@@ -64,6 +64,54 @@ class FsarConfig:
                 cur = cur.setdefault(part, {})
             cur[parts[-1]] = value
 
+    @property
+    def llm_cache_enabled(self) -> bool:
+        return bool(self.get("llm_cache.enabled", True))
+
+    @property
+    def llm_cache_db_path(self) -> str:
+        return str(self.get("llm_cache.db_path", "data/llm_cache.db"))
+
+    @property
+    def llm_cache_retention(self) -> str:
+        return str(self.get("llm_cache.retention", "short"))
+
+    @property
+    def llm_cache_session_id(self) -> str:
+        return str(self.get("llm_cache.session_id", "") or "")
+
+    @property
+    def llm_cache_use_responses_api(self) -> bool:
+        return bool(self.get("llm_cache.use_responses_api", True))
+
+    @property
+    def llm_cache_l1_max_entries(self) -> int:
+        return int(self.get("llm_cache.l1_max_entries", 256))
+
+    @property
+    def llm_cache_l1_ttl_seconds(self) -> int:
+        return int(self.get("llm_cache.l1_ttl_seconds", 300))
+
+    @property
+    def llm_cache_l2_ttl_seconds(self) -> int:
+        return int(self.get("llm_cache.l2_ttl_seconds", 86400))
+
+    @property
+    def llm_cache_skip_vision(self) -> bool:
+        return bool(self.get("llm_cache.skip_vision", True))
+
+    @property
+    def reflection_intensity(self) -> str:
+        return str(self.get("reflection.intensity", "medium"))
+
+    @property
+    def memory_sqlite_path(self) -> str:
+        return str(self.get("memory.sqlite_path", "data/memory.db"))
+
+    @property
+    def short_term_window(self) -> int:
+        return int(self.get("memory.short_term_window", 50))
+
     def list_providers(self, *, enabled_only: bool = False) -> list[dict]:
         with self._lock:
             providers = list(self._settings.get("llm", {}).get("providers", []))

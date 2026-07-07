@@ -21,11 +21,25 @@ from src.server.handlers import settings as settings_handler
 from src.server.handlers import usage as usage_handler
 from src.server.risk_bridge import RiskBridge
 
+from src.server.chat_engine import ChatEngine
+
 app = FastAPI()
 _config = FsarConfig()
 _bridge = RiskBridge()
-_ctx: dict[str, Any] = {"config": _config}
-chat_handler.set_bridge(_bridge)
+_engine = ChatEngine(_config, _bridge)
+_ctx: dict[str, Any] = {
+    "config": _config,
+    "db_path": _config.get("memory.sqlite_path", "data/memory.db"),
+    "cache_db_path": _config.llm_cache_db_path,
+    "mcp_manager": _engine.mcp,
+    "engine": _engine,
+}
+chat_handler.set_engine(_engine)
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    await _engine.start_mcp()
 
 
 @app.get("/health")

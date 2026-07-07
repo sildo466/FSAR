@@ -46,9 +46,43 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | Non
 
         store = ExperienceStore(_resolve_db(ctx))
         body = msg.get("body", "")
-        store.add_chunk(source="memory", title=body[:60] or "(empty)", body=body)
+        title = (body.splitlines()[0] if body else "")[:60] or "(empty)"
+        store.add_chunk(source="user_fact", title=title, body=body)
+        await _send_facts(ws, ctx)
+        return True
+    if t == "memory.sessions":
+        from src.memory.long_term import LongTermMemory
+
+        rows = LongTermMemory().list_sessions_with_count(limit=int(msg.get("limit", 20)))
+        await ws.send_json({"type": "memory.sessions_result", "sessions": rows})
+        return True
+    if t == "memory.transcript":
+        from src.memory.long_term import LongTermMemory
+
+        sid = msg.get("session_id", "")
+        records = LongTermMemory().get_session_messages(sid)
+        await ws.send_json({
+            "type": "memory.transcript_result",
+            "session_id": sid,
+            "messages": [
+                {
+                    "role": r.role,
+                    "content": r.content,
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else "",
+                }
+                for r in records
+            ],
+        })
+        return True
+    if t == "memory.facts":
+        await _send_facts(ws, ctx)
         return True
     return False
+
+
+async def _send_facts(ws: WebSocket, ctx: dict[str, Any] | None) -> None:
+    facts = [c.to_dict() for c in _make_store(ctx).list_chunks(source="user_fact", limit=100)]
+    await ws.send_json({"type": "memory.facts_result", "facts": facts})
 
 
 def _make_store(ctx: dict[str, Any] | None):
