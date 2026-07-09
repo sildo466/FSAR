@@ -28,4 +28,7 @@ __all__ = [
     "RememberFactTool",
 ]
 
-from src.tools.builtin.update_emotion import update_emotion
+# Note: update_emotion is intentionally NOT re-exported here. Re-exporting the
+# function with the same name as the module replaces sys.modules[...update_emotion]
+# with the function, breaking tests that import the module.
+# from src.tools.builtin.update_emotion import update_emotion
