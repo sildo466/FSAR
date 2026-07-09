@@ -15,7 +15,7 @@ def test_validate_basic_arithmetic():
 
 
 def test_validate_rejects_function_call():
-    ok, err = validate_formula("eval('1+1')", [])
+    ok, err = validate_formula("eval(1)", [])
     assert not ok
     assert "Function calls" in err or "disallowed" in err
 
