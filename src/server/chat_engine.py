@@ -7,26 +7,31 @@ import asyncio
 import json
 import time
 import uuid
+from collections import OrderedDict, deque
+from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket
 
 from src.core.experience_injector import ExperienceIndexInjector
-from src.core.prompts import AGENT_SYSTEM_PROMPT, COMPANION_SYSTEM_PROMPT
+from src.core.prompts import build_system_prompt
 from src.core.strategy_injector import StrategyInjector
 from src.memory import (
     DecisionLog,
     FeedbackStore,
+    IdleReflector,
     LongTermMemory,
     MemoryRecall,
     ReflectionStore,
     SemanticMemory,
+    SessionStore,
     ShortTermMemory,
     TaskReflector,
     UserModel,
     clear_task_context,
     set_task_context,
 )
+from src.memory.cards import CardRepo
 from src.mcp import MCPManager
 from src.security import (
     RiskEngine,
@@ -37,6 +42,7 @@ from src.security import (
 )
 from src.security.confirmation import ConfirmResponse
 from src.server.risk_bridge import RiskBridge
+from src.server.title_generator import TitleGenerator
 from src.tools import ToolRegistry, create_default_registry
 from src.utils.fsar_config import FsarConfig
 from src.utils.llm_factory import cached_chat_completion, make_llm_client
@@ -44,6 +50,8 @@ from src.utils.logger import logger
 
 MAX_TOOL_TURNS = 50
 DELTA_CHUNK = 120
+SHORT_TERM_LIMIT = 10
+SHORT_TERM_LRU = 50
 
 
 class ChatEngine:
@@ -56,10 +64,10 @@ class ChatEngine:
         self.mcp = MCPManager(
             self.registry,
             config_path=config.get("mcp.config_path", "config/mcp_servers.yaml"),
+            fsar_servers=config.get_mcp_servers(),
         )
         self.permissions = load_permissions()
         self.risk_engine = RiskEngine(self.permissions)
-        self.short_memory = ShortTermMemory()
         self.long_memory = LongTermMemory()
         self.semantic = SemanticMemory()
         self.user_model = UserModel()
@@ -75,6 +83,13 @@ class ChatEngine:
             store=self.reflection_store,
             user_model=self.user_model,
             intensity=config.reflection_intensity,
+            triggers=config.reflection_triggers,
+        )
+        self.idle_reflector = IdleReflector(
+            long_term=self.long_memory,
+            user_model=self.user_model,
+            feedback=self.feedback,
+            intensity=config.reflection_intensity,
         )
         self.decision_log = DecisionLog()
         self.strategy_injector = StrategyInjector(
@@ -85,11 +100,151 @@ class ChatEngine:
         self.experience_injector = ExperienceIndexInjector(
             intensity=config.reflection_intensity,
         )
-        self.session_id = uuid.uuid4().hex[:8]
-        self._lock = asyncio.Lock()
-        self._cancelled = False
+        self.session_store = SessionStore(
+            config.get("memory.sqlite_path", "data/memory.db")
+        )
+        self.card_repo = CardRepo(
+            Path(config.get("memory.sqlite_path", "data/memory.db"))
+        )
+        with self.card_repo._connect() as _conn:
+            self.card_repo.ensure_tables(_conn)
+        self.title_generator = TitleGenerator(
+            config=config,
+            store=self.session_store,
+            client_factory=self.client_and_model,
+            push_event=self._broadcast,
+        )
+
         self._msg_ids: dict[str, int] = {}
+        self._conv_locks: dict[str, asyncio.Lock] = {}
+        self._short_cache: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
+        self._cancelled = False
         self._mcp_started = False
+
+    # ---------- session lifecycle ----------
+
+    def active_conversation_id(self) -> str | None:
+        return getattr(self, "_active_conv_id", None)
+
+    async def switch_conversation(self, conversation_id: str) -> bool:
+        row = self.session_store.get(conversation_id)
+        if row is None:
+            return False
+        self._active_conv_id = conversation_id
+        self._short_cache.pop(conversation_id, None)
+        self._hydrate_short(conversation_id)
+        return True
+
+    def new_conversation(self) -> str:
+        row = self.session_store.create()
+        self._active_conv_id = row.id
+        return row.id
+
+    def ensure_conversation(self, conversation_id: str | None) -> str:
+        """Return a valid conversation_id, creating one if needed."""
+        if conversation_id and self.session_store.get(conversation_id):
+            return conversation_id
+        return self.new_conversation()
+
+    def _hydrate_short(self, conversation_id: str, limit: int = SHORT_TERM_LIMIT) -> None:
+        rows = self.session_store.get_recent_messages(conversation_id, limit=limit)
+        dq: deque[dict[str, Any]] = deque(maxlen=limit)
+        for r in rows:
+            dq.append({"role": r.role, "content": r.content})
+        self._short_cache[conversation_id] = dq
+        self._short_cache.move_to_end(conversation_id)
+        while len(self._short_cache) > SHORT_TERM_LRU:
+            self._short_cache.popitem(last=False)
+
+    def _lock_for(self, conversation_id: str) -> asyncio.Lock:
+        lock = self._conv_locks.get(conversation_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._conv_locks[conversation_id] = lock
+        return lock
+
+    async def _broadcast(self, event: dict[str, Any]) -> None:
+        """Push a server event to all live websockets (if any)."""
+        try:
+            from src.server.handlers.chat import _broadcast
+            await _broadcast(event)
+        except Exception as e:
+            logger.debug(f"broadcast skipped: {e}")
+
+    async def _run_idle_reflection_if_due(self) -> None:
+        """Check GUI-configured idle_batch triggers; run reflection if due."""
+        try:
+            intensity = self.config.reflection_intensity
+            if intensity != self.idle_reflector.intensity:
+                self.idle_reflector.set_intensity(intensity)
+                self.task_reflector.set_intensity(intensity)
+            self.task_reflector.set_triggers(self.config.reflection_triggers)
+            triggers = self.config.reflection_triggers
+            if not self.idle_reflector.should_reflect_by_triggers(triggers):
+                return
+            if self.idle_reflector.intensity == "off":
+                return
+            promoted_count = await asyncio.to_thread(self._do_idle_reflect)
+            if promoted_count > 0:
+                await self._broadcast_experiences(promoted_count)
+        except Exception as e:
+            logger.warning(f"idle reflection check failed: {e}")
+
+    def _do_idle_reflect(self) -> int:
+        """Run the idle reflector synchronously (off the event loop).
+
+        Returns the count of newly promoted experiences so the caller
+        can broadcast them to live websockets."""
+        client, model = self.client_and_model()
+        if client is not None:
+            try:
+                self.idle_reflector.set_llm(client)
+                self.idle_reflector._model = model  # noqa: SLF001
+            except Exception as e:
+                logger.debug(f"idle reflector set_llm failed: {e}")
+
+        # Sync the GUI-configured threshold_hours so the legacy time gate
+        # inside IdleReflector.reflect() honours the user's setting.
+        cfg_hours = float(
+            self.config.get("reflection.triggers.idle_batch.threshold_hours", 12) or 12
+        )
+        if cfg_hours > 0:
+            self.idle_reflector.interval_hours = cfg_hours
+
+        promoted_count = 0
+        try:
+            # _run_idle_reflection_if_due already validated the GUI trigger;
+            # force=True bypasses the legacy should_reflect() gate so the
+            # user's threshold_hours/threshold_events are authoritative.
+            report = self.idle_reflector.reflect(force=True)
+            if self.idle_reflector.intensity == "high":
+                from src.memory.experience_store import ExperienceStore
+                promoted_count = ExperienceStore().auto_promote(threshold=3)
+        except Exception as e:
+            logger.warning(f"idle reflector failed: {e}")
+            return 0
+        logger.info(
+            f"idle reflection done: profile={len(report.profile) if report else 0}, "
+            f"promoted={promoted_count}"
+        )
+        return promoted_count
+
+    async def _broadcast_experiences(self, count: int) -> None:
+        from src.memory.experience_store import ExperienceStore
+        if count <= 0:
+            return
+        try:
+            store = ExperienceStore()
+            rows = store.list_for_index()
+            for r in rows[-count:]:
+                if not hasattr(r, "to_dict"):
+                    continue
+                await self._broadcast({
+                    "type": "experience.created",
+                    "experience": r.to_dict(),
+                })
+        except Exception as e:
+            logger.debug(f"broadcast experiences skipped: {e}")
 
     async def start_mcp(self) -> None:
         if self._mcp_started:
@@ -121,13 +276,13 @@ class ChatEngine:
     def cancel(self) -> None:
         self._cancelled = True
 
-    def rate(self, message_id: str, score: int, reason: str = "") -> str:
+    def rate(self, message_id: str, score: int, reason: str = "") -> dict[str, Any]:
         msg_id = self._msg_ids.get(message_id)
         if msg_id is None:
-            return "no_message"
+            return {"status": "no_message"}
         self.feedback.add_or_update_rating(
             message_id=msg_id,
-            session_id=self.session_id,
+            session_id=self._active_conv_id or "",
             rating=score,
             reason=reason,
         )
@@ -140,13 +295,30 @@ class ChatEngine:
                 )
             except Exception as e:
                 logger.debug(f"pattern record skipped: {e}")
-        return "ok"
+        return {"status": "ok", "db_id": msg_id}
 
-    async def handle_send(self, ws: WebSocket, content: str, mode: str) -> None:
-        async with self._lock:
+    async def handle_send(
+        self, ws: WebSocket, content: str, mode: str,
+        conversation_id: str | None = None,
+    ) -> None:
+        if conversation_id and self.session_store.get(conversation_id):
+            conv_id = conversation_id
+        else:
+            row = self.session_store.create()
+            conv_id = row.id
+            await ws.send_json({
+                "type": "conversation.created",
+                "session": row.to_dict(),
+            })
+        self._active_conv_id = conv_id
+        async with self._lock_for(conv_id):
             self._cancelled = False
             message_id = f"msg_{uuid.uuid4().hex[:8]}"
-            await ws.send_json({"type": "chat.thinking", "message_id": message_id})
+            await ws.send_json({
+                "type": "chat.thinking",
+                "message_id": message_id,
+                "conversation_id": conv_id,
+            })
             try:
                 if content.strip().startswith("/"):
                     from src.server.handlers import commands
@@ -163,11 +335,11 @@ class ChatEngine:
                     })
                     await self._done(ws, message_id, "failure")
                     return
-                self._save_user(content)
+                self._save_user(conv_id, content)
                 if mode == "companion":
-                    await self._run_companion(ws, message_id, client, model, content)
+                    await self._run_companion(ws, message_id, client, model, conv_id, content)
                 else:
-                    await self._run_agent(ws, message_id, client, model, content)
+                    await self._run_agent(ws, message_id, client, model, conv_id, content)
             except Exception as e:
                 logger.error(f"chat.send failed: {e}")
                 await ws.send_json({
@@ -176,24 +348,19 @@ class ChatEngine:
                 })
                 await self._done(ws, message_id, "failure")
 
-    # ---------- agent mode (tool loop, mirrors CLI _handle_tool_task) ----------
+    # ---------- agent mode ----------
 
     async def _run_agent(self, ws: WebSocket, message_id: str, client: Any,
-                         model: str, user_input: str) -> None:
+                         model: str, conv_id: str, user_input: str) -> None:
         tools = self.registry.get_tools_for_llm()
-        messages: list[Any] = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
-        for block in (
-            self._memory_block(user_input),
-            self._strategy_block(),
-            self._experience_block(),
-        ):
-            if block:
-                messages.append({"role": "system", "content": block})
-        messages.extend(self.short_memory.get_context_for_llm(last_n=20))
+        system_prompt = self._build_prompt(conv_id, "agent", user_input)
+        messages: list[Any] = [{"role": "system", "content": system_prompt}]
+        self._ensure_short(conv_id)
+        messages.extend(self._short_cache[conv_id])
         messages.append({"role": "user", "content": user_input})
 
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
-        set_task_context(task_id=task_id, session_id=self.session_id)
+        set_task_context(task_id=task_id, session_id=conv_id)
         final_text = ""
         outcome = "success"
         try:
@@ -224,7 +391,7 @@ class ChatEngine:
                     except json.JSONDecodeError:
                         func_args = {}
                     result = await self._execute_guarded(
-                        ws, message_id, tool_call.id, func_name, func_args,
+                        ws, message_id, tool_call.id, func_name, func_args, conv_id,
                     )
                     messages.append({
                         "role": "tool",
@@ -242,11 +409,13 @@ class ChatEngine:
 
         await self._emit_text(ws, message_id, final_text)
         await self._done(ws, message_id, outcome)
-        await asyncio.to_thread(self._reflect, task_id, user_input)
+        await asyncio.to_thread(self._reflect, task_id, conv_id, user_input, outcome)
+        self._maybe_title(conv_id, user_input)
+        self.idle_reflector.bump_event()
+        await self._run_idle_reflection_if_due()
 
     async def _execute_guarded(self, ws: WebSocket, message_id: str, call_id: str,
-                               name: str, args: dict) -> str:
-        """Mirror of the CLI risk gate; confirmation goes through the WS RiskBridge."""
+                               name: str, args: dict, conv_id: str) -> str:
         tool = self.registry.get(name)
         if tool is None:
             return f"Error: Unknown tool '{name}'"
@@ -274,7 +443,7 @@ class ChatEngine:
 
         if verdict.is_denied():
             append_entry(make_entry(
-                session=self.session_id, tool=name, args=args,
+                session=conv_id, tool=name, args=args,
                 risk=verdict.effective_risk, verdict="deny",
                 user_response="", outcome="denied",
             ))
@@ -297,7 +466,7 @@ class ChatEngine:
                     self.permissions.set_permanent_deny(name)
                     save_permissions(self.permissions)
                 append_entry(make_entry(
-                    session=self.session_id, tool=name, args=args,
+                    session=conv_id, tool=name, args=args,
                     risk=verdict.effective_risk, verdict="confirm",
                     user_response=user_response, outcome="cancelled",
                 ))
@@ -319,7 +488,7 @@ class ChatEngine:
         duration_ms = int((time.monotonic() - start) * 1000)
 
         append_entry(make_entry(
-            session=self.session_id, tool=name, args=args,
+            session=conv_id, tool=name, args=args,
             risk=verdict.effective_risk,
             verdict="confirm" if needs_confirm else "proceed",
             user_response=user_response or "auto",
@@ -327,16 +496,14 @@ class ChatEngine:
         ))
         return await _result(result, duration_ms)
 
-    # ---------- companion mode (streaming, mirrors CLI _handle_chat) ----------
+    # ---------- companion mode ----------
 
     async def _run_companion(self, ws: WebSocket, message_id: str, client: Any,
-                             model: str, user_input: str) -> None:
-        messages: list[dict] = [{"role": "system", "content": COMPANION_SYSTEM_PROMPT}]
-        for block in (self._memory_block(user_input), self._strategy_block(),
-                      self._experience_block()):
-            if block:
-                messages.append({"role": "system", "content": block})
-        messages.extend(self.short_memory.get_context_for_llm(last_n=20))
+                             model: str, conv_id: str, user_input: str) -> None:
+        system_prompt = self._build_prompt(conv_id, "companion", user_input)
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        self._ensure_short(conv_id)
+        messages.extend(self._short_cache[conv_id])
         messages.append({"role": "user", "content": user_input})
 
         loop = asyncio.get_running_loop()
@@ -375,13 +542,16 @@ class ChatEngine:
             })
         await pump
         text = "".join(full)
-        self._save_assistant(message_id, text)
+        self._save_assistant(message_id, conv_id, text)
         await self._done(ws, message_id, "success")
+        self._maybe_title(conv_id, user_input)
+        self.idle_reflector.bump_event()
+        await self._run_idle_reflection_if_due()
 
     # ---------- helpers ----------
 
     async def _emit_text(self, ws: WebSocket, message_id: str, text: str,
-                         *, save: bool = True) -> None:
+                         *, save: bool = True, conv_id: str | None = None) -> None:
         text = text or "(Task ended.)"
         for i in range(0, len(text), DELTA_CHUNK):
             await ws.send_json({
@@ -390,7 +560,9 @@ class ChatEngine:
                 "content": text[i:i + DELTA_CHUNK],
             })
         if save:
-            self._save_assistant(message_id, text)
+            cid = conv_id or self._active_conv_id
+            if cid:
+                self._save_assistant(message_id, cid, text)
 
     async def _done(self, ws: WebSocket, message_id: str, outcome: str) -> None:
         await ws.send_json({
@@ -398,29 +570,46 @@ class ChatEngine:
             "outcome": outcome, "summary": "",
         })
 
-    def _save_user(self, content: str) -> None:
-        self.short_memory.add("user", content)
+    def _ensure_short(self, conv_id: str) -> None:
+        if conv_id not in self._short_cache:
+            self._hydrate_short(conv_id)
+        else:
+            self._short_cache.move_to_end(conv_id)
+
+    def _save_user(self, conv_id: str, content: str) -> None:
+        self._ensure_short(conv_id)
+        dq = self._short_cache[conv_id]
+        dq.append({"role": "user", "content": content})
         try:
-            self.long_memory.save_message(
-                session_id=self.session_id, role="user", content=content,
+            self.session_store.append_message(
+                conv_id, "user", content, tags="query",
             )
-            self.semantic.add(content, session_id=self.session_id,
+            self.semantic.add(content, session_id=conv_id,
                               role="user", tags=["query"])
         except Exception as e:
             logger.warning(f"save user message failed: {e}")
 
-    def _save_assistant(self, message_id: str, content: str) -> None:
-        self.short_memory.add("assistant", content)
+    def _save_assistant(self, message_id: str, conv_id: str, content: str) -> None:
+        self._ensure_short(conv_id)
+        self._short_cache[conv_id].append({"role": "assistant", "content": content})
         try:
-            msg_id = self.long_memory.save_message(
-                session_id=self.session_id, role="assistant", content=content,
+            msg_id = self.session_store.append_message(
+                conv_id, "assistant", content, tags="reply",
             )
             if msg_id is not None:
                 self._msg_ids[message_id] = msg_id
-            self.semantic.add(content, session_id=self.session_id,
+            self.semantic.add(content, session_id=conv_id,
                               role="assistant", tags=["reply"])
         except Exception as e:
             logger.warning(f"save assistant message failed: {e}")
+
+    def _maybe_title(self, conv_id: str, user_input: str) -> None:
+        """Trigger title generation once per conversation — after the
+        first assistant reply completes. Skip if a title already exists."""
+        row = self.session_store.get(conv_id)
+        if row is None or row.title:
+            return
+        self.title_generator.schedule(conv_id, user_input)
 
     def _record_llm_usage(self, task_id: str, resp: Any) -> None:
         try:
@@ -431,7 +620,7 @@ class ChatEngine:
                    else lambda k, d=0: getattr(usage, k, d) or d)
             self.decision_log.record(
                 task_id=task_id,
-                session_id=self.session_id,
+                session_id=self._active_conv_id or "",
                 step_no=0,
                 chosen_tool="chat.llm",
                 args_summary="",
@@ -444,7 +633,8 @@ class ChatEngine:
         except Exception as e:
             logger.debug(f"usage record skipped: {e}")
 
-    def _reflect(self, task_id: str, user_input: str) -> None:
+    def _reflect(self, task_id: str, conv_id: str, user_input: str,
+                outcome: str) -> None:
         try:
             decisions = self.decision_log.get_for_task(task_id)
             history = [
@@ -457,16 +647,32 @@ class ChatEngine:
                 }
                 for d in decisions
             ]
-            outcome = "success" if not any(not d.success for d in decisions) else "failure"
             self.task_reflector.reflect(
                 task_id=task_id,
-                session_id=self.session_id,
+                session_id=conv_id,
                 task=user_input,
                 outcome=outcome,
                 history=history,
             )
         except Exception as e:
             logger.debug(f"Task reflection skipped: {e}")
+
+    def _build_prompt(self, conv_id: str, mode: str, user_input: str) -> str:
+        char_id = self.session_store.get_character(conv_id)
+        character = None
+        if char_id is not None:
+            character = self.card_repo.get_character(char_id)
+        if character is None:
+            character = self.card_repo.get_default_character()
+        user_card = self.card_repo.get_default_user_card()
+        return build_system_prompt(
+            mode=mode,
+            character=character,
+            user_card=user_card,
+            memory_block=self._memory_block(user_input),
+            strategy_block=self._strategy_block(),
+            experience_block=self._experience_block(),
+        )
 
     def _memory_block(self, query: str) -> str:
         try:
@@ -481,9 +687,7 @@ class ChatEngine:
 
     def _strategy_block(self) -> str:
         try:
-            recent = self.reflection_store.list_recent(
-                limit=10, session_id=self.session_id,
-            )
+            recent = self.reflection_store.list_recent(limit=10)
             strategies = [
                 r["suggested_strategy"] for r in recent if r.get("suggested_strategy")
             ]
