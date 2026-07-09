@@ -67,6 +67,79 @@ class CardRepo:
             card.emotion_formulas = dict(self._default_formulas)
         return card
 
+    def get_emotion_state(self, character_id: int) -> dict[str, float]:
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT emotion_state FROM character_cards WHERE id = ?",
+                (character_id,),
+            ).fetchone()
+        if not r:
+            return {}
+        return json.loads(r[0] or "{}")
+
+    def set_emotion_state(self, character_id: int, state: dict[str, float]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE character_cards SET emotion_state = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(state, ensure_ascii=False),
+                 _dt.datetime.now().isoformat(), character_id),
+            )
+            conn.commit()
+
+    def get_emotion_schema(self, character_id: int) -> list[dict]:
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT emotion_schema FROM character_cards WHERE id = ?",
+                (character_id,),
+            ).fetchone()
+        return json.loads(r[0] or "[]") if r else []
+
+    def get_emotion_formulas(self, character_id: int) -> dict[str, str]:
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT emotion_formulas FROM character_cards WHERE id = ?",
+                (character_id,),
+            ).fetchone()
+        return json.loads(r[0] or "{}") if r else {}
+
+    def set_emotion_schema_and_formulas(
+        self, character_id: int, schema: list[dict], formulas: dict[str, str]
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE character_cards SET emotion_schema = ?, emotion_formulas = ?, "
+                "updated_at = ? WHERE id = ?",
+                (json.dumps(schema, ensure_ascii=False),
+                 json.dumps(formulas, ensure_ascii=False),
+                 _dt.datetime.now().isoformat(), character_id),
+            )
+            conn.commit()
+
+    def append_emotion_audit(
+        self,
+        character_id: int,
+        session_id: str | None,
+        metric_key: str,
+        old_value: float,
+        new_value: float,
+        reason: str,
+        source: str = "update_emotion",
+    ) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO emotion_audit
+                (character_id, session_id, metric_key, old_value, new_value,
+                 delta, reason, source, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (character_id, session_id, metric_key, old_value, new_value,
+                 new_value - old_value, reason, source,
+                 _dt.datetime.now().isoformat()),
+            )
+            conn.commit()
+            return cur.lastrowid
+
     def ensure_tables(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """

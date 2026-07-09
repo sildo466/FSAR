@@ -33,7 +33,7 @@ def test_ensure_tables_creates_all_three_tables():
 
 @pytest.fixture
 def repo():
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db = Path(tmp) / "test.db"
         r = CardRepo(db)
         with sqlite3.connect(db) as conn:
@@ -201,3 +201,43 @@ def test_upsert_character_applies_default_emotion_when_empty(repo):
                                       "empathy": 50, "playfulness": 50, "formality": 50}
     assert len(fetched.emotion_schema) == 7
     assert "energy" in fetched.emotion_formulas
+
+
+def test_set_and_get_emotion_state(repo):
+    cid = repo.upsert_character(_make_card(name="X"))
+    new_state = {"affection": 80, "mood": 30, "energy": 20, "trust": 60,
+                 "empathy": 50, "playfulness": 50, "formality": 50}
+    repo.set_emotion_state(cid, new_state)
+    assert repo.get_emotion_state(cid) == new_state
+
+
+def test_append_emotion_audit_writes_row(repo):
+    import sqlite3
+    cid = repo.upsert_character(_make_card(name="X"))
+    audit_id = repo.append_emotion_audit(
+        character_id=cid, session_id="s1",
+        metric_key="affection", old_value=50, new_value=55,
+        reason="user shared story",
+    )
+    assert audit_id > 0
+    with sqlite3.connect(repo._db) as conn:
+        rows = conn.execute(
+            "SELECT character_id, metric_key, old_value, new_value, reason, session_id, delta "
+            "FROM emotion_audit WHERE character_id = ?", (cid,)
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][1] == "affection"
+    assert rows[0][2] == 50
+    assert rows[0][3] == 55
+    assert rows[0][4] == "user shared story"
+    assert rows[0][5] == "s1"
+    assert rows[0][6] == 5
+
+
+def test_set_emotion_schema_and_formulas_persists(repo):
+    cid = repo.upsert_character(_make_card(name="X"))
+    schema = [{"key": "calm", "min": 0, "max": 100, "initial": 50}]
+    formulas = {"calm": "calm + 1"}
+    repo.set_emotion_schema_and_formulas(cid, schema, formulas)
+    assert repo.get_emotion_schema(cid) == schema
+    assert repo.get_emotion_formulas(cid) == formulas
