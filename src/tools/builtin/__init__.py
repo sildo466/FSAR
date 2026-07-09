@@ -27,3 +27,5 @@ __all__ = [
     "ListExperiencesTool",
     "RememberFactTool",
 ]
+
+from src.tools.builtin.update_emotion import update_emotion
