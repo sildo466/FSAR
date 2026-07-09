@@ -221,3 +221,83 @@ class CardRepo:
             conn.execute("UPDATE character_cards SET is_default = 0 WHERE is_default = 1")
             conn.execute("UPDATE character_cards SET is_default = 1 WHERE id = ?", (card_id,))
             conn.commit()
+
+    def _row_to_user(self, row: sqlite3.Row) -> UserCard:
+        return UserCard(
+            id=row["id"],
+            name=row["name"],
+            avatar_path=row["avatar_path"],
+            description=row["description"],
+            preferences=json.loads(row["preferences"] or "{}"),
+            interests=json.loads(row["interests"] or "[]"),
+            communication_style=row["communication_style"],
+            is_default=row["is_default"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def list_user_cards(self) -> list[UserCard]:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM user_cards ORDER BY is_default DESC, name ASC"
+            ).fetchall()
+        return [self._row_to_user(r) for r in rows]
+
+    def get_user_card(self, card_id: int) -> UserCard | None:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            r = conn.execute("SELECT * FROM user_cards WHERE id = ?", (card_id,)).fetchone()
+        return self._row_to_user(r) if r else None
+
+    def get_default_user_card(self) -> UserCard | None:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            r = conn.execute("SELECT * FROM user_cards WHERE is_default = 1 LIMIT 1").fetchone()
+        return self._row_to_user(r) if r else None
+
+    def upsert_user_card(self, card: UserCard) -> int:
+        now = _dt.datetime.now().isoformat()
+        payload = (
+            card.name, card.avatar_path, card.description,
+            json.dumps(card.preferences or {}, ensure_ascii=False),
+            json.dumps(card.interests or [], ensure_ascii=False),
+            card.communication_style, card.is_default, card.created_by,
+            card.created_at or now, card.updated_at or now,
+        )
+        with self._connect() as conn:
+            if card.id is None:
+                cur = conn.execute(
+                    """
+                    INSERT INTO user_cards
+                    (name, avatar_path, description, preferences, interests,
+                     communication_style, is_default, created_by, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    payload,
+                )
+                return cur.lastrowid
+            else:
+                conn.execute(
+                    """
+                    UPDATE user_cards SET
+                        name=?, avatar_path=?, description=?, preferences=?,
+                        interests=?, communication_style=?, is_default=?,
+                        created_by=?, created_at=?, updated_at=?
+                    WHERE id=?
+                    """,
+                    payload + (card.id,),
+                )
+                return card.id
+
+    def delete_user_card(self, card_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM user_cards WHERE id = ?", (card_id,))
+            return cur.rowcount > 0
+
+    def set_default_user_card(self, card_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE user_cards SET is_default = 0 WHERE is_default = 1")
+            conn.execute("UPDATE user_cards SET is_default = 1 WHERE id = ?", (card_id,))
+            conn.commit()
