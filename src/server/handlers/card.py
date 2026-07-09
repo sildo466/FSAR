@@ -10,6 +10,44 @@ from fastapi import WebSocket
 from src.memory.cards import CardRepo, CharacterCard, UserCard
 
 
+def parse_sillytavern_v2(json_text: str) -> CharacterCard:
+    """Parse SillyTavern V2 JSON into a CharacterCard.
+
+    V1 and V3 are tolerated; missing fields are filled with defaults.
+    Lorebook / character_book is ignored in PL2.0.
+    """
+    raw = json.loads(json_text)
+    data = raw.get("data", raw)
+    spec = raw.get("spec", "")
+    tags = list(data.get("tags", []) or [])
+    if spec == "chara_card_v1" or "spec" not in raw:
+        tags.append("st_v1")
+    elif spec == "chara_card_v3":
+        tags.append("st_v3")
+    tags.append("imported")
+    mes_example = data.get("mes_example", "") or ""
+    dialogues: list[dict] = []
+    if mes_example:
+        for block in mes_example.split("\n\n"):
+            lines = block.strip().split("\n")
+            user = next((l[len("user:"):].strip() for l in lines if l.startswith("user:")), "")
+            assistant = next((l[len("assistant:"):].strip() for l in lines if l.startswith("assistant:")), "")
+            if user or assistant:
+                dialogues.append({"user": user, "assistant": assistant})
+    return CharacterCard(
+        id=None,
+        name=data.get("name", "Imported"),
+        description=data.get("description", ""),
+        personality=data.get("personality", "neutral"),
+        scenario=data.get("scenario", ""),
+        example_dialogues=dialogues,
+        tags=tags,
+        created_by="imported",
+        created_at="",
+        updated_at="",
+    )
+
+
 def _get_card_repo(ctx: dict[str, Any] | None) -> CardRepo:
     """Resolve the CardRepo from context, falling back to a fresh one."""
     if ctx and ctx.get("engine") is not None:
@@ -119,6 +157,25 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | Non
             await ws.send_json({"type": "card.error", "code": "bad_kind"})
             return True
         await ws.send_json({"type": "card.default_changed", "kind": kind, "id": cid})
+        return True
+
+    if t == "card.import_v2":
+        try:
+            card = parse_sillytavern_v2(msg.get("json_text", ""))
+        except Exception as e:
+            await ws.send_json({"type": "card.error", "code": "import_failed", "message": str(e)})
+            return True
+        cid = repo.upsert_character(card)
+        await ws.send_json({"type": "card.imported", "card_id": cid, "warnings": []})
+        return True
+
+    if t == "card.export":
+        cid = msg.get("id")
+        card = repo.get_character(cid)
+        if card is None:
+            await ws.send_json({"type": "card.error", "code": "not_found"})
+        else:
+            await ws.send_json({"type": "card.exported", "card": _card_to_dict(card)})
         return True
 
     if t == "card.set_session_character":
