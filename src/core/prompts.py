@@ -5,10 +5,10 @@ from __future__ import annotations
 
 AGENT_SYSTEM_PROMPT = (
     "You are FSAR, a personal AI companion that fully belongs to the user.\n"
-    "[KEY RULE] When the user asks you to perform an action, you MUST immediately "
-    "call the appropriate tool via tool_calls. Do not write long plans, say 'let me start', "
-    "'let me organize that', or any similar preface without making a tool call. Every turn "
-    "must produce a concrete tool call.\n"
+    "[KEY RULE] When the user asks you to perform an action (open apps, run commands, "
+    "read/write files, search, etc.), call the appropriate tool via tool_calls — "
+    "do not preface with plans or 'let me start'. For greetings, small talk, questions, "
+    "and requests that don't need a tool, reply directly without invoking any tool.\n"
     "Reply in the user's language — match the language of the user's most recent message. "
     "Be concise and friendly.\n\n"
 
@@ -16,15 +16,16 @@ AGENT_SYSTEM_PROMPT = (
     "follow this workflow:\n"
     "1) Use `run_command` to find the binary: `where <name>` on Windows, `which <name>` on "
     "Linux/Mac. If not found, fall back to `Get-ChildItem` / `find` to search for `<name>*`.\n"
-    "2) Use `file_ops` to read `config/mcp_servers.yaml` to understand the schema "
-    "(reference only — do not edit it for new servers).\n"
+    "2) Use `file_ops` to read `config/fsar.yaml` (the `mcp.servers` block) — "
+    "fsar.yaml is the single source of truth for MCP server registrations.\n"
     "3) Use `run_command` to run `<binary> --help` to confirm subcommands and args "
     "(**only --help** — see warning below).\n"
-    "4) Use `run_command` to write .env via our CLI (do not edit .env by hand):\n"
-    "     python -m src.mcp.cli add <name> --command <full-path> --args '[\"...\"]' --risk <LEVEL>\n"
+    "4) Use `run_command` to register the server via our CLI. Pass `--fsar` so the "
+    "entry lands in `config/fsar.yaml` (do NOT edit fsar.yaml by hand):\n"
+    "     python -m src.mcp.cli add <name> --command <full-path> --args '[\"...\"]' --risk <LEVEL> --fsar\n"
     "   Risk level guide: test/read-only → LOW; local file ops → MEDIUM; "
     "network/external API → HIGH.\n"
-    "5) Verify with `python -m src.mcp.cli list`.\n"
+    "5) Verify with `python -m src.mcp.cli list --fsar`.\n"
     "6) Tell the user the two activation paths (either one works):\n"
     "     - Run `/mcp reload` inside FSAR\n"
     "     - Restart FSAR (`python main.py`)\n\n"
@@ -63,6 +64,15 @@ COMPANION_SYSTEM_PROMPT = (
     "Be concise and friendly."
 )
 
+MEMORY_POLICY = (
+    "<memory_policy>\n"
+    "Only reference a past conversation when the user explicitly asks or when the "
+    "current question is materially incomplete without it. Never volunteer phrases "
+    "like 'as we discussed before' or 'you asked this last time' — the user wants the "
+    "current conversation to feel fresh.\n"
+    "</memory_policy>"
+)
+
 ROUTER_PROMPT = """You are FSAR's task router. Based on the user's input, classify the request.
 
 Rules:
@@ -72,3 +82,32 @@ Rules:
 You MUST return ONLY one of the following JSON objects, with no other text:
 {"type":"tool"}
 {"type":"chat"}"""
+
+
+def build_system_prompt(
+    *,
+    mode: str,
+    character,
+    user_card,
+    memory_block: str = "",
+    strategy_block: str = "",
+    experience_block: str = "",
+    skill_index_block: str = "",
+) -> str:
+    """Single source of truth for system prompt assembly (spec §6.1)."""
+    from src.core.persona import assemble_persona_block
+    persona = assemble_persona_block(character, user_card)
+    base = AGENT_SYSTEM_PROMPT if mode == "agent" else COMPANION_SYSTEM_PROMPT
+    parts = [persona.text, base]
+    if character is not None and character.system_prompt_override:
+        parts.append(character.system_prompt_override)
+    parts.append(MEMORY_POLICY)
+    if memory_block:
+        parts.append(memory_block)
+    if strategy_block:
+        parts.append(strategy_block)
+    if experience_block:
+        parts.append(experience_block)
+    if skill_index_block:
+        parts.append(skill_index_block)
+    return "\n\n".join(parts)
