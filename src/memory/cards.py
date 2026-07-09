@@ -140,6 +140,55 @@ class CardRepo:
             conn.commit()
             return cur.lastrowid
 
+    def seed_builtins_if_empty(self) -> int:
+        """Insert built-in cards from data/cards/*.json if tables are empty."""
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM character_cards"
+            ).fetchone()[0]
+            if existing > 0:
+                return 0
+        cards_dir = DEFAULT_EMOTION_PATH.parent / "cards"
+        if not cards_dir.exists():
+            return 0
+        seeded = 0
+        is_default_set = False
+        for json_path in sorted(cards_dir.glob("*.json")):
+            if json_path.name == "_meta.json":
+                continue
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            meta = data.pop("_meta", {})
+            if data.get("name") == "default-user":
+                self.upsert_user_card(UserCard(
+                    id=None, name=data["name"],
+                    description=data.get("description", ""),
+                    preferences=data.get("preferences", {}),
+                    interests=data.get("interests", []),
+                    communication_style=data.get("communication_style", ""),
+                    is_default=1,
+                    created_by=meta.get("created_by", "builtin"),
+                    created_at="", updated_at="",
+                ))
+            else:
+                is_default = 0
+                if not is_default_set and meta.get("role") == "FSAR" and data.get("language") == "zh":
+                    is_default = 1
+                    is_default_set = True
+                self.upsert_character(CharacterCard(
+                    id=None, name=data["name"],
+                    description=data["description"],
+                    personality=data["personality"],
+                    scenario=data.get("scenario", ""),
+                    system_prompt_override=data.get("system_prompt_override", ""),
+                    example_dialogues=data.get("example_dialogues", []),
+                    tags=data.get("tags", []),
+                    is_default=is_default,
+                    created_by=meta.get("created_by", "builtin"),
+                    created_at="", updated_at="",
+                ))
+                seeded += 1
+        return seeded
+
     def ensure_tables(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """

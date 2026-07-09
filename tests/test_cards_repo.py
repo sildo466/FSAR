@@ -241,3 +241,35 @@ def test_set_emotion_schema_and_formulas_persists(repo):
     repo.set_emotion_schema_and_formulas(cid, schema, formulas)
     assert repo.get_emotion_schema(cid) == schema
     assert repo.get_emotion_formulas(cid) == formulas
+
+
+def test_seed_builtins_inserts_six_characters_and_one_user(tmp_path):
+    import shutil
+    data_dir = Path(tmp_path) / "data"
+    data_dir.mkdir()
+    real_data = Path(__file__).parent.parent / "data" / "cards"
+    if real_data.exists():
+        shutil.copytree(real_data, data_dir / "cards")
+    db = Path(tmp_path) / "test.db"
+    r = CardRepo(db)
+    from src.memory import cards as cards_mod
+    original = cards_mod.DEFAULT_EMOTION_PATH
+    cards_mod.DEFAULT_EMOTION_PATH = data_dir / "emotion_default.json"
+    if not (data_dir / "emotion_default.json").exists():
+        shutil.copy(real_data.parent / "emotion_default.json",
+                    data_dir / "emotion_default.json")
+    try:
+        with sqlite3.connect(db) as conn:
+            r.ensure_tables(conn)
+        count = r.seed_builtins_if_empty()
+    finally:
+        cards_mod.DEFAULT_EMOTION_PATH = original
+    assert count == 6
+    assert len(r.list_characters()) == 6
+    assert r.get_default_user_card() is not None
+
+
+def test_seed_is_idempotent(repo):
+    count1 = repo.seed_builtins_if_empty()
+    count2 = repo.seed_builtins_if_empty()
+    assert count1 == 0 or count2 == 0
