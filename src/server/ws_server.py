@@ -54,6 +54,22 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/card/{card_id}/avatar")
+async def upload_avatar(card_id: int, request) -> dict[str, str]:
+    """Persist avatar; body is raw bytes, X-FSAR-Avatar-Ext header has extension."""
+    from fastapi import HTTPException
+    from src.server.handlers.card import _get_card_repo
+    ext = (request.headers.get("X-FSAR-Avatar-Ext") or "png").lower()
+    if ext not in ("png", "jpg", "webp"):
+        raise HTTPException(status_code=400, detail="bad_ext")
+    body = await request.body()
+    if len(body) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="too_large")
+    repo = _get_card_repo(_ctx)
+    avatar_path = repo.save_avatar(card_id, ext, body)
+    return {"avatar_path": avatar_path}
+
+
 @app.get("/api/fsar_yaml")
 async def fsar_yaml() -> dict[str, str]:
     return {"yaml": yaml.safe_dump(_config._settings, allow_unicode=True, sort_keys=False)}

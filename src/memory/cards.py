@@ -140,6 +140,20 @@ class CardRepo:
             conn.commit()
             return cur.lastrowid
 
+    def save_avatar(self, card_id: int, ext: str, data: bytes) -> str:
+        avatars_dir = self._db.parent / "avatars"
+        avatars_dir.mkdir(parents=True, exist_ok=True)
+        path = avatars_dir / f"{card_id}.{ext}"
+        path.write_bytes(data)
+        rel = f"avatars/{card_id}.{ext}"
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE character_cards SET avatar_path = ?, updated_at = ? WHERE id = ?",
+                (rel, _dt.datetime.now().isoformat(), card_id),
+            )
+            conn.commit()
+        return rel
+
     def seed_builtins_if_empty(self) -> int:
         """Insert built-in cards from data/cards/*.json if tables are empty."""
         with self._connect() as conn:
