@@ -47,6 +47,13 @@ conversation_handler.set_engine(_engine)
 @app.on_event("startup")
 async def _startup() -> None:
     await _engine.start_mcp()
+    from src.server.handlers.chat import _broadcast as _chat_broadcast
+    def _listener(event_type, payload):
+        # schedule broadcast; called from sync CardRepo methods
+        import asyncio
+        loop = asyncio.get_event_loop()
+        loop.create_task(_chat_broadcast({"type": event_type, **payload}))
+    _engine.card_repo.set_change_listener(_listener)
 
 
 @app.get("/health")

@@ -51,9 +51,27 @@ class UserCard:
 
 
 class CardRepo:
+    _change_listener = None  # class-level; set by ws_server at startup
+
     def __init__(self, db_path: Path):
         self._db = db_path
         self._default_schema, self._default_formulas = _load_default_emotion()
+        # reset per-instance cache for rename detection
+        self._last_user_name: dict[int, str] = {}
+        self._last_emotion_state: dict[int, dict] = {}
+
+    def set_change_listener(self, listener) -> None:
+        """listener signature: async (event_type, payload) -> None"""
+        self.__class__._change_listener = listener
+
+    def _emit(self, event_type: str, payload: dict) -> None:
+        cb = self.__class__._change_listener
+        if cb is None:
+            return
+        try:
+            cb(event_type, payload)
+        except Exception:
+            pass
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._db)
@@ -85,6 +103,8 @@ class CardRepo:
                  _dt.datetime.now().isoformat(), character_id),
             )
             conn.commit()
+        self._emit("card.emotion_state_updated",
+                   {"character_id": character_id, "state": state, "source": "update_emotion"})
 
     def get_emotion_schema(self, character_id: int) -> list[dict]:
         with self._connect() as conn:
@@ -413,6 +433,7 @@ class CardRepo:
 
     def upsert_user_card(self, card: UserCard) -> int:
         now = _dt.datetime.now().isoformat()
+        old_name = self._last_user_name.get(card.id) if card.id else None
         payload = (
             card.name, card.avatar_path, card.description,
             json.dumps(card.preferences or {}, ensure_ascii=False),
@@ -431,7 +452,7 @@ class CardRepo:
                     """,
                     payload,
                 )
-                return cur.lastrowid
+                new_id = cur.lastrowid
             else:
                 conn.execute(
                     """
@@ -443,7 +464,11 @@ class CardRepo:
                     """,
                     payload + (card.id,),
                 )
-                return card.id
+                new_id = card.id
+        if old_name is not None and old_name != card.name:
+            self._emit("card.user_card_renamed", {"user_card_id": new_id, "name": card.name})
+        self._last_user_name[new_id] = card.name
+        return new_id
 
     def delete_user_card(self, card_id: int) -> bool:
         with self._connect() as conn:
