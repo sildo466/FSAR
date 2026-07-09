@@ -9,6 +9,7 @@ import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
 import { Library } from "./pages/Library";
 import { Insights } from "./pages/Insights";
+import { Cards } from "./pages/Cards";
 import { Settings } from "./pages/Settings";
 import { Usage } from "./pages/Usage";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
@@ -35,6 +36,7 @@ export function App() {
             <Route path="/reflection" element={<Reflection />} />
             <Route path="/memory" element={<Memory />} />
             <Route path="/library" element={<Library />} />
+            <Route path="/cards" element={<Cards />} />
             <Route path="/insights" element={<Insights />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/usage" element={<Usage />} />

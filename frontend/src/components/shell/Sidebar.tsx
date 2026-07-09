@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { NavLink } from "react-router-dom";
-import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge } from "lucide-react";
+import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 
@@ -9,6 +9,7 @@ const items = [
   { to: "/reflection", label: t.navReflection, icon: Activity },
   { to: "/memory", label: t.navMemory, icon: Brain },
   { to: "/library", label: t.navLibrary, icon: BookOpen },
+  { to: "/cards", label: "Cards", icon: UserCircle2 },
   { to: "/insights", label: t.navInsights, icon: BarChart3 },
   { to: "/settings", label: t.navSettings, icon: Settings },
   { to: "/usage", label: t.navUsage, icon: Gauge },
