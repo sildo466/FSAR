@@ -7,6 +7,13 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_EMOTION_PATH = Path(__file__).parent.parent.parent / "data" / "emotion_default.json"
+
+
+def _load_default_emotion() -> tuple[list[dict], dict[str, str]]:
+    data = json.loads(DEFAULT_EMOTION_PATH.read_text(encoding="utf-8"))
+    return data["schema"], data["formulas"]
+
 
 @dataclass
 class CharacterCard:
@@ -46,9 +53,19 @@ class UserCard:
 class CardRepo:
     def __init__(self, db_path: Path):
         self._db = db_path
+        self._default_schema, self._default_formulas = _load_default_emotion()
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._db)
+
+    def apply_default_emotion(self, card: CharacterCard) -> CharacterCard:
+        if not card.emotion_state:
+            card.emotion_state = {m["key"]: float(m["initial"]) for m in self._default_schema}
+        if not card.emotion_schema:
+            card.emotion_schema = list(self._default_schema)
+        if not card.emotion_formulas:
+            card.emotion_formulas = dict(self._default_formulas)
+        return card
 
     def ensure_tables(self, conn: sqlite3.Connection) -> None:
         conn.execute(
@@ -162,6 +179,7 @@ class CardRepo:
         return self._row_to_character(r) if r else None
 
     def upsert_character(self, card: CharacterCard) -> int:
+        card = self.apply_default_emotion(card)
         now = _dt.datetime.now().isoformat()
         payload = (
             card.name,

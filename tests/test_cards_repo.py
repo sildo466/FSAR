@@ -191,3 +191,13 @@ def test_upsert_user_card_update_branch_persists_changes(repo):
     assert reloaded.interests == ["x", "y", "z"]
     assert reloaded.preferences == {"language": "en"}
     assert reloaded.name == "owner"
+
+def test_upsert_character_applies_default_emotion_when_empty(repo):
+    card = _make_card(emotion_state=None, emotion_schema=None, emotion_formulas=None)
+    cid = repo.upsert_character(card)
+    fetched = repo.get_character(cid)
+    assert fetched is not None
+    assert fetched.emotion_state == {"affection": 50, "trust": 50, "mood": 0, "energy": 50,
+                                      "empathy": 50, "playfulness": 50, "formality": 50}
+    assert len(fetched.emotion_schema) == 7
+    assert "energy" in fetched.emotion_formulas
