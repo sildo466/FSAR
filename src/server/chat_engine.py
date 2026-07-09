@@ -324,7 +324,7 @@ class ChatEngine:
                     from src.server.handlers import commands
                     text = await commands.execute(self, content.strip())
                     await self._emit_text(ws, message_id, text, save=False)
-                    await self._done(ws, message_id, "success")
+                    await self._done(ws, message_id, "success", conv_id=conv_id)
                     return
                 client, model = self.client_and_model()
                 if client is None:
@@ -333,7 +333,7 @@ class ChatEngine:
                         "message": "No active LLM provider — configure one in Settings.",
                         "recoverable": True,
                     })
-                    await self._done(ws, message_id, "failure")
+                    await self._done(ws, message_id, "failure", conv_id=conv_id)
                     return
                 self._save_user(conv_id, content)
                 if mode == "companion":
@@ -346,7 +346,7 @@ class ChatEngine:
                     "type": "error", "code": "chat_failed",
                     "message": str(e), "recoverable": True,
                 })
-                await self._done(ws, message_id, "failure")
+                await self._done(ws, message_id, "failure", conv_id=conv_id)
 
     # ---------- agent mode ----------
 
@@ -408,7 +408,7 @@ class ChatEngine:
             clear_task_context()
 
         await self._emit_text(ws, message_id, final_text)
-        await self._done(ws, message_id, outcome)
+        await self._done(ws, message_id, outcome, conv_id=conv_id)
         await asyncio.to_thread(self._reflect, task_id, conv_id, user_input, outcome)
         self._maybe_title(conv_id, user_input)
         self.idle_reflector.bump_event()
@@ -543,7 +543,7 @@ class ChatEngine:
         await pump
         text = "".join(full)
         self._save_assistant(message_id, conv_id, text)
-        await self._done(ws, message_id, "success")
+        await self._done(ws, message_id, "success", conv_id=conv_id)
         self._maybe_title(conv_id, user_input)
         self.idle_reflector.bump_event()
         await self._run_idle_reflection_if_due()
@@ -564,11 +564,38 @@ class ChatEngine:
             if cid:
                 self._save_assistant(message_id, cid, text)
 
-    async def _done(self, ws: WebSocket, message_id: str, outcome: str) -> None:
-        await ws.send_json({
+    def _post_turn_emotion_pass(self, conv_id: str) -> dict | None:
+        from src.core.formula_engine import execute_emotion_formulas
+        char_id = self.session_store.get_character(conv_id)
+        character = self.card_repo.get_character(char_id) if char_id else None
+        if character is None:
+            character = self.card_repo.get_default_character()
+        if character is None:
+            return None
+        schema = self.card_repo.get_emotion_schema(character.id)
+        formulas = self.card_repo.get_emotion_formulas(character.id)
+        state = self.card_repo.get_emotion_state(character.id)
+        if not state or not formulas:
+            return None
+        new_state = execute_emotion_formulas(schema, formulas, state)
+        self.card_repo.set_emotion_state(character.id, new_state)
+        return new_state
+
+    async def _done(self, ws: WebSocket, message_id: str, outcome: str,
+                    conv_id: str | None = None) -> None:
+        emotion_state = None
+        if conv_id is not None:
+            try:
+                emotion_state = self._post_turn_emotion_pass(conv_id)
+            except Exception as e:
+                logger.debug(f"Post-turn emotion pass skipped: {e}")
+        payload = {
             "type": "chat.done", "message_id": message_id,
             "outcome": outcome, "summary": "",
-        })
+        }
+        if emotion_state is not None:
+            payload["emotion_state"] = emotion_state
+        await ws.send_json(payload)
 
     def _ensure_short(self, conv_id: str) -> None:
         if conv_id not in self._short_cache:
