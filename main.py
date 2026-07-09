@@ -51,22 +51,28 @@ from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 
 
-from src.core.prompts import AGENT_SYSTEM_PROMPT, COMPANION_SYSTEM_PROMPT, ROUTER_PROMPT
+from src.core.prompts import AGENT_SYSTEM_PROMPT, COMPANION_SYSTEM_PROMPT, ROUTER_PROMPT, build_system_prompt
 
 
 class FSAR:
     """FSAR main class."""
 
     def __init__(self):
+        from src.memory.cards import CardRepo
         self.config = get_config()
         self.short_memory = ShortTermMemory()
         self.long_memory = LongTermMemory()
+        self.card_repo = CardRepo(Path(self.config.get("memory.sqlite_path", "data/memory.db")))
+        with self.card_repo._connect() as _conn:
+            self.card_repo.ensure_tables(_conn)
+        self.card_repo.seed_builtins_if_empty()
         self.orchestrator = None  # initialized lazily with LLM client
         self.tool_registry: ToolRegistry = create_default_registry()
         # P4: MCP servers — manager spawns subprocesses and registers tools.
         self.mcp = MCPManager(
             self.tool_registry,
             config_path=self.config.get("mcp.config_path", "config/mcp_servers.yaml"),
+            fsar_servers=self.config.get_mcp_servers(),
         )
         # P2: permissions + risk engine
         self.permissions: PermissionState = load_permissions()
@@ -330,7 +336,12 @@ class FSAR:
         tools = self.tool_registry.get_tools_for_llm()
 
         messages = [
-            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+            {"role": "system", "content": build_system_prompt(
+                mode="agent",
+                character=self.card_repo.get_default_character(),
+                user_card=self.card_repo.get_default_user_card(),
+                memory_block="", strategy_block="", experience_block="",
+            )},
         ]
         # P3 memory injection: profile / preferences / relevant history as a system context block
         mem_ctx = self._build_memory_context(user_input)
@@ -450,7 +461,12 @@ class FSAR:
         from rich.markdown import Markdown
         main_text = ""
         try:
-            system_prompt = COMPANION_SYSTEM_PROMPT
+            system_prompt = build_system_prompt(
+                mode="companion",
+                character=self.card_repo.get_default_character(),
+                user_card=self.card_repo.get_default_user_card(),
+                memory_block="", strategy_block="", experience_block="",
+            )
             mem_ctx = self._build_memory_context(user_input)
             messages = [{"role": "system", "content": system_prompt}]
             if mem_ctx:
