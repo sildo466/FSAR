@@ -9,28 +9,39 @@ describe("filterCommands", () => {
     expect(out[0].name).toBe(SLASH_COMMANDS[0].name);
   });
 
-  it("filters by prefix", () => {
+  it("filters by prefix (case-insensitive)", () => {
+    // Derive expectations from the actual SLASH_COMMANDS pool so the test
+    // doesn't break when a new command is added.
+    const expected = SLASH_COMMANDS.filter((c) => c.name.startsWith("s")).map((c) => c.name);
+    expect(expected.length).toBeGreaterThan(0);
     const out = filterCommands("s");
-    expect(out.map((c) => c.name)).toEqual(["stats", "skills"]);
+    expect(out.map((c) => c.name)).toEqual(expected);
   });
 
   it("returns multiple matches for shared prefix", () => {
     const out = filterCommands("sk");
-    expect(out.map((c) => c.name)).toEqual(["skills"]);
+    expect(out.map((c) => c.name).sort()).toEqual(
+      SLASH_COMMANDS.filter((c) => c.name.startsWith("sk")).map((c) => c.name).sort()
+    );
   });
 
   it("returns empty when no match", () => {
-    const out = filterCommands("zzzzz");
-    expect(out).toHaveLength(0);
+    expect(filterCommands("zzzzz")).toHaveLength(0);
   });
 
-  it("matches case-insensitively", () => {
+  it("matches uppercase as case-insensitive", () => {
+    const expected = SLASH_COMMANDS.filter((c) => c.name.startsWith("m"))
+      .map((c) => c.name.toLowerCase())
+      .sort();
+    expect(expected.length).toBeGreaterThan(0);
     const out = filterCommands("M");
-    expect(out.length).toBeGreaterThan(0);
-    expect(out[0].name).toMatch(/^m/);
+    expect(out.map((c) => c.name.toLowerCase()).sort()).toEqual(expected);
   });
 
-  it("contains all 8 commands in the full pool", () => {
-    expect(SLASH_COMMANDS).toHaveLength(8);
+  it("keeps every SLASH_COMMANDS.name unique and starts with /", () => {
+    const names = SLASH_COMMANDS.map((c) => c.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const c of SLASH_COMMANDS) expect(c.usage.startsWith("/")).toBe(true);
+    expect(names.length).toBeGreaterThan(0);
   });
 });

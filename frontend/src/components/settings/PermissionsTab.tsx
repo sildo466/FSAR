@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { useWS } from "../../stores/ws";
 
@@ -9,10 +9,11 @@ interface PermissionsConfig {
   path_rules?: Array<{ pattern: string; mode?: string }>;
 }
 
-const TOOL_NAMES = [
-  "run_command", "file_ops", "web_search", "browser_use",
-  "wechat_send", "remember_fact", "learn_experience",
-];
+interface ToolInfo {
+  name: string;
+  description: string;
+  risk_level: string;
+}
 
 function getTools(config: Record<string, unknown> | null): NonNullable<PermissionsConfig["tools"]> {
   return (((config?.permissions ?? {}) as Record<string, unknown>).tools as PermissionsConfig["tools"]) ?? {};
@@ -28,11 +29,23 @@ function getMode(config: Record<string, unknown> | null): string {
 
 export function PermissionsTab() {
   const send = useWS((s) => s.send);
+  const client = useWS((s) => s.client);
   const config = useWS((s) => s.config);
   const tools = getTools(config);
   const rules = getRules(config);
   const mode = getMode(config);
   const [newPattern, setNewPattern] = useState("");
+  const [toolList, setToolList] = useState<ToolInfo[]>([]);
+
+  useEffect(() => {
+    send({ type: "tools.list" });
+    return client?.on((msg) => {
+      if (msg.type === "tools.list_result") {
+        const incoming = (msg.tools as unknown as ToolInfo[]) ?? [];
+        setToolList([...incoming].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+    });
+  }, [send, client]);
 
   function setMode(next: string) {
     send({ type: "permissions.patch", patch: { "permissions.mode": next } });
@@ -81,29 +94,44 @@ export function PermissionsTab() {
             <thead className="bg-bg text-text-muted font-mono text-[10px] uppercase tracking-[0.1em]">
               <tr>
                 <th className="text-left px-3 py-2">Tool</th>
+                <th className="text-left px-3 py-2">Risk</th>
                 <th className="text-left px-3 py-2">Mode</th>
               </tr>
             </thead>
             <tbody>
-              {TOOL_NAMES.map((name) => {
-                const t = tools[name] || {};
-                return (
-                  <tr key={name} className="border-t border-border">
-                    <td className="px-3 py-2 font-mono">#{name}</td>
-                    <td className="px-3 py-2">
-                      <select
-                        value={t.mode || "ask"}
-                        onChange={(e) => setToolMode(name, e.target.value)}
-                        className="bg-bg border border-border rounded px-2 h-7 text-[12px] font-mono"
-                      >
-                        <option value="ask">ask</option>
-                        <option value="trust">trust</option>
-                        <option value="deny">deny</option>
-                      </select>
-                    </td>
-                  </tr>
-                );
-              })}
+              {toolList.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-3 py-3 text-text-muted text-center">
+                    Loading tools…
+                  </td>
+                </tr>
+              ) : (
+                toolList.map((t) => {
+                  const override = tools[t.name] || {};
+                  return (
+                    <tr key={t.name} className="border-t border-border">
+                      <td className="px-3 py-2 font-mono">
+                        <div>#{t.name}</div>
+                        <div className="text-[10px] text-text-muted font-sans">{t.description}</div>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-text-muted">
+                        {t.risk_level}
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={override.mode || "ask"}
+                          onChange={(e) => setToolMode(t.name, e.target.value)}
+                          className="bg-bg border border-border rounded px-2 h-7 text-[12px] font-mono"
+                        >
+                          <option value="ask">ask</option>
+                          <option value="trust">trust</option>
+                          <option value="deny">deny</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
