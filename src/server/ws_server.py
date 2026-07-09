@@ -3,14 +3,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
+from src.server.handlers import card as card_handler
+from src.server.handlers import conversation as conversation_handler
 from src.server.handlers import insights as insights_handler
 from src.server.handlers import library as library_handler
 from src.server.handlers import memory as memory_handler
@@ -18,6 +23,7 @@ from src.server.handlers import mcp as mcp_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
 from src.server.handlers import settings as settings_handler
+from src.server.handlers import tools as tools_handler
 from src.server.handlers import usage as usage_handler
 from src.server.risk_bridge import RiskBridge
 
@@ -35,6 +41,7 @@ _ctx: dict[str, Any] = {
     "engine": _engine,
 }
 chat_handler.set_engine(_engine)
+conversation_handler.set_engine(_engine)
 
 
 @app.on_event("startup")
@@ -55,17 +62,29 @@ async def fsar_yaml() -> dict[str, str]:
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
+    chat_handler.register_socket(ws)
     await ws.send_json({"type": "snapshot", "config": _config._settings})
+    sessions = _engine.session_store.list(limit=50)
+    await ws.send_json({
+        "type": "conversation.list",
+        "sessions": [s.to_dict() for s in sessions],
+    })
     try:
         while True:
             msg = await ws.receive_json()
             await _dispatch(msg, ws)
     except WebSocketDisconnect:
         logger.debug("ws client disconnected")
+    finally:
+        chat_handler.unregister_socket(ws)
 
 
 async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await risk_handler.dispatch(_bridge, ws, msg):
+        return
+    if await conversation_handler.dispatch(ws, msg):
+        return
+    if await card_handler.dispatch(ws, msg, _ctx):
         return
     if await reflection_handler.dispatch(ws, msg, _config):
         return
@@ -79,6 +98,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
         return
     if await insights_handler.dispatch(ws, msg, _ctx):
         return
+    if await tools_handler.dispatch(ws, msg, _ctx):
+        return
     if await usage_handler.dispatch(ws, msg, _ctx):
         return
     if await chat_handler.dispatch(ws, msg):
@@ -87,8 +108,53 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
         await ws.send_json({"type": "heartbeat", "ts": 0})
 
 
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    """Serve frontend/dist as the same-origin GUI.
+
+    Layout (registered in order so specific routes win):
+    1. /assets/* → StaticFiles (existing build artifacts)
+    2. /         → index.html
+    3. /<path>   → SPA fallback to index.html (so React Router can take over)
+    """
+    if not _FRONTEND_DIST.exists():
+        @app.get("/", include_in_schema=False)
+        async def _frontend_missing() -> dict[str, str]:
+            return {
+                "error": "frontend/dist not built",
+                "hint": "cd frontend && npm install && npm run build",
+            }
+        return
+
+    assets_dir = _FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    index_file = _FRONTEND_DIST / "index.html"
+
+    @app.get("/", include_in_schema=False)
+    async def _root() -> FileResponse:
+        return FileResponse(str(index_file))
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def _spa(full_path: str) -> FileResponse:
+        return FileResponse(str(index_file))
+
+
+_mount_frontend(app)
+
+
 def start(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Run the server (blocking)."""
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    import sys
+
+    # `python -m src.server.ws_server [host [port]]` for CLI convenience.
+    start(*sys.argv[1:3])
