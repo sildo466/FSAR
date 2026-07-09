@@ -198,10 +198,10 @@ class CardRepo:
                 conn.execute(
                     """
                     UPDATE character_cards SET
-                        name=?, avatar_path=?, description=?, personality=?
-                        scenario=?, system_prompt_override=?
-                        example_dialogues=?, tags=?, is_default=?, created_by=?
-                        created_at=?, updated_at=?
+                        name=?, avatar_path=?, description=?, personality=?,
+                        scenario=?, system_prompt_override=?,
+                        example_dialogues=?, tags=?, is_default=?, created_by=?,
+                        created_at=?, updated_at=?,
                         emotion_state=?, emotion_schema=?, emotion_formulas=?
                     WHERE id=?
                     """,

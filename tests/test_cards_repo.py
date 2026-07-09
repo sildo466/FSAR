@@ -99,3 +99,20 @@ def test_delete_character(repo):
 
 def test_delete_character_returns_false_when_missing(repo):
     assert repo.delete_character(999) is False
+
+
+def test_upsert_character_update_branch_persists_changes(repo):
+    cid = repo.upsert_character(
+        _make_card(name="FSAR", description="old desc", tags=["a", "b"])
+    )
+    fetched = repo.get_character(cid)
+    assert fetched is not None
+    fetched.description = "new desc"
+    fetched.tags = ["x", "y", "z"]
+    assert fetched.id is not None
+    repo.upsert_character(fetched)
+    reloaded = repo.get_character(cid)
+    assert reloaded is not None
+    assert reloaded.description == "new desc"
+    assert reloaded.tags == ["x", "y", "z"]
+    assert reloaded.name == "FSAR"
