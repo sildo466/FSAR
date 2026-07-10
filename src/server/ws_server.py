@@ -29,6 +29,22 @@ from src.server.risk_bridge import RiskBridge
 
 from src.server.chat_engine import ChatEngine
 
+def ensure_config(yaml_path: Path, template_path: Path) -> None:
+    """First-run detection: copy template to yaml_path if yaml is missing.
+
+    Raises FileNotFoundError if the template is also missing (cannot bootstrap).
+    """
+    if yaml_path.exists():
+        return
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"cannot bootstrap: template missing at {template_path}"
+        )
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
+    logger.info("First run: created %s from template", yaml_path)
+
+
 app = FastAPI()
 _config = FsarConfig()
 _bridge = RiskBridge()
@@ -173,6 +189,9 @@ def start(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Run the server (blocking)."""
     import uvicorn
 
+    config_path = Path("config/fsar.yaml")
+    template_path = Path("config/fsar.yaml.template")
+    ensure_config(config_path, template_path)
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
