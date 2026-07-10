@@ -20,6 +20,7 @@ from src.server.handlers import insights as insights_handler
 from src.server.handlers import library as library_handler
 from src.server.handlers import memory as memory_handler
 from src.server.handlers import mcp as mcp_handler
+from src.server.handlers import provider as provider_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
 from src.server.handlers import settings as settings_handler
@@ -142,6 +143,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await usage_handler.dispatch(ws, msg, _ctx):
         return
     if await chat_handler.dispatch(ws, msg):
+        return
+    if await provider_handler.dispatch(ws, msg, _config):
         return
     if msg.get("type") == "heartbeat":
         await ws.send_json({"type": "heartbeat", "ts": 0})
