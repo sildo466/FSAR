@@ -45,6 +45,7 @@ from src.server.risk_bridge import RiskBridge
 from src.server.title_generator import TitleGenerator
 from src.tools import ToolRegistry, create_default_registry
 from src.utils.fsar_config import FsarConfig
+from src.providers.llm.deepseek import is_deepseek_official, prepare_messages as deepseek_prepare_messages
 from src.utils.llm_factory import cached_chat_completion, make_llm_client
 from src.utils.logger import logger
 
@@ -358,6 +359,7 @@ class ChatEngine:
         self._ensure_short(conv_id)
         messages.extend(self._short_cache[conv_id])
         messages.append({"role": "user", "content": user_input})
+        deepseek = is_deepseek_official(str(getattr(client, "base_url", "") or ""))
 
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         set_task_context(task_id=task_id, session_id=conv_id)
@@ -369,21 +371,29 @@ class ChatEngine:
                     outcome = "failure"
                     final_text = "(Cancelled.)"
                     break
+                call_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "tools": tools if tools else None,
+                    "tool_choice": "auto" if tools else None,
+                    "max_tokens": 4096,
+                }
+                if deepseek:
+                    call_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                 resp = await asyncio.to_thread(
                     cached_chat_completion,
                     client,
-                    model=model,
-                    messages=messages,
-                    tools=tools if tools else None,
-                    tool_choice="auto" if tools else None,
-                    max_tokens=4096,
+                    **call_kwargs,
                 )
                 self._record_llm_usage(task_id, resp)
                 message = resp.choices[0].message
                 if not message.tool_calls:
                     final_text = message.content or ""
                     break
-                messages.append(message)
+                if deepseek:
+                    messages.extend(deepseek_prepare_messages([message]))
+                else:
+                    messages.append(message)
                 for tool_call in message.tool_calls:
                     func_name = tool_call.function.name
                     try:
@@ -505,6 +515,7 @@ class ChatEngine:
         self._ensure_short(conv_id)
         messages.extend(self._short_cache[conv_id])
         messages.append({"role": "user", "content": user_input})
+        deepseek = is_deepseek_official(str(getattr(client, "base_url", "") or ""))
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -512,10 +523,16 @@ class ChatEngine:
 
         def _pump() -> None:
             try:
-                stream = cached_chat_completion(
-                    client, model=model, messages=messages,
-                    max_tokens=65536, stream=True, cache_enabled=False,
-                )
+                stream_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 65536,
+                    "stream": True,
+                    "cache_enabled": False,
+                }
+                if deepseek:
+                    stream_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                stream = cached_chat_completion(client, **stream_kwargs)
                 for chunk in stream:
                     if self._cancelled:
                         break
