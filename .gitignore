@@ -11,6 +11,7 @@ build/
 # 数据
 data/
 *.db
+!data/presets/   # vendor preset JSONs are part of the product
 
 # 日志
 *.log
