@@ -88,3 +88,51 @@ def test_complete_step_rejects_unknown_step(fsar_config):
 
     with pytest.raises(ValueError, match="unknown step"):
         asyncio.run(_run())
+
+
+def test_complete_sets_completed_true(fsar_config, tmp_path: Path):
+    async def _run():
+        for s in ALL_STEPS:
+            await onboarding_handler.onboarding_complete_step(
+                fsar_config=fsar_config, step=s, data={},
+            )
+        cfg = FsarConfig(fsar_config._path)
+        return await onboarding_handler.onboarding_complete(cfg)
+
+    result = asyncio.run(_run())
+    assert result["type"] == "onboarding.completed"
+    assert result["redirect"] == "/chat"
+    cfg2 = FsarConfig(fsar_config._path)
+    assert cfg2.get("onboarding.completed") is True
+    assert cfg2.get("onboarding.completed_at") is not None
+
+
+def test_complete_requires_all_three_steps(fsar_config):
+    async def _run():
+        await onboarding_handler.onboarding_complete_step(
+            fsar_config=fsar_config, step="provider", data={},
+        )
+        cfg = FsarConfig(fsar_config._path)
+        await onboarding_handler.onboarding_complete(cfg)
+
+    with pytest.raises(ValueError, match="incomplete"):
+        asyncio.run(_run())
+
+
+def test_reset_clears_completed(fsar_config, tmp_path: Path):
+    async def _run():
+        for s in ALL_STEPS:
+            await onboarding_handler.onboarding_complete_step(
+                fsar_config=fsar_config, step=s, data={},
+            )
+        cfg = FsarConfig(fsar_config._path)
+        await onboarding_handler.onboarding_complete(cfg)
+        cfg2 = FsarConfig(fsar_config._path)
+        return await onboarding_handler.onboarding_reset(cfg2)
+
+    result = asyncio.run(_run())
+    assert result["required"] is True
+    assert result["completed_steps"] == []
+    cfg3 = FsarConfig(fsar_config._path)
+    assert cfg3.get("onboarding.completed") is False
+    assert cfg3.get("onboarding.completed_steps") == []

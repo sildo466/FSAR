@@ -104,7 +104,17 @@ async def fsar_yaml() -> dict[str, str]:
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     chat_handler.register_socket(ws)
-    await ws.send_json({"type": "snapshot", "config": _config._settings})
+    onboarding_state = await onboarding_handler.onboarding_get_state(_config)
+    await ws.send_json({
+        "type": "snapshot",
+        "config": _config._settings,
+        "onboarding": {
+            "required": onboarding_state["required"],
+            "completed": onboarding_state["completed"],
+            "completed_steps": onboarding_state["completed_steps"],
+            "current_step": onboarding_state["current_step"],
+        },
+    })
     sessions = _engine.session_store.list(limit=50)
     await ws.send_json({
         "type": "conversation.list",

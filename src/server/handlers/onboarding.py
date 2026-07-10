@@ -43,6 +43,16 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
         except ValueError as e:
             await ws.send_json({"type": "onboarding.error", "code": "bad_request", "message": str(e)})
         return True
+    if t == "onboarding.complete":
+        try:
+            result = await onboarding_complete(config)
+            await ws.send_json(result)
+        except ValueError as e:
+            await ws.send_json({"type": "onboarding.error", "code": "bad_request", "message": str(e)})
+        return True
+    if t == "onboarding.reset":
+        await ws.send_json(await onboarding_reset(config))
+        return True
     return False
 
 
@@ -74,3 +84,27 @@ async def onboarding_complete_step(
         fsar_config.patch("onboarding.started_at", _now_iso())
     fsar_config.save()
     return {"type": "onboarding.step_completed", "step": step}
+
+
+async def onboarding_complete(fsar_config: FsarConfig) -> dict:
+    """Mark onboarding.completed = true; only succeeds if all 3 steps done."""
+    steps = list(fsar_config.get("onboarding.completed_steps") or [])
+    missing = [s for s in ALL_STEPS if s not in steps]
+    if missing:
+        raise ValueError(f"onboarding incomplete: missing steps {missing}")
+    fsar_config.patch("onboarding.completed", True)
+    fsar_config.patch("onboarding.completed_at", _now_iso())
+    fsar_config.save()
+    logger.info("onboarding.completed")
+    return {"type": "onboarding.completed", "redirect": "/chat"}
+
+
+async def onboarding_reset(fsar_config: FsarConfig) -> dict:
+    """Reset onboarding state so wizard reappears on next snapshot."""
+    fsar_config.patch("onboarding.completed", False)
+    fsar_config.patch("onboarding.completed_at", None)
+    fsar_config.patch("onboarding.completed_steps", [])
+    fsar_config.patch("onboarding.last_step", None)
+    fsar_config.save()
+    logger.info("onboarding.reset")
+    return await onboarding_get_state(fsar_config)
