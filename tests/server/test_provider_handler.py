@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from src.server.handlers import provider as provider_handler
@@ -81,3 +83,192 @@ def test_create_builtin_unknown_preset_raises(fsar_config):
 
     with pytest.raises(ValueError, match="preset not found"):
         asyncio.run(_run())
+
+
+def test_test_connection_openai_compat_200():
+    async def _run():
+        fake_response = AsyncMock(status_code=200, json=lambda: {"data": [{"id": "x"}]})
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="openai",
+                base_url="https://api.openai.com/v1",
+                api_key="sk-test",
+                model="gpt-4o-mini",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+    assert result["error"] is None
+
+
+def test_test_connection_openai_compat_401():
+    async def _run():
+        fake_response = AsyncMock(status_code=401)
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="openai",
+                base_url="https://api.openai.com/v1",
+                api_key="sk-bad",
+                model="gpt-4o-mini",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["error"] == "auth_failed"
+
+
+def test_test_connection_openai_compat_timeout():
+    async def _run():
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = httpx.TimeoutException("timeout")
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="openai",
+                base_url="https://api.openai.com/v1",
+                api_key="sk-test",
+                model="gpt-4o-mini",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["error"] == "unreachable"
+
+
+def test_test_connection_anthropic_uses_user_model():
+    async def _run():
+        fake_response = AsyncMock(status_code=200, json=lambda: {"content": []})
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.post.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return (
+                await provider_handler.provider_test_connection(
+                    preset_id="anthropic",
+                    base_url="https://api.anthropic.com/v1",
+                    api_key="sk-test",
+                    model="claude-haiku-4-5-20251001",
+                ),
+                mock_instance,
+            )
+
+    result, mock_instance = asyncio.run(_run())
+    assert result["ok"] is True
+    call_args = mock_instance.post.call_args
+    assert "claude-haiku-4-5-20251001" in str(call_args)
+
+
+def test_test_connection_anthropic_model_required():
+    async def _run():
+        return await provider_handler.provider_test_connection(
+            preset_id="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            api_key="sk-test",
+            model="",
+        )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["error"] == "model_required"
+
+
+def test_test_connection_anthropic_401():
+    async def _run():
+        fake_response = AsyncMock(status_code=401)
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.post.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="anthropic",
+                base_url="https://api.anthropic.com/v1",
+                api_key="sk-bad",
+                model="claude-haiku-4-5-20251001",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["error"] == "auth_failed"
+
+
+def test_test_connection_google_deferred():
+    async def _run():
+        return await provider_handler.provider_test_connection(
+            preset_id="google",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="x",
+            model="gemini-2.0-flash",
+        )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["error"] == "deferred"
+
+
+def test_fetch_models_openai_compat():
+    async def _run():
+        fake_response = AsyncMock(status_code=200, json=lambda: {"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4o"}]})
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_fetch_models(
+                preset_id="openai",
+                base_url="https://api.openai.com/v1",
+                api_key="sk-test",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+    assert "gpt-4o-mini" in result["models"]
+    assert "gpt-4o" in result["models"]
+
+
+def test_fetch_models_anthropic_empty():
+    async def _run():
+        return await provider_handler.provider_fetch_models(
+            preset_id="anthropic",
+            base_url="https://api.anthropic.com/v1",
+            api_key="sk-test",
+        )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is False
+    assert result["models"] == []
+
+
+def test_dispatch_test_connection_sends_response(fsar_config):
+    from fastapi import WebSocket
+
+    async def _run():
+        ws = AsyncMock()
+        ws.send_json = AsyncMock()
+        fake_response = AsyncMock(status_code=200, json=lambda: {"data": [{"id": "x"}]})
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            handled = await provider_handler.dispatch(
+                ws,
+                {
+                    "type": "provider.test_connection",
+                    "preset_id": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": "sk-test",
+                    "model": "gpt-4o-mini",
+                },
+                fsar_config,
+            )
+        return handled, ws
+
+    handled, ws = asyncio.run(_run())
+    assert handled is True
+    sent = ws.send_json.await_args.args[0]
+    assert sent["type"] == "provider.test_result"
+    assert sent["ok"] is True

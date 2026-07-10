@@ -2,6 +2,7 @@
 """Provider WS handler: list_presets, create_builtin, test_connection, fetch_models."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from fastapi import WebSocket
 
 from src.providers.llm.presets import get_preset_by_id, load_presets
 from src.utils.fsar_config import FsarConfig
+
+logger = logging.getLogger(__name__)
 
 _PRESETS_PATH = Path("data/presets/llm-providers.json")
 _TIMEOUT_S = 5.0
@@ -39,6 +42,23 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
             await ws.send_json(result)
         except ValueError as e:
             await ws.send_json({"type": "provider.error", "code": "bad_request", "message": str(e)})
+        return True
+    if t == "provider.test_connection":
+        result = await provider_test_connection(
+            preset_id=msg.get("preset_id", ""),
+            base_url=msg.get("base_url", ""),
+            api_key=msg.get("api_key", ""),
+            model=msg.get("model", ""),
+        )
+        await ws.send_json(result)
+        return True
+    if t == "provider.fetch_models":
+        result = await provider_fetch_models(
+            preset_id=msg.get("preset_id", ""),
+            base_url=msg.get("base_url", ""),
+            api_key=msg.get("api_key", ""),
+        )
+        await ws.send_json(result)
         return True
     return False
 
@@ -93,3 +113,122 @@ async def provider_create_builtin(
         fsar_config.patch("llm.active", new_id)
     fsar_config.save()
     return {"type": "provider.created", "provider": provider_row}
+
+
+async def provider_test_connection(
+    preset_id: str, base_url: str, api_key: str, model: str,
+) -> dict:
+    """Probe a vendor's endpoint to verify reachability + auth + model.
+
+    Returns one of: ok / unreachable / auth_failed / bad_request /
+    model_required / deferred / unknown. Uses user-typed model for anthropic.
+    """
+    presets = load_presets(_PRESETS_PATH)
+    preset = get_preset_by_id(presets, preset_id)
+    if preset is None:
+        return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": None}
+    if preset.get("deferred"):
+        return {"type": "provider.test_result", "ok": False, "error": "deferred", "latency_ms": None}
+
+    family = preset["family"]
+    started = datetime.now(timezone.utc)
+
+    try:
+        if family == "openai_compat":
+            return await _test_openai_compat(base_url, api_key, started)
+        elif family == "anthropic":
+            if not model or not model.strip():
+                return {"type": "provider.test_result", "ok": False, "error": "model_required", "latency_ms": None}
+            return await _test_anthropic(base_url, api_key, model, preset.get("default_headers", {}), started)
+        else:
+            return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": None}
+    except Exception as e:
+        logger.warning("test_connection unexpected error: %s", e)
+        return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": None}
+
+
+async def _test_openai_compat(base_url: str, api_key: str, started: datetime) -> dict:
+    url = base_url.rstrip("/") + "/models"
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        try:
+            r = await client.get(url, headers=headers)
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
+            return {"type": "provider.test_result", "ok": False, "error": "unreachable",
+                    "latency_ms": _elapsed_ms(started)}
+    latency = _elapsed_ms(started)
+    if r.status_code in (200,):
+        return {"type": "provider.test_result", "ok": True, "error": None, "latency_ms": latency}
+    if r.status_code in (401, 403):
+        return {"type": "provider.test_result", "ok": False, "error": "auth_failed", "latency_ms": latency}
+    return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": latency}
+
+
+async def _test_anthropic(
+    base_url: str, api_key: str, model: str, default_headers: dict, started: datetime,
+) -> dict:
+    url = base_url.rstrip("/") + "/messages"
+    headers = {
+        "x-api-key": api_key,
+        "content-type": "application/json",
+        "anthropic-version": default_headers.get("anthropic-version", "2023-06-01"),
+    }
+    body = {
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        try:
+            r = await client.post(url, headers=headers, json=body)
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
+            return {"type": "provider.test_result", "ok": False, "error": "unreachable",
+                    "latency_ms": _elapsed_ms(started)}
+    latency = _elapsed_ms(started)
+    if r.status_code in (200, 400):
+        return {"type": "provider.test_result", "ok": True, "error": None, "latency_ms": latency}
+    if r.status_code in (401, 403):
+        return {"type": "provider.test_result", "ok": False, "error": "auth_failed", "latency_ms": latency}
+    if r.status_code in (404, 405):
+        return {"type": "provider.test_result", "ok": False, "error": "bad_request", "latency_ms": latency}
+    return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": latency}
+
+
+def _elapsed_ms(started: datetime) -> int:
+    return int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+
+
+async def provider_fetch_models(preset_id: str, base_url: str, api_key: str) -> dict:
+    """GET {base_url}{model_list_url_suffix}; return list of model ids."""
+    presets = load_presets(_PRESETS_PATH)
+    preset = get_preset_by_id(presets, preset_id)
+    if preset is None or preset.get("model_list_url_suffix") is None:
+        return {"type": "provider.models", "ok": False, "models": [], "error": "no_model_list_endpoint"}
+    url = base_url.rstrip("/") + preset["model_list_url_suffix"]
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+            r = await client.get(url, headers=headers)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
+        return {"type": "provider.models", "ok": False, "models": [], "error": "unreachable"}
+    if r.status_code != 200:
+        return {"type": "provider.models", "ok": False, "models": [], "error": f"http_{r.status_code}"}
+    data = r.json()
+    models = []
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+        for m in data["data"]:
+            if isinstance(m, dict) and "id" in m:
+                models.append(m["id"])
+            elif isinstance(m, str):
+                models.append(m)
+    elif isinstance(data, list):
+        for m in data:
+            if isinstance(m, dict) and "id" in m:
+                models.append(m["id"])
+            elif isinstance(m, str):
+                models.append(m)
+    return {"type": "provider.models", "ok": True, "models": models, "error": None}
