@@ -41,6 +41,7 @@ export type ClientMsg =
   | { type: "usage.range"; from: string; to: string }
   | { type: "llm.set_active"; provider_id: string }
   | { type: "permissions.patch"; patch: Record<string, unknown> }
+  | { type: "provider.list_presets" }
   | { type: "style.patch"; patch: Record<string, unknown> }
   | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
   | { type: "mcp.list" }
