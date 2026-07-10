@@ -12,6 +12,19 @@
   --color-border-strong: var(--border-strong);
 }
 
+@utility text-h2 {
+  font-family: "Geist Sans Variable", "Geist Sans", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+@utility text-caption {
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 :root {
   --bg: #fafafa;
   --surface: #ffffff;
