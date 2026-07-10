@@ -12,6 +12,7 @@ import { Insights } from "./pages/Insights";
 import { Cards } from "./pages/Cards";
 import { Settings } from "./pages/Settings";
 import { Usage } from "./pages/Usage";
+import { Onboarding } from "./pages/Onboarding";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
 
 export function App() {
@@ -23,6 +24,9 @@ export function App() {
   useThemeApplication();
   useMotionApplication();
   useFontScaleApplication();
+
+  const config = useWS((s) => s.config) as Record<string, unknown> | null;
+  const required = (config?.onboarding as { required?: boolean } | undefined)?.required === true;
 
   return (
     <BrowserRouter>
@@ -44,6 +48,7 @@ export function App() {
         </main>
         </div>
       </div>
+      {required && <Onboarding />}
     </BrowserRouter>
   );
 }

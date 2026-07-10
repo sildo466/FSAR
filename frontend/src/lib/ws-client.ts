@@ -68,8 +68,23 @@ export interface StoredMessage {
   timestamp: string;
 }
 
+export interface OnboardingStatePayload {
+  required: boolean;
+  completed: boolean;
+  completed_steps: string[];
+  current_step: string | null;
+}
+
 export type ServerMsg =
-  | { type: "snapshot"; config: Record<string, unknown>; runtime?: Record<string, unknown> }
+  | { type: "snapshot"; config: Record<string, unknown>; runtime?: Record<string, unknown>; onboarding?: OnboardingStatePayload }
+  | { type: "onboarding.state"; required: boolean; completed: boolean; completed_steps: string[]; current_step: string | null }
+  | { type: "provider.presets"; presets: Array<Record<string, unknown>> }
+  | { type: "provider.created"; provider: { id: string; preset_id: string; model: string; family: string; [k: string]: unknown } }
+  | { type: "provider.test_result"; ok: boolean; error: string | null; latency_ms: number | null }
+  | { type: "provider.models"; ok: boolean; models: string[]; error: string | null }
+  | { type: "onboarding.step_completed"; step: string }
+  | { type: "onboarding.completed"; redirect: string }
+  | { type: "onboarding.error"; step: string; code: string; message: string }
   | { type: "chat.delta"; message_id: string; content: string }
   | { type: "chat.thinking"; message_id: string; conversation_id?: string }
   | { type: "chat.tool_call"; message_id: string; call_id: string; tool: string; args: unknown; risk: "SAFE" | "LOW" | "MEDIUM" | "HIGH" }

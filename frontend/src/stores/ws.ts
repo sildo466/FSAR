@@ -40,7 +40,24 @@ export const useWS = create<WSStore>((set, get) => ({
     const client = new WSClient(wsUrl);
     client.on((msg: ServerMsg) => {
       if (msg.type === "snapshot") {
-        set({ config: msg.config, status: "connected" });
+        const nextConfig = { ...msg.config } as Record<string, unknown>;
+        if (msg.onboarding) {
+          nextConfig.onboarding = msg.onboarding;
+        }
+        set({ config: nextConfig, status: "connected" });
+      } else if (msg.type === "onboarding.state") {
+        const current = (get().config ?? {}) as Record<string, unknown>;
+        set({
+          config: {
+            ...current,
+            onboarding: {
+              required: msg.required,
+              completed: msg.completed,
+              completed_steps: msg.completed_steps,
+              current_step: msg.current_step,
+            },
+          },
+        });
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {
