@@ -190,7 +190,8 @@ User completes Step 2 (user card)
   → useWizardState.step = "character_card"
 
 User completes Step 3 (character card, mode = use_default)
-  → POST card.set_default(kind="character", id=FSAR-zh.id)
+  → Server resolves default character card by `card.list(kind="character", filter={"is_default": 1})` → FSAR-zh.id
+  → POST card.set_default(kind="character", id=<resolved-id>)
   → POST onboarding.complete_step("character_card", {mode: "skipped"})
   → useWizardState.step = "submitting"
   → POST onboarding.complete
@@ -272,7 +273,7 @@ User completes Step 3 (character card, mode = use_default)
 | 21 | volcengine | Volcengine / Doubao | ark.cn-beijing.volces.com/api/v3 | openai_compat |
 | 22 | mimo | Xiaomi MiMo | api.xiaomimimo.com/v1 | openai_compat |
 | 23 | cerebras | Cerebras AI | api.cerebras.ai/v1 | openai_compat |
-| 24 | cloudflare | Cloudflare Workers AI | api.cloudflare.com/client/v4/accounts/{id}/ai/v1 | openai_compat |
+| 24 | cloudflare | Cloudflare Workers AI | api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1 | openai_compat |
 | 25 | nvidia | NVIDIA NIM | integrate.api.nvidia.com/v1 | openai_compat |
 
 ### 4.3 `config/fsar.yaml` schema (wizard-relevant sections)
@@ -304,8 +305,8 @@ llm:
       updated_at: "2026-07-10T12:00:00Z"
 
 memory:
-  default_user_card_id: 1            # set by Step 2 (PL2.0 seed default-user)
-  default_character_card_id: 6       # set by Step 3 (FSAR-zh by default)
+  default_user_card_id: <resolved>   # set by Step 2 (PL2.0 seed default-user; id resolved at runtime via card.list)
+  default_character_card_id: <resolved>  # set by Step 3 (FSAR-zh; id resolved at runtime via card.list kind=character, is_default=1)
 ```
 
 ### 4.4 `data/avatars/` storage
@@ -377,14 +378,15 @@ memory:
 ### 5.3 Modified messages
 
 ```jsonc
-// snapshot (existing in P7.2) — adds onboarding field
+// snapshot (existing in P7.2) — adds top-level "onboarding" field
 { "type": "snapshot",
   "config": { ... },
-  "onboarding": {
-    "required": true,
-    "completed": false,
-    "completed_steps": [],
-    "current_step": "provider" } }
+  "onboarding": {                              // NEW: top-level field added to existing snapshot
+    "required": true,                          // computed: not fsar.yaml.onboarding.completed
+    "completed": false,                        // mirror of fsar.yaml.onboarding.completed
+    "completed_steps": [],                     // mirror of fsar.yaml.onboarding.completed_steps
+    "current_step": "provider"                 // first missing step in [provider, user_card, character_card]
+  } }
 ```
 
 ### 5.4 Error classification (test_connection)
@@ -504,7 +506,7 @@ mounted (snapshot.onboarding.required=true)
 | Progress indicator | 3 dots: active=fill, completed=check, upcoming=outline |
 | Preset grid | 4 columns × 7 rows for 25 (last row has 1); 240×120px cards; 16px gap |
 | Disabled preset card | `deferred: true` (Google) → 50% opacity, tooltip "Available in a future phase" |
-| Base URL field label | "Fill to /v1" (openai_compat, anthropic) or "Fill to /v3" (volcengine) |
+| Base URL field label | "Fill to /v1" (openai_compat, anthropic) or "Fill to /api/v3" (volcengine) or "Fill to /v1beta" (google). Label is derived from the last path segment of the preset's `default_base_url`. |
 | Model field [Load list] button | disabled if `model_list_url_suffix: null`; tooltip explains |
 | Test connection states | idle / testing (1.2s pulse) / ok ("✓ 234ms") / error ("✗ auth_failed") |
 | [Next] enabled (provider) | always; failure shows warning banner + button text → [Continue anyway] |
@@ -549,7 +551,7 @@ async def start():
             raise RuntimeError("config/fsar.yaml.template missing — cannot bootstrap")
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
-        log.info("First run: created config/fsar.yaml from template")
+        logger.info("First run: created config/fsar.yaml from template")
     cfg = FsarConfig.load(config_path)
     presets = load_presets(Path("data/presets/llm-providers.json"))
     # ... rest of server init
@@ -685,7 +687,7 @@ frontend/src/
 |---|---|---|---|
 | Q1 | Avatar crop UX scope (D-D10): mirror SillyTavern? | User (post-PL2.1) | No |
 | Q2 | When user re-runs `onboarding.reset`, does it delete created cards or just unset defaults? | TBD | No (defer to manual smoke) |
-| Q3 | Should `provider.create_builtin` validate model via fetch_models before save? | TBD | UX question |
+| Q3 | Should `provider.create_builtin` validate model via fetch_models before save? | RESOLVED: no — server trusts user-typed model; reason: Anthropic has no /models endpoint so partial validation across families is inconsistent; chat call later catches bad models | No |
 
 ---
 
