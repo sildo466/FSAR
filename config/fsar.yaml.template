@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # FSAR unified configuration — copy to fsar.yaml and edit.
 
+onboarding:
+  completed: false
+  completed_at: null
+  completed_steps: []
+  started_at: null
+  last_step: null
+
 llm:
   active: ""
   providers: []

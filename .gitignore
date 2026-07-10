@@ -13,6 +13,10 @@ data/
 *.db
 !data/presets/   # vendor preset JSONs are part of the product
 
+# Config (user-specific, generated on first run)
+config/fsar.yaml
+config/fsar.yaml.bak
+
 # 日志
 *.log
 
