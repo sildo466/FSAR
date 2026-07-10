@@ -25,6 +25,24 @@
   font-weight: 400;
 }
 
+@utility text-body-emphasis {
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@utility text-body {
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+@utility text-mono {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 400;
+}
+
 :root {
   --bg: #fafafa;
   --surface: #ffffff;
