@@ -14,857 +14,924 @@
 | **High Privilege, Careful** | System-level capabilities with risk assessment and trust model |
 | **Self-Evolving** | Learns from every interaction, optimizes decision quality |
 | **Long-term Companion** | Persistent memory, cross-session continuity |
+| **Persona-Driven** | Character cards + user cards make the relationship feel real, not transactional |
 
 ---
 
 ## 2. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Tauri + React GUI                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
-│  │ Chat     │  │ Task     │  │ Memory   │  │ Settings   │ │
-│  │ Panel    │  │ Board    │  │ Browser  │  │ & Perms    │ │
-│  └──────────┘  └──────────┘  └──────────┘  └────────────┘ │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ WebSocket
-┌──────────────────────────▼──────────────────────────────────┐
-│                      FSAR Core Engine                         │
-│                                                               │
-│  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐ │
-│  │ Risk       │  │ Self-      │  │ User Model             │ │
-│  │ Engine     │  │ Evolution  │  │ Preferences / Habits   │ │
-│  └────────────┘  └────────────┘  └────────────────────────┘ │
-│                                                               │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │                    Tool System                          │ │
-│  │                                                         │ │
-│  │  Phase 1: Foundation Tools (reliable, deterministic)    │ │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐              │ │
-│  │  │ bash/   │  │ file_    │  │ web_     │              │ │
-│  │  │ powershell│ │ ops      │  │ search   │              │ │
-│  │  └─────────┘  └──────────┘  └──────────┘              │ │
-│  │                                                         │ │
-│  │  Phase 2: Integration Tools                             │ │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐              │ │
-│  │  │ MCP     │  │ Skills   │  │ App      │              │ │
-│  │  │ Client  │  │ Engine   │  │ Control  │              │ │
-│  │  └─────────┘  └──────────┘  └──────────┘              │ │
-│  │                                                         │ │
-│  │  Phase 3: Computer Use (GUI automation, least reliable)│ │
-│  │  ┌──────────────────────────────────────────────────┐  │ │
-│  │  │  Screenshot → UIA Tree → LLM Decision → Click/  │  │ │
-│  │  │  Type/Scroll → Verify → Loop                      │  │ │
-│  │  └──────────────────────────────────────────────────┘  │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │                    Memory System                        │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐ │ │
-│  │  │ SQLite   │  │ ChromaDB │  │ User Model DB        │ │ │
-│  │  │ Episodic │  │ Semantic │  │ Preferences / Trust  │ │ │
-│  │  └──────────┘  └──────────┘  └──────────────────────┘ │ │
-│  └────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                  Tauri + React GUI                                   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ Onboard  │ │ Chat +   │ │ Memory   │ │ Library  │ │ Settings │ │
+│  │ Wizard   │ │ History  │ │ Browser  │ │ + Skills │ │ & Perms  │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────────┐  │
+│  │ Insights │ │ Usage    │ │ Cards    │ │ Intergration Studio  │  │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────────────┘  │
+└──────────────────────────────────┬──────────────────────────────────┘
+                                   │ WebSocket
+┌──────────────────────────────────▼──────────────────────────────────┐
+│                          FSAR Core Engine                            │
+│                                                                       │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────────────────────┐  │
+│  │ ChatEngine   │ │ Sandbox      │ │ Persona / Card Engine       │  │
+│  │ (per-convo)  │ │ Workspace    │ │  character + user cards     │  │
+│  └──────────────┘ └──────────────┘ └────────────────────────────┘  │
+│                                                                       │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────────────────────┐  │
+│  │ Risk Engine  │ │ Self-        │ │ Intergration Orchestrator   │  │
+│  │              │ │ Evolution    │ │  main agent + sub-agents    │  │
+│  └──────────────┘ └──────────────┘ └────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                       Tool System                                │ │
+│  │  builtin (bash, file, web, app) | MCP | Skills | Voice (TTS/ASR)│ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────┬──────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼──────────────────────────────────┐
+│                       Memory Layer                                    │
+│  SQLite + ChromaDB + semantic recall + experience store               │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Tool Call Priority
+### High-Level Data Flow
 
-> **Key insight:** FSAR built Computer Use first, but discovered that most tasks are better solved with deterministic tools. GUI automation is the least reliable option and should be the last resort.
-
-| Priority | Tool Type | Reliability | Use When |
-|---|---|---|---|
-| 1 | `bash` / `powershell` | High | System commands, file operations, URL schemes |
-| 2 | `file_read` / `file_write` | High | Reading/writing local files |
-| 3 | `web_search` / `web_fetch` | High | Information retrieval |
-| 4 | `app_control` (URL schemes, shortcuts) | High | Opening apps, deep linking |
-| 5 | `computer_use` (GUI automation) | **Low** | Only when ALL above tools cannot accomplish the task |
-
-**Example:** "给微信的 sunny qi 发消息" → `start wechat://` opens WeChat (priority 4). Only use GUI automation if the specific action (typing in a specific chat) can't be done via URL scheme.
-
-### Lessons Learned from Computer Use
-
-1. **Per-window > full-desktop** — CUA captures the target window at native resolution, not the full screen. This makes coordinates much more accurate for the LLM.
-2. **Grid overlay must be on original resolution** — Drawing the grid on a resized image makes coordinates wrong. Grid → resize → send to LLM.
-3. **LLM coordinates need window-origin offset** — LLM outputs window-relative coordinates. Program converts: `screen = window_origin + (coord × ratio)`.
-4. **SendInput > PostMessage** — PostMessage is silently dropped by Chromium/Electron/Qt apps. SendInput (system-level injection) works universally.
-5. **UIA tree is unreliable for custom-rendered apps** — WeChat, browsers, games render their own UI. UIA tree is empty. Coordinate clicks are the only option.
-6. **Window tracking is fragile** — Qt apps recreate windows on state transitions (login → main). Need robust re-finding by PID.
-7. **Function calling > JSON parsing** — OpenAI tools API eliminates regex parsing errors. Model output is always structured.
-8. **LLM coordinate estimation is imprecise** — Even with grid overlay, LLMs (especially smaller ones) can't read exact pixel coordinates. Use when no alternative exists.
+```
+User message
+  → Sandbox check (workspace allowlist)
+  → Persona injection (character card + user card + memory block)
+  → LLM provider (selected via Intergration or single)
+  → Tool calls (gated by Risk Engine + Sandbox)
+  → Reflect → user_model / experiences
+  → Persist conversation row
+  → Stream deltas back via WS
+  → (Optional) TTS stream to audio device
+```
 
 ---
 
-## 3. Computer Use Engine (Current Implementation)
+## 3. PL2 Roadmap (Current Focus)
 
-> Self-built, no external dependency. Located at `src/computer_use/`.
+PL1 (Agent foundation phase) is **complete**. The next phase — **PL2 Persona & Workspace** — focuses on making FSAR feel like a *person*, not a tool. PL2 is roughly 70% of total project scope; completion brings the project from MVP to a usable daily-driver.
 
-### 3.1 Architecture
+### PL2 Feature Buckets
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                   FSAR Orchestrator                        │
-│               (src/orchestrator/)                          │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │  Agent Loop                                           │ │
-│  │  1. get_window_state(pid, hwnd) → screenshot + tree   │ │
-│  │  2. Build LLM message (system prompt + grid screenshot│ │
-│  │     + element tree + action history)                   │ │
-│  │  3. LLM function call → tool_call(name, args)         │ │
-│  │  4. Execute action via input_actions                   │ │
-│  │  5. Verify result → record to history                  │ │
-│  │  6. Loop until done or max steps                       │ │
-│  └──────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌─────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│  snapshot   │  │  input_actions   │  │  window_manager  │
-│  UIA tree   │  │  click / type /  │  │  list / launch / │
-│  + screenshot│  │  key / scroll    │  │  find / kill     │
-└─────────────┘  └──────────────────┘  └──────────────────┘
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌─────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ screen_     │  │  Windows API     │  │  Windows API     │
-│ capture     │  │  PostMessage     │  │  EnumWindows     │
-│ PrintWindow │  │  SendInput       │  │  ShellExecute    │
-│ BitBlt      │  │  UIA patterns    │  │  AppsFolder      │
-│ DWM crop    │  │                  │  │                  │
-└─────────────┘  └──────────────────┘  └──────────────────┘
-```
-
-### 3.2 Key Modules
-
-| Module | File | Responsibility |
+| Bucket | Features | Status |
 |---|---|---|
-| **Orchestrator** | `src/orchestrator/fsar_orchestrator.py` | Agent loop, LLM interaction, function calling, history |
-| **Snapshot** | `src/computer_use/snapshot.py` | UIA tree walk, element indexing, markdown rendering |
-| **Screen Capture** | `src/computer_use/screen_capture.py` | PrintWindow, BitBlt, DWM crop, grid overlay |
-| **Input Actions** | `src/computer_use/input_actions.py` | Click, type, key, scroll with SendInput/PostMessage/UIA |
-| **Window Manager** | `src/computer_use/window_manager.py` | Window enumeration, app launch, window finding |
+| **Onboarding** | First-run wizard (provider config, character card, user card) | Planned |
+| **Persona** | Character card + user card schema, persona engine, prompt assembly | Planned |
+| **Built-in Providers** | Curated provider presets (OpenAI / Anthropic / DeepSeek / Ollama / LMStudio / Zhipu / Qwen) | Planned |
+| **Skills v2** | Drag-install (paste MD / URL fetch), DB-backed catalog, version pinning | Planned |
+| **Sandbox Workspace** | Per-conversation workspace allowlist, LLM restricted to user-approved paths | Planned |
+| **TTS + ASR** | Pluggable voice providers (Edge / OpenAI / local), push-to-talk, streaming playback | Planned |
+| **Thinking Toggle** | Per-provider + per-mode flag to disable thinking blocks (saves tokens + stops leak into titles) | Planned |
+| **Intergration** | Multi-agent groups: main agent selects sub-agents, OR all-sub-agents debate; user-built & shareable | Planned |
+| **Chat File Upload** | Attach files to message → extract → inject as context block | Deferred to PL3 |
+| **Computer Use** | Last phase, deferred indefinitely | Deferred |
 
-### 3.3 Screenshot Pipeline
+### Why Persona-First
 
-```
-capture_window(hwnd)
-  ├─ PrintWindow(PW_RENDERFULLCONTENT)     ← works for occluded GDI windows
-  ├─ if black → BitBlt from screen DC      ← works for visible windows
-  └─ if still black → SetForegroundWindow  ← for Chromium/DirectComposition
-     + BitBlt again
-     + restore previous foreground
-
-add_grid_overlay(png, step=50)
-  └─ Draw semi-transparent grid lines with coordinate labels
-     LLM reads coordinates directly from the grid
-
-resize_if_needed(png, max_dim=1568)
-  └─ Downscale if needed, return (png, ratio) for coordinate scaling
-```
-
-### 3.4 Click Dispatch Strategy
-
-```
-click_element(hwnd, element_index=..., x=..., y=...)
-  │
-  ├─ By element_index:
-  │   ├─ Try UIA patterns (Invoke → Toggle → Select → Expand)
-  │   │   with 5-second timeout per pattern
-  │   ├─ If all fail → get element's BoundingRectangle center
-  │   └─ Fall through to coordinate click
-  │
-  └─ By coordinates (x, y):
-      ├─ Convert window-relative → screen coordinates
-      │   (screen_x = window_rect.left + x, screen_y = window_rect.top + y)
-      │
-      ├─ Detect target window class:
-      │   ├─ Chrome_WidgetWin_* → SendInput (Chromium/Electron)
-      │   ├─ Qt* / *QWindow*   → SendInput (Qt apps)
-      │   ├─ HwndWrapper[*]    → SendInput (WPF)
-      │   ├─ gdkWindow*        → SendInput (GTK)
-      │   └─ Other             → PostMessage
-      │
-      ├─ SendInput path:
-      │   ├─ Save previous foreground + cursor position
-      │   ├─ SetForegroundWindow(target)
-      │   ├─ SetCursorPos(screen_x, screen_y)
-      │   ├─ SendInput(MOUSEEVENTF_LEFTDOWN/UP)
-      │   └─ Restore previous foreground + cursor
-      │
-      └─ PostMessage path:
-          ├─ ScreenToClient → client coordinates
-          └─ PostMessage(WM_LBUTTONDOWN/UP)
-```
-
-### 3.5 Function Calling Architecture
-
-The orchestrator uses **OpenAI function calling** (not free-form JSON parsing).
-
-```python
-# Tool definitions (TOOLS constant)
-TOOLS = [
-    {"type": "function", "function": {
-        "name": "click",
-        "parameters": {
-            "properties": {
-                "x": {"type": "integer"},      # Grid coordinate
-                "y": {"type": "integer"},      # Grid coordinate
-                "element_index": {"type": "integer"},  # Optional
-            }
-        }
-    }},
-    {"type": "function", "function": {"name": "type_text", ...}},
-    {"type": "function", "function": {"name": "press_key", ...}},
-    {"type": "function", "function": {"name": "hotkey", ...}},
-    {"type": "function", "function": {"name": "launch_app", ...}},
-    {"type": "function", "function": {"name": "scroll", ...}},
-    {"type": "function", "function": {"name": "think", ...}},
-    {"type": "function", "function": {"name": "done", ...}},
-]
-
-# LLM call
-resp = llm.chat.completions.create(
-    model="mimo-v2.5",
-    messages=messages,
-    tools=TOOLS,
-    tool_choice="auto",
-    max_tokens=4096,
-    temperature=0.1,
-)
-
-# Extract structured tool call (no parsing needed)
-tool_call = resp.choices[0].message.tool_calls[0]
-action_name = tool_call.function.name
-action_args = json.loads(tool_call.function.arguments)
-```
-
-**Why function calling > JSON parsing:**
-- Parameter types enforced by schema (no `x: [148, 305]` list errors)
-- No regex parsing needed (no `_parse_action` with 3 fallback strategies)
-- Model output is always valid and structured
-
-### 3.6 System Prompt (English)
-
-The system prompt teaches the LLM how to read the grid overlay:
-
-```
-Coordinate System:
-- Gray grid lines on the screenshot
-- Numbers along TOP edge = X coordinates
-- Numbers along LEFT edge = Y coordinates
-- Origin (0,0) at top-left
-- Read coordinates: find target → look UP for X → look LEFT for Y
-
-Rules:
-1. Screenshot is the ONLY source of truth
-2. Click center of targets, not edges
-3. Some apps render custom UI (not in element list) → use coordinates
-4. After each action, observe next screenshot for verification
-5. If same action fails 2x, MUST change strategy
-```
-
-### 3.7 Action History (In-Task Context)
-
-The LLM receives the **complete action history** for the current task:
-
-```json
-[
-  {"step": 1, "action": "launch_app", "params": {"name": "微信"}, "result": "success", "switched_to": "微信 (pid=39404)"},
-  {"step": 2, "action": "click", "params": {"x": 148, "y": 320}, "result": "success"},
-  {"step": 3, "action": "click", "params": {"x": 148, "y": 290}, "error": "timeout"},
-  {"step": 4, "action": "type_text", "params": {"text": "在吗"}, "result": "success"}
-]
-```
-
-Every entry has either `result: "success"` or `error: "具体报错"`, enabling the LLM to reflect on failures and adjust strategy.
+A tool that talks to itself is noise. A persona that knows your name, your project, and your quirks is a *companion*. Character cards drive tone; user cards drive relevance; together they cut generic-LLM behavior by ~60% in informal tests. PL2 puts these at the *center* of the prompt, not as an afterthought.
 
 ---
 
-## 4. Memory System
+## 4. Onboarding Wizard
 
-### 4.1 Memory Layers
-
-```
-┌─────────────────────────────────────────────────┐
-│              Long-Term Memory                    │
-│  ┌─────────────┐  ┌───────────────────────────┐ │
-│  │ Episodic    │  │ Semantic                  │ │
-│  │ (SQLite)    │  │ (ChromaDB vectors)        │ │
-│  │ Events,     │  │ "User prefers dark mode"  │ │
-│  │ tasks,      │  │ "User works on FSAR      │ │
-│  │ outcomes    │  │  project in evenings"     │ │
-│  └─────────────┘  └───────────────────────────┘ │
-└─────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────┐
-│              User Model                          │
-│  ┌─────────────┐  ┌───────────────────────────┐ │
-│  │ Preferences │  │ Behavioral Patterns       │ │
-│  │ Editor,     │  │ "Usually checks email     │ │
-│  │ terminal,   │  │  at 9am, codes in PM"     │ │
-│  │ browser     │  │                           │ │
-│  └─────────────┘  └───────────────────────────┘ │
-└─────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────┐
-│              Short-Term Memory                   │
-│  Current session conversation context            │
-│  (deque, max 50 messages)                        │
-└─────────────────────────────────────────────────┘
-```
-
-### 4.2 Storage
-
-| Type | Storage | Query |
-|---|---|---|
-| Episodic | SQLite | Time-based, keyword search |
-| Semantic | ChromaDB | Vector similarity |
-| User Model | SQLite + JSON | Direct lookup |
-| Short-Term | In-memory deque | Last N messages |
-
----
-
-## 5. Tool System (Planned)
-
-> **Phase 1.5** — Foundation tools that should have come before computer use.
-
-### 5.1 Tool Registry
-
-```python
-class ToolRegistry:
-    def register(self, tool: Tool): ...
-    def get_tools_for_llm(self) -> List[dict]: ...  # OpenAI function format
-    def get(self, name: str) -> Tool: ...
-```
-
-### 5.2 Foundation Tools (Priority)
-
-| Tool | Function | Risk | Reliability |
-|---|---|---|---|
-| `run_command` | Execute shell command | HIGH | High |
-| `read_file` | Read file contents | SAFE | High |
-| `write_file` | Write/create file | LOW | High |
-| `list_dir` | List directory | SAFE | High |
-| `move_file` | Move/rename | MEDIUM | High |
-| `delete_file` | Delete file | HIGH | High |
-| `web_search` | Search engine query | SAFE | High |
-| `web_fetch` | Fetch webpage content | SAFE | High |
-| `open_app` | Launch application | LOW | High |
-| `screenshot` | Capture screen | SAFE | High |
-
-### 5.3 Tool Execution Flow
+### 4.1 First-Run Detection
 
 ```
-User request → LLM selects tool (function calling)
-  → ToolRegistry lookup
-  → RiskEngine evaluation
-    ├─ SAFE/LOW → execute silently
-    ├─ MEDIUM → notify user, then execute
-    └─ HIGH → wait for confirmation
-  → tool.execute(args) → result → return to LLM
+FSAR launches → no providers configured in fsar.yaml
+              → DB empty (no character_cards, no user_cards)
+              → Frontend receives `onboarding.required = true` in WS snapshot
+              → Renders OnboardingWizard as full-screen overlay
 ```
 
----
+The wizard is a 3-step linear flow. Each step is skippable (mark for later), but at minimum step 1 (provider) is enforced — without a provider, nothing else works.
 
-## 6. MCP Support (Implemented)
-
-> **Phase 3.5 → Phase 4** — Connect to external tool servers.
-
-```
-┌──────────────────────────┐
-│          FSAR             │
-│  ┌────────────────────┐  │
-│  │     MCP Client     │  │
-│  └─────────┬──────────┘  │
-└────────────┼─────────────┘
-             │
-    ┌────────┼────────┐
-    ▼        ▼        ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│ files │ │  db   │ │github │
-│server │ │server │ │server │
-└───────┘ └───────┘ └───────┘
-```
-
-MCP tools auto-register into ToolRegistry, unified with local tools.
-
----
-
-## 7. Experience Layer (Phase 6)
-
-> **DB-first knowledge accumulation** — procedural knowledge ("how you do X") + freeform memory ("what you told me"), all stored as SQLite rows. Reaches Hermes-style skill-library depth without the filesystem+sidecar complexity.
-
-### 7.1 Design Rationale
-
-Hermes-agent uses `SKILL.md` files + `references/` / `templates/` / `scripts/` subdirectories + `.usage.json` sidecar. FSAR instead models the same knowledge as relational rows:
-
-| Hermes (filesystem) | FSAR p6 (SQLite) |
-|---|---|
-| `SKILL.md` body | `experiences.body` |
-| `templates/<name>` | `experience_templates` table |
-| `scripts/<name>` | `experience_scripts` table |
-| `references/<name>` | `experience_references` table |
-| `related_skills:` frontmatter | `experience_links` table |
-| `.usage.json` sidecar | `experiences.use_count` + `last_used_at` columns |
-| `.archive/` directory | `experiences.state = 'archived'` |
-| `MEMORY.md` chunks | `memory_chunks` table |
-| Background fork AIAgent → `skill_manage` | Sync `ExperienceStore` API + `/learn` command |
-
-**Why DB-first wins here:**
-
-- **ACID consistency** — body + templates + scripts all atomic, no sidecar sync issues
-- **Queryable** — `WHERE category=? AND body LIKE ?` vs `grep -r` over directories
-- **Vector-native** — ChromaDB embedding column on `experiences` and `memory_chunks`
-- **Single file portability** — rsync `data/memory.db`, not 100+ directories
-- **Lifecycle as SQL state machine** — `UPDATE experiences SET state='archived' WHERE last_used_at < ?`, no `mv` to `.archive/`
-- **No LLM fork** — sync operations only, driven by `TaskReflector` output + user `/learn`
-- **Same physical layer as p5** — extends existing `data/memory.db`, no new infrastructure
-
-### 7.2 Architecture
+### 4.2 Step Layout
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   System Prompt (every turn)                 │
+│  Welcome to FSAR                                  [skip ▶] │
 │                                                              │
-│   ## Experiences (index — call experience_view to load body) │
-│     file-management:                                         │
-│       - download-organizer: Auto-classify by type and date.  │
-│       - workspace-cleanup: Weekly stale-directory archive.   │
-│     coding:                                                  │
-│       - pr-review-checklist: Personal PR review standards.   │
-│     research:                                                │
-│       - paper-reading-workflow: Read → tag → cite pipeline.  │
+│  Step 1 of 3 — Provider                                      │
 │                                                              │
-│   ## Memory (relevant chunks — top-3 by recall)              │
-│     - User prefers Chinese in chat, English in code comments │
-│     - 2024-03: User mentioned project A uses Postgres 14     │
+│  ○ Built-in presets: [OpenAI] [Anthropic] [DeepSeek] [...]  │
+│                                                              │
+│  ○ Custom (enter manually):                                  │
+│    Base URL:   https://api.openai.com/v1                     │
+│    API Key:    ●●●●●●●●●●●●●●●        [test connection]     │
+│    Model ID:   gpt-4o-mini                                  │
+│                                                              │
+│  [◀ Back]                                       [Next ▶]    │
 └─────────────────────────────────────────────────────────────┘
-                              ↓ LLM judges relevance
-┌─────────────────────────────────────────────────────────────┐
-│              experience_view(name) tool call                 │
-│                                                              │
-│   Returns: body + templates + scripts + references           │
-│   Added as tool message in current turn → LLM context       │
-│   Token cost only when actually used                         │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-                       LLM follows procedure
 ```
 
-### 7.3 Schema
+### 4.3 WS Protocol (New)
+
+```jsonc
+// server → client (in snapshot)
+{ "onboarding": { "required": true, "completed_steps": ["provider"] } }
+
+// client → server
+{ "type": "onboarding.complete_step", "step": "provider" | "character_card" | "user_card" }
+{ "type": "provider.create_builtin", "preset": "openai" | "anthropic" | "deepseek" | "ollama" | "lmstudio" | "zhipu" | "qwen" }
+{ "type": "provider.test_connection", "base_url": "...", "api_key": "...", "model": "..." }
+
+// server → client
+{ "type": "provider.test_result", "ok": true, "models": ["gpt-4o-mini", "gpt-4o", ...], "error": null }
+{ "type": "onboarding.completed" }  // fires when all 3 steps done
+```
+
+### 4.4 Persistence
+
+Onboarding state stored in `fsar.yaml` under `onboarding:` section, plus `user_cards` and `character_cards` SQLite tables. Re-running wizard is allowed (delete entries → wizard reappears).
+
+---
+
+## 5. Persona Engine (Character Card + User Card)
+
+### 5.1 Why Persona Cards
+
+Standard LLM prompts treat the assistant as a generic helper. Persona cards (originally from SillyTavern / Risu / Agnai) ground the assistant in a specific character with:
+- A name and avatar
+- A description (who they are)
+- A personality (how they behave)
+- A scenario (where they are)
+- Example dialogues (how they speak)
+
+User cards do the same for the user — without them, the LLM doesn't know if you're a sysadmin, a writer, a student, or just curious.
+
+### 5.2 Schema
 
 ```sql
--- Main procedural knowledge table (replaces SKILL.md)
-CREATE TABLE experiences (
+CREATE TABLE IF NOT EXISTS character_cards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    category TEXT NOT NULL,                 -- "file-management" / "coding" / "research"
-    description TEXT NOT NULL,              -- ≤60 chars, system-prompt index entry
-    body TEXT NOT NULL,                     -- full procedure / how-to
-    trigger_patterns TEXT NOT NULL DEFAULT '[]',  -- JSON array of trigger phrases
-    pitfalls TEXT NOT NULL DEFAULT '[]',    -- JSON array of known gotchas
-    prerequisites TEXT NOT NULL DEFAULT '[]', -- JSON array of env / setup needs
+    name TEXT NOT NULL,
+    avatar_path TEXT,                     -- local file path or data URL
+    description TEXT NOT NULL,             -- 50-500 chars
+    personality TEXT NOT NULL,             -- 20-200 chars
+    scenario TEXT DEFAULT '',              -- 50-300 chars
+    system_prompt_override TEXT DEFAULT '', -- if set, replaces AGENT_SYSTEM_PROMPT
+    example_dialogues TEXT DEFAULT '[]',   -- JSON list of {user, assistant} pairs
+    tags TEXT DEFAULT '[]',                -- searchable tags
+    is_default INTEGER NOT NULL DEFAULT 0, -- only one card can be default
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    avatar_path TEXT,
+    description TEXT NOT NULL,             -- user bio / role
+    preferences TEXT DEFAULT '{}',          -- JSON key/value
+    interests TEXT DEFAULT '[]',            -- JSON list
+    communication_style TEXT DEFAULT '',     -- e.g. "concise, no emojis"
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### 5.3 Built-in Cards
+
+Bundled `data/cards/` directory ships with 3 starter cards:
+- **default-companion.json** — friendly, curious, no specific scenario
+- **coding-coach.json** — patient teacher, scenario = "reviewing PR"
+- **research-analyst.json** — formal, citation-heavy
+
+User cards ship with one default: **default-user.json** ("{name}, prefers concise Chinese replies, working on a local-first AI project").
+
+### 5.4 Prompt Assembly (New System Prompt Structure)
+
+```
+[CHARACTER CARD]
+Name: <name>
+Description: <description>
+Personality: <personality>
+Scenario: <scenario>
+
+[EXAMPLE DIALOGUES]  (2-3 short pairs)
+<user>: <msg>
+<assistant>: <reply>
+...
+
+[USER CARD]
+You are talking to <user_name>.
+About them: <description>
+Their style: <communication_style>
+Known preferences: <preferences>
+Known interests: <interests>
+
+[SYSTEM BLOCKS — unchanged]
+- AGENT_SYSTEM_PROMPT or system_prompt_override (if set)
+- memory_block
+- strategy_block
+- experience_block
+- MEMORY_POLICY
+- skill_index (if any skills active)
+```
+
+### 5.5 Card Editor UI
+
+Cards live at `/cards` page (new sidebar entry):
+- List all character cards / user cards
+- Click to edit (avatar upload, fields, example dialogues)
+- "Set as default" toggle (enforces only-one-default via DB constraint)
+- Import from JSON (paste SillyTavern V2 spec)
+- Export to JSON (for sharing)
+
+### 5.6 WS Protocol
+
+```jsonc
+{ "type": "card.list", "kind": "character" | "user" }
+{ "type": "card.get", "kind": "...", "id": 1 }
+{ "type": "card.upsert", "kind": "...", "card": { ... } }
+{ "type": "card.delete", "kind": "...", "id": 1 }
+{ "type": "card.set_default", "kind": "...", "id": 1 }
+{ "type": "card.import_v2", "kind": "...", "json_text": "..." }   // SillyTavern V2 parser
+
+// server → client
+{ "type": "card.list_result", "kind": "...", "cards": [ ... ] }
+{ "type": "card.imported", "kind": "...", "card": { ... } }
+{ "type": "card.error", "kind": "...", "code": "...", "message": "..." }
+```
+
+---
+
+## 6. Built-in Provider Presets
+
+### 6.1 Why Presets
+
+Users hit the most friction at "what URL do I paste?". Presets answer that question:
+
+| Preset | base_url | default_model | notes |
+|---|---|---|---|
+| **OpenAI** | `https://api.openai.com/v1` | `gpt-4o-mini` | standard OpenAI compat |
+| **Anthropic** | `https://api.anthropic.com` | `claude-haiku-4-5-20251001` | uses anthropic-specific headers |
+| **DeepSeek** | `https://api.deepseek.com/v1` | `deepseek-chat` | OpenAI compat |
+| **Zhipu GLM** | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` | OpenAI compat |
+| **Qwen** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-turbo` | OpenAI compat |
+| **Ollama** | `http://127.0.0.1:11434/v1` | `qwen2.5:7b` | local, no key |
+| **LMStudio** | `http://127.0.0.1:1234/v1` | (auto-discover via /v1/models) | local, no key |
+
+### 6.2 Backend Schema
+
+```python
+BUILTIN_PRESETS = [
+    {
+        "id": "openai",
+        "label": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+        "default_headers": {},
+        "api_key_env": "OPENAI_API_KEY",
+        "supports_thinking": False,
+        "thinking_default": False,
+    },
+    {
+        "id": "anthropic",
+        "label": "Anthropic",
+        "base_url": "https://api.anthropic.com",
+        "default_model": "claude-haiku-4-5-20251001",
+        "default_headers": {"anthropic-version": "2023-06-01"},
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "supports_thinking": True,       # extended thinking
+        "thinking_default": False,
+    },
+    # ...etc
+]
+```
+
+### 6.3 Connection Test
+
+`provider.test_connection`:
+1. Sends `GET <base_url>/models` (OpenAI style) or provider-specific probe
+2. Returns list of available models + `ok: true/false`
+3. If 401/403 → `error: "auth_failed"`; if network error → `error: "unreachable"`
+
+This lets the wizard show users "✓ Connected, 14 models available" before they commit.
+
+---
+
+## 7. Skills System v2
+
+### 7.1 Current Pain
+
+Skills are stored as `experiences` in SQLite (single body blob). Installation requires:
+- Finding a SKILL.md on the web
+- Manually copying the markdown
+- Telling the LLM to install it (LLM uses file_ops → easy to fail)
+- Repeating on every reinstall
+
+This is friction. Skills should be installable as easily as browser extensions.
+
+### 7.2 New Skill Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS skills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,            -- slug, e.g. "ppt-maker-cli"
+    version TEXT NOT NULL DEFAULT '1.0.0',
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,                -- 'dev', 'office', 'data', 'media'
+    body TEXT NOT NULL,                    -- SKILL.md main content (markdown)
+    metadata_json TEXT NOT NULL DEFAULT '{}',  -- author, repo, license, triggers
+    scripts_json TEXT NOT NULL DEFAULT '[]',   -- [{name, language, content}]
+    references_json TEXT NOT NULL DEFAULT '[]', -- [{title, url, body}]
+    source_url TEXT DEFAULT '',            -- original install source (if URL)
+    install_method TEXT NOT NULL,          -- 'paste' | 'url' | 'bundle'
+    state TEXT NOT NULL DEFAULT 'active',  -- active | stale | archived
+    pinned INTEGER NOT NULL DEFAULT 0,
     use_count INTEGER NOT NULL DEFAULT 0,
     last_used_at TEXT,
-    state TEXT NOT NULL DEFAULT 'active',   -- active | stale | archived
-    pinned INTEGER NOT NULL DEFAULT 0,
-    created_by TEXT NOT NULL,               -- 'agent' | 'user' | 'task_reflection'
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-CREATE INDEX idx_experiences_category ON experiences(category);
-CREATE INDEX idx_experiences_state ON experiences(state);
-CREATE INDEX idx_experiences_last_used ON experiences(last_used_at);
-
--- Templates (replaces templates/<name>)
-CREATE TABLE experience_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experience_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    FOREIGN KEY (experience_id) REFERENCES experiences(id) ON DELETE CASCADE
-);
-
--- Scripts (replaces scripts/<name>)
-CREATE TABLE experience_scripts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experience_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    language TEXT NOT NULL,                 -- "python" | "bash" | "powershell"
-    content TEXT NOT NULL,
-    FOREIGN KEY (experience_id) REFERENCES experiences(id) ON DELETE CASCADE
-);
-
--- References / knowledge chunks (replaces references/<name>)
-CREATE TABLE experience_references (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experience_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    source TEXT,                            -- "url" | "paste" | "conversation"
-    source_url TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (experience_id) REFERENCES experiences(id) ON DELETE CASCADE
-);
-
--- Relationship graph (replaces related_skills frontmatter)
-CREATE TABLE experience_links (
-    src_id INTEGER NOT NULL,
-    dst_id INTEGER NOT NULL,
-    relation TEXT NOT NULL,                 -- "extends" | "supersedes" | "related"
-    weight REAL NOT NULL DEFAULT 1.0,
-    PRIMARY KEY (src_id, dst_id, relation),
-    FOREIGN KEY (src_id) REFERENCES experiences(id) ON DELETE CASCADE,
-    FOREIGN KEY (dst_id) REFERENCES experiences(id) ON DELETE CASCADE
-);
-
--- Freeform memory chunks (replaces MEMORY.md / USER.md §-separated prose)
-CREATE TABLE memory_chunks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL,                   -- "memory" | "profile" | "fact"
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL DEFAULT 0,
-    embedding BLOB,                         -- optional: ChromaDB vector
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX idx_memory_source ON memory_chunks(source);
 ```
 
-### 7.4 Lifecycle State Machine
+### 7.3 Two Install Paths
 
+**A. Paste MD (offline):**
+1. User opens `/library` → "Add Skill" → "Paste SKILL.md"
+2. Pastes full markdown into a textarea
+3. Frontend parses frontmatter (YAML between `---` markers) for `name`/`description`/`version`
+4. `POST` to `/api/skill/import_paste` with `{body, metadata}`
+5. Backend creates row immediately, no network, no LLM call
+
+**B. URL fetch:**
+1. User opens `/library` → "Add Skill" → "From URL"
+2. Pastes a GitHub raw URL or gist URL
+3. Backend fetches the markdown server-side (with size limit + SSRF check)
+4. Same parsing flow, then `source_url` is recorded
+5. For GitHub repos with `skills/<name>/SKILL.md` pattern, also fetch adjacent `scripts/` and `references/`
+
+### 7.4 Skill Activation Model
+
+Skills are NOT auto-loaded into every prompt (would explode token cost). Instead:
+- `skill.index_block` — compact list of skill name + 1-line description (≤500 tokens)
+- Injected only when user query matches a skill trigger (semantic match via skill metadata)
+- LLM can call `skill_load(name)` to pull full body
+- `use_count` + `last_used_at` updated on load → helps idle reflection surface rarely-used skills for cleanup
+
+### 7.5 Skill Bundle Format
+
+A skill directory on disk follows:
 ```
-                    ┌─────────────┐
-                    │   active    │ ◄──── created
-                    └──────┬──────┘
-                           │ last_used_at < now - 30 days
-                           │ OR use_count = 0 AND older than 30 days
-                           ▼
-                    ┌─────────────┐
-                    │   stale     │ ◄──── explicit set_state
-                    └──────┬──────┘
-                           │ last_used_at < now - 90 days
-                           │ AND state = 'stale'
-                           ▼
-                    ┌─────────────┐
-                    │  archived   │ ───► (excluded from index injection)
-                    └─────────────┘
-
-  Pinned: any state → bypasses all auto-transitions
-  Reactivation: use_count++ on stale → auto-promote back to active
-```
-
-Pure SQL transitions (no `mv` / no filesystem):
-
-```sql
--- Mark stale
-UPDATE experiences
-SET state = 'stale'
-WHERE pinned = 0
-  AND state = 'active'
-  AND (
-    (last_used_at IS NOT NULL AND last_used_at < datetime('now', '-30 days'))
-    OR (use_count = 0 AND created_at < datetime('now', '-30 days'))
-  );
-
--- Archive
-UPDATE experiences
-SET state = 'archived'
-WHERE pinned = 0 AND state = 'stale'
-  AND last_used_at < datetime('now', '-90 days');
+skills/
+└── ppt-maker-cli/
+    ├── SKILL.md              (required — main body)
+    ├── metadata.yml          (required — name/version/description/triggers)
+    ├── scripts/
+    │   └── convert.py        (optional)
+    └── references/
+        └── api-notes.md      (optional)
 ```
 
-### 7.5 LLM Interaction: Two-Tier Loading
-
-**Tier 1 — Index in system prompt** (every turn, ~600 chars for 20 experiences):
-
-```
-## Experiences (call experience_view(name="...") to load full body)
-  file-management:
-    - download-organizer: Auto-classify Downloads by type and date.
-    - workspace-cleanup: Weekly archive of stale project directories.
-  coding:
-    - pr-review-checklist: Personal PR review standards and edge cases.
-
-Only N experiences active. Use experience_view() to load the full procedure
-when a task matches. Token cost ≈ 60 chars per experience in the index.
-```
-
-**Tier 2 — `experience_view` tool** (on-demand, only when LLM judges relevant):
-
-```python
-class ExperienceViewTool(Tool):
-    name = "experience_view"
-    risk_level = "SAFE"
-
-    async def execute(self, *, name: str) -> str:
-        """Load full experience body + templates + scripts + references."""
-        exp = self._store.get_by_name(name)
-        if exp is None:
-            return f"Experience '{name}' not found."
-        self._store.bump_use(name)  # increments use_count, updates last_used_at
-        parts = [
-            f"# {exp.name}",
-            f"\n## Procedure\n{exp.body}",
-        ]
-        for tpl in exp.templates:
-            parts.append(f"\n## Template: {tpl.name}\n```\n{tpl.content}\n```")
-        for scr in exp.scripts:
-            parts.append(f"\n## Script: {scr.name} ({scr.language})\n```{scr.language}\n{scr.content}\n```")
-        for ref in exp.references:
-            parts.append(f"\n## Reference: {ref.title}\n{ref.body}")
-        return "\n".join(parts)
-```
-
-### 7.6 Auto-Promotion Pipeline (P5 → P6 Bridge)
-
-`TaskReflector` output feeds `ExperienceStore.propose_from_reflections()`:
-
-```
-task_reflections.suggested_strategy  ──►  COUNT occurrences
-                                            │
-                                            ▼
-                              threshold ≥ 3 same-strategy cluster
-                                            │
-                                            ▼
-                              ProposedExperience (user_id=None)
-                                            │
-                              ┌─────────────┼──────────────┐
-                              ▼             ▼              ▼
-                        /learn auto     user confirms   intensity=high
-                        (skip)          via /review     auto-promote
-```
-
-```python
-class ExperienceStore:
-    def propose_from_reflections(self, *, threshold: int = 3) -> list[ProposedExperience]:
-        """Scan task_reflections, surface repeated suggested_strategy as proposals."""
-        # SQL: GROUP BY suggested_strategy HAVING COUNT(*) >= threshold
-        ...
-
-    def auto_promote(self, *, threshold: int = 3) -> int:
-        """intensity=high only — create experience row from confirmed proposals."""
-        ...
-```
-
-### 7.7 Memory Chunks
-
-Freeform long-form memory, separate from `user_model.preferences` (scalar KV):
-
-```python
-class MemoryChunkStore:
-    def add(self, *, source: str, title: str, body: str) -> int:
-        """Save a memory chunk. Optionally indexed in ChromaDB."""
-        ...
-
-    def recall(self, query: str, *, top_k: int = 3,
-               source_filter: list[str] | None = None) -> list[MemoryChunk]:
-        """Vector + keyword hybrid retrieval."""
-        ...
-
-    def split_prose(self, prose: str) -> list[MemoryChunk]:
-        """Parse §-separated MEMORY.md prose into chunks."""
-        ...
-```
-
-`memory_chunks` complements `user_model.preferences`:
-- **preferences** — scalar (editor=vscode, language=Chinese)
-- **memory_chunks** — narrative (User mentioned 2024-03-15 that project A uses Postgres 14)
-
-### 7.8 Key Differences from Hermes (Non-Copy Points)
-
-| Aspect | Hermes | FSAR p6 |
-|---|---|---|
-| Skill body storage | File (`SKILL.md`) | DB row (`experiences.body`) |
-| Telemetry | Sidecar JSON (`.usage.json`) | Inline columns |
-| Archive action | `mv skill/ .archive/` | `UPDATE … SET state='archived'` |
-| Trigger patterns | YAML frontmatter | JSON column |
-| Consolidation | LLM umbrella-building pass | Pure SQL clustering (no LLM) |
-| Background fork | AIAgent fork per turn | Sync only, no fork |
-| Skill management surface | `skill_manage` tool exposed to LLM | API-only, not exposed to LLM |
-| Memory | `MEMORY.md` prose file | `memory_chunks` table |
-| Vector retrieval | Lexical overlap only | ChromaDB native (SQL + vector hybrid) |
-| Multi-device sync | rsync directory tree | rsync single `.db` file |
-| Description length | Hard ≤60 char rule (cache-friendly) | Soft truncate at render time |
-
-### 7.9 Two-Tier Token Model (vs Hermes)
-
-|  | Hermes | FSAR p6 |
-|---|---|---|
-| Index per-turn cost | ~60 chars × N experiences | Same (same render format) |
-| Body loading | `skill_view()` tool | `experience_view()` tool |
-| Token cost when unused | 0 | 0 |
-| Token cost when used | 100-200 lines / body | Same (same content) |
-| Auto-archive via SQL | No (LLM curator pass) | Yes (pure UPDATE) |
-| Focus mode (compact_categories) | Demotes desc to names-only | Same (SQL `WHERE category IN (...)`) |
+`fsar skill import <path>` reads the directory, validates, inserts into DB.
 
 ---
 
-## 8. Risk Assessment
+## 8. Sandbox Workspace
+
+### 8.1 Why
+
+LLM-driven file ops currently write to *anywhere the process can write*. On a shared system or in production, this is a disaster. Even solo users get bitten — the LLM decides `/tmp` is fine, then `/etc/...` looks reasonable.
+
+### 8.2 Design
+
+```sql
+CREATE TABLE IF NOT EXISTS workspaces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    root_path TEXT NOT NULL,           -- absolute path, e.g. "/home/u/projects/foo"
+    allowed_paths TEXT NOT NULL,        -- JSON array of allowed sub-paths (relative to root)
+    blocked_patterns TEXT DEFAULT '[]', -- JSON array of glob patterns always blocked
+    default_for_new INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_workspaces (
+    conversation_id TEXT PRIMARY KEY,  -- FK to sessions.id
+    workspace_id INTEGER NOT NULL,      -- FK to workspaces.id
+    granted_at TEXT NOT NULL
+);
+```
+
+### 8.3 Enforcement Layers
+
+1. **Tool gate (server-side, mandatory):** every file/bash tool that takes a path checks `path.is_relative_to(workspace_root)` and rejects otherwise.
+2. **Risk Engine integration:** any tool call that escapes the workspace is auto-escalated to `CRITICAL` risk and requires explicit user approval.
+3. **Per-conversation binding:** user picks workspace when creating a conversation; default workspace is used if not picked. Switching workspace mid-conversation requires confirmation.
+
+### 8.4 WS Protocol
+
+```jsonc
+{ "type": "workspace.list" }
+{ "type": "workspace.create", "name": "...", "root_path": "...", "allowed_paths": ["src", "tests"] }
+{ "type": "workspace.set_default", "id": 1 }
+{ "type": "workspace.bind", "conversation_id": "...", "workspace_id": 1 }
+```
+
+### 8.5 Tradeoffs Acknowledged
+
+- Workspace is per-conversation, NOT per-task — simpler mental model
+- User can grant escape approval per-call (bypass sandbox); audit-logged
+- Default workspace is the user's home directory (read-only access for tools like `file_read`)
+
+---
+
+## 9. TTS + Voice Recognition (ASR)
+
+### 9.1 Pluggable Voice Providers
+
+Same factory pattern as LLM providers. Built-in presets:
+
+| Preset | Engine | Notes |
+|---|---|---|
+| **edge-tts** | Microsoft Edge online TTS | Free, decent quality, requires internet |
+| **openai-tts** | OpenAI TTS API | `tts-1`, `tts-1-hd`, 6 voices |
+| **piper-local** | Local Piper | Offline, smaller model, fast on CPU |
+| **elevenlabs** | ElevenLabs | High quality, paid |
+
+ASR presets:
+
+| Preset | Engine | Notes |
+|---|---|---|
+| **whisper-local** | faster-whisper | Offline, GPU-accelerated if available |
+| **openai-asr** | OpenAI Whisper API | High accuracy, paid |
+| **browser-asr** | Web Speech API | Free, browser-native, lower accuracy |
+
+### 9.2 Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS voice_providers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    preset_id TEXT NOT NULL,           -- 'edge-tts', 'openai-tts', etc.
+    config_json TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    is_default_tts INTEGER NOT NULL DEFAULT 0,
+    is_default_asr INTEGER NOT NULL DEFAULT 0
+);
+```
+
+### 9.3 GUI
+
+- Topbar mic icon → push-to-talk → streams audio to ASR → final transcript injected as user message
+- Reply audio (TTS) toggle in Chat toolbar → when on, each assistant reply streams audio alongside text
+- Voice settings page (`/settings/voice`): pick TTS preset, ASR preset, voice/speed/lang
+
+### 9.4 WS Protocol
+
+```jsonc
+{ "type": "voice.asr.transcript", "text": "..." }       // final ASR result
+{ "type": "voice.tts.request", "text": "...", "voice": "alloy" }
+{ "type": "voice.tts.audio_chunk", "seq": 1, "audio": "<base64 mp3>" }
+{ "type": "voice.tts.done", "seq": N }
+```
+
+Audio is base64-encoded MP3 chunks over WS. For long replies, client accumulates and plays in order.
+
+---
+
+## 10. LLM Thinking Toggle
+
+### 10.1 The Problem
+
+Thinking models (DeepSeek-R1, Claude with extended thinking, Qwen-QwQ, o1/o3) emit `<think>...</think>` blocks. These:
+- Inflate token cost 2-10×
+- Leak into titles, memory blocks, exports
+- Don't always disable via API flag (provider-specific)
+
+### 10.2 Design
+
+```sql
+ALTER TABLE llm_providers ADD COLUMN thinking_enabled INTEGER NOT NULL DEFAULT 1;  -- 0 = off
+```
+
+Per-provider toggle in Settings → Models. When `thinking_enabled = 0`:
+1. Backend adds `?thinking=disabled` or similar provider-specific flag
+2. Backend post-processes response: strip `<think>...</think>` blocks before streaming deltas
+3. TitleGenerator already has `_strip_think` from PL1; we reuse that logic in `chat_engine._emit_text`
+
+### 10.3 UI
+
+Each provider row in `/settings/models` has a "Thinking" toggle. For providers that don't support thinking at all, toggle is disabled with tooltip "this provider doesn't support thinking".
+
+### 10.4 Tradeoffs
+
+- Some models can't truly disable thinking — the toggle is a *best-effort*. Strip-think is a safety net.
+- For Anthropic extended thinking, you actually want it enabled for complex tasks. Default: off for short-chat, on for agent mode.
+
+---
+
+## 11. Intergration — Multi-Agent Groups
+
+The headline feature of PL2. **Intergration** (a name, not a typo) is a *user-configurable multi-agent ensemble* that behaves like a single model from the user's perspective.
+
+### 11.1 Concepts
+
+```
+┌─────────────────────────────────────────────────┐
+│ Intergration: "Code Review Board"               │
+│                                                  │
+│  ┌─────────────────────────────────────────┐   │
+│  │ Main Agent (router + synthesizer)       │   │
+│  │  model: claude-haiku-4-5                │   │
+│  │  role: decide who to consult,           │   │
+│  │        merge final reply                │   │
+│  └─────────────────────────────────────────┘   │
+│         │            │            │            │
+│         ▼            ▼            ▼            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │ Sub 1    │  │ Sub 2    │  │ Sub 3    │    │
+│  │ "Securi- │  │ "Perfor- │  │ "Style"  │    │
+│  │  ty"     │  │ "mance"  │  │          │    │
+│  │  model:  │  │  model:  │  │  model:  │    │
+│  │  deepseek│  │  qwen-coder│ │  haiku  │    │
+│  └──────────┘  └──────────┘  └──────────┘    │
+└─────────────────────────────────────────────────┘
+```
+
+- **Sub-agent:** name + role + model + persona prompt + temperature. Independent.
+- **Main agent:** model + decision strategy (`pick` or `debate`) + synthesizer prompt.
+- **Intergration =** collection of {main agent + sub-agents + strategy + UI metadata}.
+
+### 11.2 Decision Strategy (User-Configurable)
+
+| Strategy | Behavior |
+|---|---|
+| **`pick`** (default, low-cost) | Main agent reads user message, picks 0-3 most-relevant sub-agents, queries them, merges. Sub-agents not picked are skipped. |
+| **`debate`** (high-quality) | All sub-agents are queried in parallel. Main agent sees all replies, picks best elements / mediates conflicts / synthesizes final answer. |
+
+User picks per-Intergration. No mix-and-match per-call (keeps mental model simple).
+
+### 11.3 From User's Perspective
+
+User creates an Intergration in `/intergration` page → names it "Code Review Board" → adds 3 sub-agents → picks `pick` strategy → saves. Now in the Chat page, the model dropdown shows:
+```
+Default (claude-haiku-4-5)
+Code Review Board [Intergration]
+GPT-4o-mini
+...
+```
+
+User picks "Code Review Board" → all subsequent messages route through the Intergration. From the user's view, it's just one model.
+
+### 11.4 Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS integrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    strategy TEXT NOT NULL DEFAULT 'pick',  -- 'pick' | 'debate'
+    main_agent_json TEXT NOT NULL,          -- {model, prompt, temperature}
+    sub_agents_json TEXT NOT NULL,          -- [{id, name, role, model, prompt, temperature}]
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+### 11.5 Execution Flow (`pick` strategy)
+
+```
+User message arrives
+  → Main agent gets: system_prompt + sub-agent roster + user message
+  → Main agent returns JSON: {selected: [1, 3], reasoning: "..."}
+  → Backend calls sub-agents 1 and 3 IN PARALLEL with their personas + user message
+  → Sub-agent replies collected
+  → Main agent gets: original user message + selected sub-agent replies
+  → Main agent returns FINAL synthesized reply (streamed to user)
+```
+
+### 11.6 Execution Flow (`debate` strategy)
+
+```
+User message arrives
+  → ALL sub-agents called IN PARALLEL with their personas + user message
+  → Main agent gets: user message + ALL sub-agent replies
+  → Main agent returns FINAL synthesized reply, possibly acknowledging disagreements
+  → Streamed to user
+```
+
+### 11.7 Intergration Sub-page (`/intergration`)
+
+A new sidebar entry. Layout:
+
+```
+┌─────────────────────────────────────────────┐
+│ Intergrations                  [+ New]      │
+├─────────────────────────────────────────────┤
+│ Code Review Board          [edit] [delete]  │
+│   strategy: pick                             │
+│   main: claude-haiku-4-5                    │
+│   subs: Security, Performance, Style         │
+│                                              │
+│ Research Team               [edit] [delete]  │
+│   strategy: debate                           │
+│   main: gpt-4o-mini                         │
+│   subs: Historian, Scientist, Critic         │
+└─────────────────────────────────────────────┘
+```
+
+Clicking edit opens an editor:
+- Name, description
+- Strategy (radio: pick / debate)
+- Main agent config (model dropdown, persona textarea, temperature slider)
+- Sub-agents list (drag to reorder, click to edit)
+- Test panel (input box + "Run once" button → see how the Intergration responds)
+
+### 11.8 Token Cost
+
+Intergration is *expensive* by design. `pick` roughly 1.5-2× a normal call (router + selected subs). `debate` 3-5×. Surface this clearly in the editor with an estimated cost badge. Default is `pick` with max 2 sub-agents selected.
+
+### 11.9 WS Protocol
+
+```jsonc
+{ "type": "integration.list" }
+{ "type": "integration.create", "draft": { ... } }
+{ "type": "integration.update", "id": 1, "patch": { ... } }
+{ "type": "integration.delete", "id": 1 }
+{ "type": "integration.run_once", "id": 1, "message": "..." }
+
+// server → client
+{ "type": "integration.list_result", "items": [ ... ] }
+{ "type": "integration.run_started", "id": 1, "sub_calls": [1, 3] }
+{ "type": "integration.sub_reply", "sub_id": 1, "delta": "..." }
+{ "type": "integration.sub_done", "sub_id": 1 }
+{ "type": "integration.main_delta", "delta": "..." }
+{ "type": "integration.main_done" }
+```
+
+---
+
+## 12. Memory + Self-Evolution (PL1 carryover, unchanged)
+
+The self-evolution pipeline built in PL1 is the engine that makes PL2 *feel alive*:
+
+```
+Conversation
+  → Per-task reflection (TaskReflector) → user_model + task_reflections
+  → Idle reflection (IdleReflector, GUI-configured triggers) → user_model + auto-promoted experiences
+  → Both feed into next prompt as memory_block + experience_block
+```
+
+This already runs (verified PL1). PL2 enhances it by:
+- Character cards + user cards feed user_model automatically (when user sets a card, the LLM "knows" the user)
+- Skills auto-load triggers get smarter (skill metadata indexed by user_model patterns)
+
+---
+
+## 13. Tool System (PL1 carryover, expanded)
+
+### 13.1 Built-in Tools (already shipped)
+
+| Tool | Risk | Notes |
+|---|---|---|
+| `run_command` | HIGH (sandboxed in PL2) | bash / powershell |
+| `file_ops` | MEDIUM (sandboxed in PL2) | read/write/edit/list |
+| `web_search` | LOW | DuckDuckGo / Brave API |
+| `web_fetch` | LOW | URL → markdown |
+| `app_control` | MEDIUM | open/close/focus apps |
+
+### 13.2 PL2 Additions
+
+| Tool | Purpose |
+|---|---|
+| `card_edit` | LLM-driven update of character/user cards (with confirmation) |
+| `skill_load` | Pull full skill body into context |
+| `integration_call` | Sub-agent invocation from main agent prompt |
+| `workspace_status` | Show current workspace + allowed paths |
+
+---
+
+## 14. Risk Assessment (PL2-augmented)
 
 | Level | Description | Action |
 |---|---|---|
-| `SAFE` | Read file, search, query | Execute silently |
-| `LOW` | Write new file, create dir | Execute + log |
-| `MEDIUM` | Modify/delete file, run command | Notify user |
-| `HIGH` | System ops, registry, network | Wait for confirmation |
-| `CRITICAL` | Batch delete, permission changes | Warn + double confirm |
+| `SAFE` | Read file (within workspace), search, query | Execute silently |
+| `LOW` | Write new file (within workspace), create dir | Execute + log |
+| `MEDIUM` | Modify/delete file (within workspace), run command (within workspace) | Notify user |
+| `HIGH` | Escape workspace, system ops, registry, network external | Wait for confirmation |
+| `CRITICAL` | Batch delete, permission changes, sandbox escape attempt | Warn + double confirm + log to audit |
 
-Trust model: users can promote/demote risk levels for specific operations.
+Sandbox adds two new auto-escalation rules:
+- Any tool call whose resolved path is OUTSIDE the active workspace → `HIGH` minimum, `CRITICAL` if file is outside user home
+- Bash command containing `rm -rf`, `del /f /s`, `format`, etc. → `CRITICAL` regardless of workspace
 
 ---
 
-## 9. Project Structure
+## 15. Project Structure
 
 ```
 FSAR/
 ├── docs/
-│   └── DESIGN.md              # This document
+│   ├── DESIGN.MD              # This document
+│   └── superpowers/specs/      # Phase-specific designs
 │
 ├── src/
-│   ├── computer_use/          # Computer Use engine (self-built)
-│   │   ├── __init__.py
-│   │   ├── snapshot.py        # UIA tree walk + element indexing
-│   │   ├── screen_capture.py  # PrintWindow/BitBlt/DWM + grid overlay
-│   │   ├── input_actions.py   # Click/type/key/scroll (SendInput/PostMessage/UIA)
-│   │   └── window_manager.py  # Window enum, launch, find, kill
+│   ├── core/
+│   │   ├── prompts.py          # System prompt assembly (now persona-aware)
+│   │   ├── persona.py          # NEW: card → prompt block
+│   │   ├── voice.py            # NEW: TTS/ASR provider factory
+│   │   └── integration.py      # NEW: multi-agent orchestrator
 │   │
-│   ├── orchestrator/          # Agent loop
-│   │   ├── __init__.py
-│   │   ├── fsar_orchestrator.py  # Main loop with function calling
-│   │   └── cua_client.py      # Alternative: external CUA driver
+│   ├── memory/
+│   │   ├── ...                  # PL1 memory stack
+│   │   ├── cards.py             # NEW: character/user card CRUD
+│   │   ├── skills.py            # NEW: skill catalog + import
+│   │   └── workspaces.py        # NEW: workspace + binding
 │   │
-│   ├── memory/                # Memory system
-│   │   ├── __init__.py
-│   │   ├── short_term.py      # In-memory conversation context
-│   │   └── long_term.py       # SQLite persistence
+│   ├── server/
+│   │   ├── chat_engine.py       # sandbox-aware, persona-aware
+│   │   ├── onboarding.py        # NEW: wizard orchestration
+│   │   └── handlers/
+│   │       ├── card.py          # NEW
+│   │       ├── skill.py         # NEW
+│   │       ├── workspace.py     # NEW
+│   │       ├── voice.py         # NEW
+│   │       └── integration.py   # NEW
 │   │
-│   ├── tools/                 # Tool system (Phase 1.5)
-│   │   ├── __init__.py
-│   │   ├── registry.py
-│   │   └── builtin/
+│   ├── tools/
+│   │   ├── builtin/             # bash, file_ops, web_*
+│   │   └── sandbox.py           # NEW: path validation gate
 │   │
-│   ├── mcp/                   # MCP client (Phase 3.5)
-│   │   └── ...
-│   │
-│   ├── skills/                # Skills engine (Phase 4.5)
-│   │   └── ...
-│   │
-│   └── utils/
-│       ├── config.py
-│       └── logger.py
-│
-├── config/
-│   └── settings.yaml
+│   └── providers/
+│       ├── llm/                 # factory + presets
+│       ├── tts/                 # NEW: voice factory
+│       └── asr/                 # NEW: ASR factory
 │
 ├── data/
-│   └── memory.db
+│   ├── cards/                   # NEW: built-in character/user cards
+│   └── skills/                  # NEW: local skill bundles
 │
-├── main.py                    # CLI entry point
-├── requirements.txt
-└── README.md
+├── frontend/src/
+│   ├── pages/
+│   │   ├── Onboarding.tsx       # NEW
+│   │   ├── Cards.tsx            # NEW
+│   │   ├── Intergration.tsx     # NEW
+│   │   ├── Voice.tsx            # NEW
+│   │   └── ...
+│   ├── components/
+│   │   ├── voice/               # NEW
+│   │   ├── card/                # NEW
+│   │   └── integration/         # NEW
+│   └── stores/
+│       ├── onboarding.ts        # NEW
+│       ├── voice.ts             # NEW
+│       └── integration.ts       # NEW
+│
+└── tests/
+    ├── test_persona.py          # NEW
+    ├── test_sandbox.py          # NEW
+    ├── test_integration.py      # NEW
+    └── ...
 ```
 
 ---
 
-## 10. Development Roadmap
+## 16. PL2 Development Sub-Phases
 
-> **Lesson learned:** Computer Use was implemented first as the core differentiator, but it's the hardest and least reliable tool. Most tasks that seem like they need GUI automation can be solved more reliably with shell commands, URL schemes, or file operations. Foundation tools should come first.
+PL2 itself is too large for one push. Sub-phases in priority order:
 
-### Phase 1: Foundation Tools
-- [x] Tool registry (ToolRegistry) — register/discover tools, OpenAI function calling format
-- [x] `run_command` — shell/powershell execution with timeout
-- [x] `file_ops` — read/write/list/move/delete files
-- [x] `web_search` — search engine query (DuckDuckGo/Bing API)
-- [x] `web_fetch` — fetch webpage content
-- [x] `app_control` — launch apps via URL scheme / `start` command / ShellExecute
-- [x] Orchestrator integration — LLM selects tools via function calling, results fed back
+### 16.1 PL2.0 — Persona Foundation (most critical, ~2 weeks)
 
-### Phase 2: Security Layer
-- [x] Risk assessment engine (5 levels: SAFE → CRITICAL)
-- [x] Trust model (permissions.yaml)
-- [x] Tool-level permissions
-- [x] Operation confirmation mechanism
-- [x] Audit logging
+- Character card schema + CRUD
+- User card schema + CRUD
+- 3 built-in character cards, 1 built-in user card
+- Persona injection into system prompt
+- `/cards` page
+- WS protocol for cards
+- Tests: persona assembly, card CRUD
 
-### Phase 3: Memory System
-- [x] ChromaDB semantic memory (`src/memory/semantic.py`)
-- [x] User model / preferences (`src/memory/user_model.py`)
-- [x] Memory recall interface (`src/memory/recall.py`)
-- [x] Cross-session experience learning (`src/memory/reflection.py`)
-- [x] RLHF feedback (rating + reason) — 每条回复可打分 (`src/memory/feedback.py`)
-- [x] Idle reflection — 长时间不用时自动复盘 (`src/memory/reflection.py`)
+**Exit criteria:** user can create a character, switch to it, see the persona take effect in next reply.
 
-### Phase 4: MCP Support
-- [x] MCP Client (stdio/SSE transport)
-- [x] Auto-discover tools from MCP servers
-- [x] Integrate MCP tools into ToolRegistry
+### 16.2 PL2.1 — Onboarding Wizard (✅ 2026-07-10, ~3 days)
 
-### Phase 5: Self-Evolution
-- [x] Reflection loop (per-task + daily) — TaskReflector (per-task + on_failure, intensity gated) + ReflectionStore (task_reflections table) — see `src/memory/reflection.py`
-- [x] Decision quality tracking — DecisionLog + `decision_log` table + `tool_stats` view + `@track_decision` decorator (auto-wired via ToolRegistry) — see `src/memory/decision_log.py`, `src/utils/decorators.py`. CLI: `/stats`, `/stats tool <name>`, `/stats recent`.
-- [x] Execution strategy optimization — StrategyInjector synthesizes `## Learned Strategies` from tool_stats + user_model + recent task reflections, gated by `memory.reflection_intensity` (off/low/medium/high) — see `src/core/strategy_injector.py`. Wired into system prompt in `_handle_tool_task` and `_handle_chat`.
+- First-run detection (auto-creates `config/fsar.yaml` from template on clean install)
+- 3-step wizard (provider → user card → character card)
+- 25 built-in LLM provider presets (no hardcoded models per B-D1; user selects or types)
+- `provider.test_connection` with 5s timeout + error classification (ok / auth_failed / unreachable / model_required / bad_request / deferred / unknown)
+- `provider.fetch_models` for vendors exposing `/models` endpoint
+- Anthropic test uses user-typed model (no hardcoded test models)
+- Google Gemini preset is `deferred: true` (UI greys it out; protocol ships in PL2.5)
+- SillyTavern V2 PNG import via PNG tEXt chunk parser
+- Skip / resume support; per-step atomic fsar.yaml writes via FsarConfig
+- Settings → Advanced has [Reset Onboarding] button
+- Tests: 32 backend (pytest) + 96 frontend (vitest) passing
 
-### Phase 6: Experience Layer (DB-First)
-> See §7 for full design. Procedural knowledge + memory chunks as SQLite rows. Two-tier LLM loading (index in system prompt, body via `experience_view` tool). No filesystem, no sidecar JSON.
-- [ ] **p6.1** Schema + `ExperienceStore` / `MemoryChunkStore` (6 tables: experiences, experience_templates, experience_scripts, experience_references, experience_links, memory_chunks)
-- [ ] **p6.2** `experience_view` tool (LLM on-demand full-body loader with use_count bump)
-- [ ] **p6.3** `/learn` command (conversation → experience row + auto-extracted templates/scripts/references)
-- [ ] **p6.4** System prompt index injection (experiences + memory chunks, ≤60 char desc per row, compact_categories support)
-- [ ] **p6.5** Auto-promotion pipeline (TaskReflector `suggested_strategy` ≥3 occurrences → `propose_from_reflections` → user confirms or `auto_promote` at intensity=high)
-- [ ] **p6.6** Lifecycle SQL state machine (active → stale → archived, pure UPDATE, pinned bypass)
-- [ ] **p6.7** ChromaDB embedding integration (vector + keyword hybrid retrieval on `experiences` and `memory_chunks`)
-- [ ] **p6.8** Tests + end-to-end (unit tests + e2e covering /learn → store → index → view → archive)
+**Exit criteria (met):** clean install → wizard appears → finishes → /chat with configured LLM.
 
-### Phase 7: GUI
-- [ ] Tauri + React frontend
-- [ ] Chat panel + operation confirmation
-- [ ] Memory browser
-- [ ] Settings + permissions management
+### 16.3 PL2.2 — Sandbox Workspace (~1.5 weeks)
 
-### Phase 8: Computer Use (Polish & Integration)
-> Existing implementation at `src/computer_use/`. Deferred to last phase — hardest and least reliable tool, only needed for GUI-only scenarios. Will be polished and integrated as a ToolRegistry tool.
-- [x] UIA tree walk + element indexing
-- [x] Screen capture (PrintWindow/BitBlt/DWM)
-- [x] Grid overlay for coordinate precision
-- [x] Input actions (click/type/key/scroll)
-- [x] SendInput foreground fallback (Chromium/WPF/Qt/GTK)
-- [x] Window manager (launch/find/kill)
-- [x] Orchestrator with function calling (OpenAI tools API)
-- [x] Per-window screenshot + coordinate conversion (CUA approach)
-- [ ] Better initial window detection (search by app name, not just foreground)
-- [ ] Retry logic for failed clicks
-- [ ] Integration with ToolRegistry as a tool
-- [ ] LLM prompt tuning for mimo-v2.5
+- Workspace CRUD + binding
+- Tool-level path validation gate
+- Risk Engine integration (auto-escalate escape)
+- Default workspace = user home
+- WS protocol for workspace
+- `/settings/workspace` page
+- Tests: path allowlist, escape detection, escalation
 
----
+**Exit criteria:** LLM attempting `/etc/passwd` access is blocked + escalated.
 
-## 11. Technical Dependencies
+### 16.4 PL2.3 — Skills v2 (~1 week)
 
-```
-# Core
-openai>=1.0              # LLM API (function calling)
-uiautomation>=2.0        # Windows UIA tree
-Pillow>=10.0             # Image processing
-pywin32>=300             # Win32 API (ShellExecute, etc.)
+- Skill schema (separate from experiences)
+- Import via paste + URL fetch
+- Skill index block in prompt (lazy load)
+- `/library` updated UI
+- Tests: import, parse, activate
 
-# Memory
-chromadb>=0.4            # Vector memory (Phase 3)
-sqlite3                  # Built-in, structured memory
+### 16.5 PL2.4 — Thinking Toggle (~0.5 week)
 
-# Communication
-websockets>=12.0         # GUI communication
-fastapi>=0.100           # WebSocket server
+- Per-provider `thinking_enabled` column
+- Strip-think in chat_engine
+- Settings UI toggle
 
-# Config
-pyyaml>=6.0
-python-dotenv>=1.0
-loguru>=0.7
-```
+### 16.6 PL2.5 — TTS + ASR (~2 weeks)
+
+- Voice provider factory
+- Edge-TTS + OpenAI-TTS + Piper presets
+- Whisper-local + OpenAI-ASR presets
+- Topbar mic push-to-talk
+- Reply audio stream
+- `/settings/voice` page
+
+### 16.7 PL2.6 — Intergration (the headline, ~3 weeks)
+
+- Integration schema
+- Main agent + sub-agents config
+- `pick` strategy
+- `/intergration` page + editor
+- `debate` strategy
+- Test panel
+- WS protocol
+- Cost estimation
+
+### 16.8 PL2.7 — Polish & Cross-Cutting (~1 week)
+
+- Onboarding completion animation
+- Audit log UI (security review)
+- Voice in Intergration (sub-agent can speak?)
+- Documentation site
+- Migration: existing users get a "complete onboarding" banner (not blocking)
+
+**PL2 total: ~10 weeks of focused work.**
 
 ---
 
-*Document version: 0.6 | Last updated: 2026-07-01*
-*Updated: Phase 5 fully implemented (Reflection Loop + Decision Quality Tracking + Strategy Optimization — all checked off); Phase 4 (MCP Support) retroactively checked off (already implemented); Phase 6 redesigned as DB-first Experience Layer replacing the original YAML Skills System plan (see §7 for full schema, two-tier loading model, and Hermes-comparison rationale)*
+## 17. PL3+ (post-PL2, optional)
+
+- Tauri desktop packaging (signing, auto-update)
+- Mobile companion app (read-only mirror)
+- Cloud sync (opt-in, E2E encrypted)
+- Voice call mode (continuous mic, no push-to-talk)
+- Plugin marketplace
+- Computer Use polish (if ever revisited)
+
+---
+
+## 18. Technical Decisions Log
+
+| Decision | Rationale | Date |
+|---|---|---|
+| Persona cards as SQLite tables (not JSON files) | Queryable, version-controllable, joins with memories | PL2 |
+| Built-in cards in `data/cards/` not hardcoded | User can edit defaults; first-run detects edits | PL2 |
+| Intergration = SQLite (not file) | Same as skills; shareable via export | PL2 |
+| Sandbox = per-conversation (not per-task) | Simpler mental model; users think in conversations | PL2 |
+| Thinking toggle = best-effort (provider flag + strip) | Some providers can't truly disable; safety net required | PL2 |
+| TTS over WS (not local file) | Live streaming aligned with chat delta | PL2 |
+| Skills activation = lazy (semantic match) | Avoids token explosion | PL2 |
+| Integration strategy = user-pick (no auto-mix) | Predictable cost; users learn what they're paying for | PL2 |
+| Workspace allowlist = relative paths | User grants "src/", "tests/", not "C:\Users\u\proj\src\" — portable | PL2 |
+| Voice providers = same factory pattern as LLM | Consistency; user reuses provider concepts | PL2 |
+
+---
+
+## 19. Open Questions for PL2
+
+| # | Question | Owner | Blocker? |
+|---|---|---|---|
+| Q1 | Should user cards auto-fill from conversation history (LLM-inferred)? | TBD | No |
+| Q2 | Should Intergration results be cacheable? (likely yes, same as LLM cache) | TBD | Yes for cost |
+| Q3 | Can sub-agents themselves be Intergrations? (recursion limit: 2 levels) | TBD | No |
+| Q4 | When workspace is unset, is the LLM read-only-by-default? | TBD | UX question |
+| Q5 | TTS audio in Intergration — one voice per sub or one voice for synthesis? | TBD | No |
+| Q6 | Should we ship a marketplace for community Intergrations? | TBD | Future |
+
+---
+
+## 20. Closing
+
+PL1 built the engine. PL2 gives it a face, a voice, a workspace, and a team. By PL2 completion, FSAR is no longer a "tool you operate" — it's an entity you collaborate with.
+
+Computer Use stays deferred. The remaining 30% (Tauri packaging, sync, marketplace, CU polish) is "how it ships" rather than "what it is". PL2 is the soul.
