@@ -42,6 +42,13 @@ export type ClientMsg =
   | { type: "llm.set_active"; provider_id: string }
   | { type: "permissions.patch"; patch: Record<string, unknown> }
   | { type: "provider.list_presets" }
+  | { type: "provider.create_builtin"; preset_id: string; label: string; api_key: string; base_url: string; model: string }
+  | { type: "provider.test_connection"; preset_id: string; base_url: string; api_key: string; model?: string }
+  | { type: "provider.fetch_models"; preset_id: string; base_url: string; api_key: string }
+  | { type: "onboarding.get_state" }
+  | { type: "onboarding.complete_step"; step: string; data?: Record<string, unknown> }
+  | { type: "onboarding.complete" }
+  | { type: "onboarding.reset" }
   | { type: "style.patch"; patch: Record<string, unknown> }
   | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
   | { type: "mcp.list" }

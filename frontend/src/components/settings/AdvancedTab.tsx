@@ -118,6 +118,14 @@ export function AdvancedTab() {
           >
             Reset permissions
           </button>
+          <button
+            onClick={() => useWS.getState().send({ type: 'onboarding.reset' })}
+            data-testid="reset-onboarding-button"
+            className="h-7 px-3 border border-border rounded text-[12px]"
+            title="Wizard will reappear on next launch"
+          >
+            Reset onboarding
+          </button>
         </div>
       </div>
     </div>
