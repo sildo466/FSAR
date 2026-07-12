@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -80,9 +80,10 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/card/{card_id}/avatar")
-async def upload_avatar(card_id: int, request) -> dict[str, str]:
+async def upload_avatar(card_id: int, request: Request) -> dict[str, str]:
     """Persist avatar; body is raw bytes, X-FSAR-Avatar-Ext header has extension."""
     from fastapi import HTTPException
+    from PIL import UnidentifiedImageError
     from src.server.handlers.card import _get_card_repo
     ext = (request.headers.get("X-FSAR-Avatar-Ext") or "png").lower()
     if ext not in ("png", "jpg", "webp"):
@@ -90,9 +91,34 @@ async def upload_avatar(card_id: int, request) -> dict[str, str]:
     body = await request.body()
     if len(body) > 2 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="too_large")
+    if len(body) == 0:
+        logger.warning(f"avatar upload empty body for card {card_id}")
+        raise HTTPException(status_code=400, detail="empty_body")
     repo = _get_card_repo(_ctx)
-    avatar_path = repo.save_avatar(card_id, ext, body)
+    try:
+        avatar_path = repo.save_avatar(card_id, ext, body)
+    except UnidentifiedImageError:
+        raise HTTPException(status_code=400, detail="invalid_image")
+    except Exception as e:
+        logger.warning(f"avatar save_avatar failed for card {card_id} ext={ext} bytes={len(body)}: {e}")
+        raise HTTPException(status_code=500, detail=f"save_failed: {type(e).__name__}: {e}")
+    logger.info(f"avatar uploaded: card={card_id} ext={ext} bytes={len(body)} -> {avatar_path}")
     return {"avatar_path": avatar_path}
+
+
+@app.get("/api/card/{card_id}/avatar")
+async def get_avatar(card_id: int):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from src.server.handlers.card import _get_card_repo
+    repo = _get_card_repo(_ctx)
+    rel = repo.get_avatar_path(card_id)
+    if not rel:
+        raise HTTPException(status_code=404, detail="no_avatar")
+    full = (Path("data") / rel).resolve()
+    if not full.exists():
+        raise HTTPException(status_code=404, detail="missing_file")
+    return FileResponse(str(full), media_type="image/jpeg")
 
 
 @app.get("/api/fsar_yaml")

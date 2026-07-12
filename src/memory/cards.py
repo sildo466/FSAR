@@ -161,18 +161,58 @@ class CardRepo:
             return cur.lastrowid
 
     def save_avatar(self, card_id: int, ext: str, data: bytes) -> str:
+        from io import BytesIO
+
+        from PIL import Image
+
         avatars_dir = self._db.parent / "avatars"
         avatars_dir.mkdir(parents=True, exist_ok=True)
-        path = avatars_dir / f"{card_id}.{ext}"
-        path.write_bytes(data)
-        rel = f"avatars/{card_id}.{ext}"
+        image = Image.open(BytesIO(data)).convert("RGB")
+        side = min(image.size)
+        left = (image.size[0] - side) // 2
+        top = (image.size[1] - side) // 2
+        image = image.crop((left, top, left + side, top + side)).resize(
+            (256, 256), Image.LANCZOS
+        )
+        path = avatars_dir / f"{card_id}.jpg"
+        image.save(path, format="JPEG", quality=88, optimize=True)
+        relative_path = f"avatars/{card_id}.jpg"
         with self._connect() as conn:
             conn.execute(
                 "UPDATE character_cards SET avatar_path = ?, updated_at = ? WHERE id = ?",
-                (rel, _dt.datetime.now().isoformat(), card_id),
+                (relative_path, _dt.datetime.now().isoformat(), card_id),
             )
             conn.commit()
-        return rel
+        return relative_path
+
+    def get_avatar_path(self, card_id: int) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT avatar_path FROM character_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+        return row[0] if row else None
+
+    def recover_orphaned_avatar_paths(self) -> int:
+        avatars_dir = self._db.parent / "avatars"
+        if not avatars_dir.exists():
+            return 0
+        recovered = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM character_cards WHERE avatar_path IS NULL OR avatar_path = ''"
+            ).fetchall()
+            for (card_id,) in rows:
+                candidate = avatars_dir / f"{card_id}.jpg"
+                if not candidate.exists():
+                    continue
+                conn.execute(
+                    "UPDATE character_cards SET avatar_path = ? WHERE id = ?",
+                    (f"avatars/{card_id}.jpg", card_id),
+                )
+                recovered += 1
+            conn.commit()
+        return recovered
 
     def seed_builtins_if_empty(self) -> int:
         """Insert built-in cards from data/cards/*.json if tables are empty."""
@@ -311,6 +351,7 @@ class CardRepo:
         )
 
     def list_characters(self) -> list[CharacterCard]:
+        self.recover_orphaned_avatar_paths()
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
@@ -335,6 +376,11 @@ class CardRepo:
         return self._row_to_character(r) if r else None
 
     def upsert_character(self, card: CharacterCard) -> int:
+        if card.id is not None and not card.avatar_path:
+            self.recover_orphaned_avatar_paths()
+            existing = self.get_character(card.id)
+            if existing is not None:
+                card.avatar_path = existing.avatar_path
         card = self.apply_default_emotion(card)
         now = _dt.datetime.now().isoformat()
         payload = (

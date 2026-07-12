@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useCardsStore, type CardSummary, type UserCardSummary } from "../stores/cards";
 import { useWS } from "../stores/ws";
 import type { ClientMsg, ServerMsg, WSClient } from "../lib/ws-client";
+import { AvatarCropDialog } from "../components/ui/AvatarCropDialog";
 
 type Tab = "character" | "user";
 type EditorTarget = { kind: Tab; id: number | "new" } | null;
@@ -64,6 +65,23 @@ function requestCard<T extends ServerMsg["type"]>(
     });
     client.send(request);
   });
+}
+
+async function uploadCardAvatar(cardId: number, blob: Blob): Promise<string> {
+  const response = await fetch(`/api/card/${cardId}/avatar`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "image/jpeg",
+      "X-FSAR-Avatar-Ext": "jpg",
+    },
+    body: blob,
+  });
+  if (!response.ok) {
+    throw new Error(`Avatar upload failed: ${response.status} ${await response.text()}`);
+  }
+  const result = await response.json() as { avatar_path?: string };
+  if (!result.avatar_path) throw new Error("Avatar upload returned no path");
+  return result.avatar_path;
 }
 
 function field(card: CardSummary | UserCardSummary | null, key: string, fallback = ""): string {
@@ -220,6 +238,12 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
   const [formulaStatus, setFormulaStatus] = useState<Record<string, { valid: boolean; error?: string }>>({});
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [savedCardId, setSavedCardId] = useState<number | null>(target.id === "new" ? null : target.id);
+  const [avatarPath, setAvatarPath] = useState<string | null>(
+    (card as CardSummary | UserCardSummary | null)?.avatar_path ?? null,
+  );
+  const [pendingAvatar, setPendingAvatar] = useState<Blob | null>(null);
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(null);
 
   const schemaError = emotionSchema.find((metric) => (
     metric.min >= metric.max || metric.initial < metric.min || metric.initial > metric.max
@@ -260,9 +284,10 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
       return;
     }
     const card: Record<string, unknown> = {
-      id: target.id === "new" ? null : target.id,
+      id: savedCardId,
       name,
       description,
+      avatar_path: avatarPath,
     };
     if (target.kind === "character") {
       card.personality = personality;
@@ -278,7 +303,14 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
     setBusy(true);
     setActionError(null);
     try {
-      await requestCard(client, { type: "card.upsert", kind: target.kind, card }, "card.upserted");
+      const response = await requestCard(client, { type: "card.upsert", kind: target.kind, card }, "card.upserted");
+      setSavedCardId(response.id);
+      if (target.kind === "character" && pendingAvatar) {
+        const uploadedPath = await uploadCardAvatar(response.id, pendingAvatar);
+        setAvatarPath(uploadedPath);
+        setPendingAvatar(null);
+        setPendingAvatarPreview(null);
+      }
       onDone();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -302,18 +334,30 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
     }
   };
 
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+
   const onAvatar = async (file: File) => {
-    if (target.id === "new") { alert("Save first, then upload avatar."); return; }
-    const ext = file.name.split(".").pop() || "png";
-    const fd = new FormData();
-    fd.append("avatar", file);
-    await fetch(`/api/card/${target.id}/avatar`, {
-      method: "POST",
-      headers: { "X-FSAR-Avatar-Ext": ext },
-      body: fd,
-    });
-    onDone();
+    const dataUrl = await fileToDataUrl(file);
+    setCropImageSrc(dataUrl);
   };
+
+  const onCropConfirm = async (blob: Blob) => {
+    if (!blob || blob.size === 0) {
+      alert("Crop produced an empty image — please drag the crop frame first.");
+      return;
+    }
+    setPendingAvatar(blob);
+    setPendingAvatarPreview(await fileToDataUrl(blob));
+    setCropImageSrc(null);
+  };
+
+  const fileToDataUrl = (file: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
 
   const onImportV2 = async () => {
     const text = prompt("Paste SillyTavern V2 JSON:");
@@ -382,14 +426,41 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
         </div>
       </div>
 
-      {target.kind === "character" && target.id !== "new" && (
-        <div className="mb-4">
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(e) => e.target.files?.[0] && onAvatar(e.target.files[0])}
-            className="text-xs"
-          />
+      {target.kind === "character" && (
+        <div className="mb-4 p-3 border border-border rounded flex items-center gap-4">
+          <div className="text-xs text-text-muted shrink-0">
+            <div className="font-display text-[10px] uppercase tracking-[0.1em] mb-2">Avatar</div>
+            <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-border bg-surface font-display text-lg text-text-muted">
+              {(name.trim()[0] ?? "?").toUpperCase()}
+              {(pendingAvatarPreview || (savedCardId != null && avatarPath)) && (
+                <img
+                  src={pendingAvatarPreview ?? `/api/card/${savedCardId}/avatar`}
+                  alt="avatar"
+                  data-testid="avatar-preview"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  onError={(event) => { event.currentTarget.hidden = true; }}
+                />
+              )}
+            </div>
+          </div>
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-xs text-text-muted">
+              Upload a square image (PNG / JPG / WebP). Crop it now; the file is uploaded when you save the card.
+            </label>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => e.target.files?.[0] && onAvatar(e.target.files[0])}
+              className="text-xs"
+              data-testid="avatar-upload-input"
+            />
+            {cropImageSrc && (
+              <div className="text-[11px] text-text-muted">Cropping in progress…</div>
+            )}
+            {pendingAvatar && !cropImageSrc && (
+              <div className="text-[11px] text-text-muted">Avatar ready — click Save to apply it.</div>
+            )}
+          </div>
         </div>
       )}
 
@@ -526,6 +597,14 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
           <button disabled={busy} onClick={onDelete} className="px-4 h-9 border border-red-500 text-red-500 text-[12px] disabled:opacity-40">Delete</button>
         )}
       </div>
+
+      <AvatarCropDialog
+        open={cropImageSrc !== null}
+        imageSrc={cropImageSrc}
+        aspect={1}
+        onCancel={() => setCropImageSrc(null)}
+        onConfirm={onCropConfirm}
+      />
     </div>
   );
 }

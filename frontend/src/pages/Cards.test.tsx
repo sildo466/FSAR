@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientMsg, ServerMsg } from "../lib/ws-client";
 import { useCardsStore } from "../stores/cards";
 import { useWS } from "../stores/ws";
 import { Cards } from "./Cards";
+
+vi.mock("../components/ui/AvatarCropDialog", () => ({
+  AvatarCropDialog: ({
+    open,
+    onConfirm,
+  }: {
+    open: boolean;
+    onConfirm: (blob: Blob) => void;
+  }) => open ? (
+    <button data-testid="avatar-crop-confirm" onClick={() => onConfirm(new Blob(["avatar"], { type: "image/jpeg" }))}>
+      Use avatar
+    </button>
+  ) : null,
+}));
 
 class FakeClient {
   readonly sent: ClientMsg[] = [];
@@ -39,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
   detachCards();
   detachCards = () => {};
+  vi.unstubAllGlobals();
   cleanup();
 });
 
@@ -74,6 +89,11 @@ describe("Cards", () => {
 
   it("creates a character with editable initial emotion values and formulas", async () => {
     const client = setup();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ avatar_path: "avatars/43.jpg" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const screen = render(<Cards />);
 
     fireEvent.click(screen.getByRole("button", { name: "+ New Character" }));
@@ -83,6 +103,11 @@ describe("Cards", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dynamic Character" } });
     fireEvent.change(screen.getByTestId("emotion-initial-affection"), { target: { value: "72" } });
     fireEvent.change(screen.getByTestId("emotion-formula-energy"), { target: { value: "energy - 0.25" } });
+    fireEvent.change(screen.getByTestId("avatar-upload-input"), {
+      target: { files: [new File(["image"], "avatar.jpg", { type: "image/jpeg" })] },
+    });
+    fireEvent.click(await screen.findByTestId("avatar-crop-confirm"));
+    await screen.findByText("Avatar ready — click Save to apply it.");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const request = client.sent.find(
@@ -97,6 +122,43 @@ describe("Cards", () => {
 
     await act(async () => {
       client.emit({ type: "card.upserted", kind: "character", id: 43 });
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/card/43/avatar",
+      expect.objectContaining({ method: "POST", body: expect.any(Blob) }),
+    ));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Cards" })).toBeTruthy());
+  });
+
+  it("preserves an existing avatar path when saving card fields", async () => {
+    const client = setup();
+    useCardsStore.setState({
+      characters: [{
+        id: 7,
+        name: "Avatar Character",
+        description: "",
+        personality: "calm",
+        is_default: 0,
+        avatar_path: "avatars/7.jpg",
+      }],
+    });
+    const screen = render(<Cards />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const request = client.sent.find(
+      (message): message is Extract<ClientMsg, { type: "card.upsert" }> => message.type === "card.upsert",
+    );
+    expect(request?.card).toMatchObject({
+      id: 7,
+      description: "Updated",
+      avatar_path: "avatars/7.jpg",
+    });
+
+    await act(async () => {
+      client.emit({ type: "card.upserted", kind: "character", id: 7 });
     });
     await waitFor(() => expect(screen.getByRole("heading", { name: "Cards" })).toBeTruthy());
   });
