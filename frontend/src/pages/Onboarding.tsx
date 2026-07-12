@@ -32,10 +32,10 @@ export function Onboarding() {
     | undefined
 
   useEffect(() => {
-    if (onboardingState?.current_step || (onboardingState?.completed_steps?.length ?? 0) > 0) {
+    if ((onboardingState?.completed_steps?.length ?? 0) > 0) {
       setWelcomed(true)
     }
-  }, [onboardingState?.current_step, onboardingState?.completed_steps])
+  }, [onboardingState?.completed_steps])
 
   useEffect(() => {
     const current = onboardingState?.current_step
