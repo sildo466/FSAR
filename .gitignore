@@ -27,3 +27,17 @@ config/fsar.yaml.bak
 # 系统
 .DS_Store
 Thumbs.db
+
+# AI 助手 / 开发工具（个人本地）
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+.superpowers/
+
+# 开发日志 / 设计文档
+docs/
+
+# 根级调试日志（*.log 已覆盖 .log 后缀）
+/comparelog.txt
+/@AutomationLog.txt
