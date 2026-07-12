@@ -1,4 +1,8 @@
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/dm-sans";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/manrope";
 @import "@fontsource/geist-sans";
 @import "@fontsource/geist-mono";
 @import "tailwindcss";
@@ -8,78 +12,123 @@
   --color-surface: var(--surface);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display-family);
+  --font-mono: var(--font-mono-family);
 }
 
 @utility text-h2 {
-  font-family: "Geist Sans Variable", "Geist Sans", system-ui, sans-serif;
+  font-family: var(--font-display-family);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.005em;
 }
 
 @utility text-caption {
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 12px;
   font-weight: 400;
 }
 
 @utility text-body-emphasis {
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   font-weight: 500;
 }
 
 @utility text-body {
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   font-weight: 400;
 }
 
 @utility text-mono {
-  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-family: var(--font-mono-family);
   font-size: 13px;
   font-weight: 400;
 }
 
 :root {
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --text: #0a0a0a;
-  --text-muted: #6b6b6b;
-  --border: #e5e5e5;
-  --border-strong: #0a0a0a;
+  --bg: #f5f5f2;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --text: #111111;
+  --text-muted: #727272;
+  --text-faint: #a5a5a5;
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.2);
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(17, 17, 17, 0.12);
+  --glow-soft: rgba(17, 17, 17, 0.14);
+  --glow-faint: rgba(17, 17, 17, 0.07);
+  --success: #16865b;
+  --warning: #ad7414;
+  --danger: #b94a4a;
+  --font-body: "DM Sans Variable", "Inter Variable", sans-serif;
+  --font-display-family: "Fraunces Variable", "Geist Sans Variable", serif;
+  --font-mono-family: "JetBrains Mono Variable", "Geist Mono Variable", monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e0e10;
-    --surface: #161618;
-    --text: #f5f5f7;
-    --text-muted: #8a8a92;
-    --border: #1f1f22;
-    --border-strong: #f5f5f7;
+    --bg: #0a0a0a;
+    --surface: rgba(20, 20, 20, 0.72);
+    --surface-2: rgba(28, 28, 28, 0.92);
+    --text: #f5f5f5;
+    --text-muted: #929292;
+    --text-faint: #5e5e5e;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-strong: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glow-soft: rgba(255, 255, 255, 0.18);
+    --glow-faint: rgba(255, 255, 255, 0.07);
+    --success: #55d39c;
+    --warning: #f3bb54;
+    --danger: #f08080;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0e0e10;
-  --surface: #161618;
-  --text: #f5f5f7;
-  --text-muted: #8a8a92;
-  --border: #1f1f22;
-  --border-strong: #f5f5f7;
+  --bg: #0a0a0a;
+  --surface: rgba(20, 20, 20, 0.72);
+  --surface-2: rgba(28, 28, 28, 0.92);
+  --text: #f5f5f5;
+  --text-muted: #929292;
+  --text-faint: #5e5e5e;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glow-soft: rgba(255, 255, 255, 0.18);
+  --glow-faint: rgba(255, 255, 255, 0.07);
 }
 
 :root[data-theme="light"] {
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --text: #0a0a0a;
-  --text-muted: #6b6b6b;
-  --border: #e5e5e5;
-  --border-strong: #0a0a0a;
+  --bg: #f5f5f2;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --text: #111111;
+  --text-muted: #727272;
+  --text-faint: #a5a5a5;
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.2);
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(17, 17, 17, 0.12);
+  --glow-soft: rgba(17, 17, 17, 0.14);
+  --glow-faint: rgba(17, 17, 17, 0.07);
 }
+
+:root[data-font-set="A"] { --font-body: "JetBrains Mono Variable", monospace; --font-display-family: "Geist Sans Variable", sans-serif; }
+:root[data-font-set="B"] { --font-body: "DM Sans Variable", sans-serif; --font-display-family: "Fraunces Variable", serif; }
+:root[data-font-set="C"] { --font-body: "Manrope Variable", sans-serif; --font-display-family: "Geist Sans Variable", sans-serif; }
 
 :root {
   --font-scale: 1;
@@ -106,8 +155,46 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: var(--font-body);
+  letter-spacing: -0.01em;
 }
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 12% 8%, var(--glow-faint), transparent 30%),
+    radial-gradient(circle at 86% 82%, var(--glow-faint), transparent 34%);
+}
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(120%);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+}
+
+.glass-strong {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(125%);
+  -webkit-backdrop-filter: blur(28px) saturate(125%);
+}
+
+.glow-focus:focus-within {
+  border-color: var(--glow-soft);
+  box-shadow: 0 0 0 4px var(--glow-faint), 0 12px 40px var(--glow-faint);
+}
+
+.app-backdrop { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: -2; background: var(--bg); }
+.app-orb { position: absolute; width: 32rem; height: 32rem; border-radius: 50%; filter: blur(90px); opacity: .38; background: var(--glow-faint); animation: drift 18s ease-in-out infinite alternate; }
+.app-orb.one { top: -18rem; left: 12%; }
+.app-orb.two { right: -14rem; bottom: -16rem; animation-duration: 24s; }
+.app-orb.three { top: 35%; left: 42%; width: 20rem; height: 20rem; opacity: .22; animation-duration: 28s; }
+@keyframes drift { to { transform: translate3d(5vw, 3vh, 0) scale(1.12); } }
 
 @media (prefers-reduced-motion: reduce) {
   *,

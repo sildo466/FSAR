@@ -9,6 +9,7 @@ export default {
         surface: "var(--surface)",
         text: "var(--text)",
         "text-muted": "var(--text-muted)",
+        "text-faint": "var(--text-faint)",
         border: "var(--border)",
         "border-strong": "var(--border-strong)",
       },

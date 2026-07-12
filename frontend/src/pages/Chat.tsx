@@ -13,6 +13,7 @@ import { useWS } from "../stores/ws";
 import { useSessions } from "../stores/sessions";
 import { useCardsStore } from "../stores/cards";
 import { CharacterSelector } from "../components/chat/CharacterSelector";
+import { UserSelector } from "../components/chat/UserSelector";
 import type { StoredMessage } from "../lib/ws-client";
 import { t } from "../lib/i18n";
 import { filterCommands } from "../lib/commands";
@@ -25,6 +26,8 @@ function storedToMessage(m: StoredMessage): ChatMessage {
     id: `hist_${m.id}`,
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
+    character_id: m.character_id,
+    character_name: m.character_name,
   };
 }
 
@@ -39,19 +42,35 @@ export function Chat() {
   const [popoverSelected, setPopoverSelected] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(true);
   const lastSwitchedConv = useRef<string | null>(null);
+  const pendingAssistantId = useRef<string | null>(null);
 
   const initWS = useWS((s) => s.init);
   const client = useWS((s) => s.client);
 
   const currentId = useSessions((s) => s.currentId);
-  const get = () => {
-    const { characters, defaultUserCard } = useCardsStore.getState();
+  const getIdentity = (conversationId?: string | null) => {
+    const {
+      characters,
+      defaultUserCard,
+      sessionCharacters,
+      draftCharacterId,
+    } = useCardsStore.getState();
+    const explicitCharacterId = conversationId
+      ? sessionCharacters[conversationId]
+      : draftCharacterId;
+    const character =
+      characters.find((card) => card.id === explicitCharacterId) ??
+      characters.find((card) => card.is_default === 1) ??
+      characters[0];
     return {
-      defaultCharacterName: characters.find((c) => c.is_default === 1)?.name ?? "FSAR",
-      defaultUserName: defaultUserCard?.name ?? "USER",
+      character,
+      requestedCharacterId: explicitCharacterId ?? (conversationId ? undefined : character?.id),
+      userName: defaultUserCard?.name ?? "USER",
     };
   };
   const history = useSessions((s) => s.history);
+  const currentHistory = currentId ? history[currentId] : undefined;
+  const loadingHistory = useSessions((s) => s.loadingHistory);
   const initSessions = useSessions((s) => s.init);
 
   // Init WS + sessions subscriptions
@@ -67,16 +86,22 @@ export function Chat() {
 
   // When conversation switches, replace messages from history cache
   useEffect(() => {
-    if (!currentId || currentId === lastSwitchedConv.current) return;
+    if (!currentId) {
+      lastSwitchedConv.current = null;
+      setMessages([]);
+      setPendingRisks([]);
+      return;
+    }
+    const switched = currentId !== lastSwitchedConv.current;
+    if (!switched && currentHistory === undefined) return;
     lastSwitchedConv.current = currentId;
-    const cached = history[currentId];
-    if (cached) {
-      setMessages(cached.map(storedToMessage));
-    } else {
+    if (currentHistory !== undefined) {
+      setMessages(currentHistory.map(storedToMessage));
+    } else if (loadingHistory) {
       setMessages([]);
     }
-    setPendingRisks([]);
-  }, [currentId, history]);
+    if (switched) setPendingRisks([]);
+  }, [currentId, currentHistory, loadingHistory]);
 
   // Wire chat.* events
   useEffect(() => {
@@ -84,16 +109,36 @@ export function Chat() {
     return client.on((msg) => {
       if (msg.type === "chat.thinking") {
         setBusy(true);
-        setMessages((prev) => [
-          ...prev,
-          { id: msg.message_id, role: "assistant", content: "", thinking: true },
-        ]);
+        const pendingId = pendingAssistantId.current;
+        pendingAssistantId.current = null;
+        setMessages((prev) => {
+          const identity = getIdentity(msg.conversation_id);
+          const incoming: ChatMessage = {
+            id: msg.message_id,
+            role: "assistant",
+            content: "",
+            thinking: true,
+            character_id: msg.character_id ?? identity.character?.id,
+            character_name: msg.character_name ?? identity.character?.name ?? "Assistant",
+          };
+          if (pendingId && prev.some((message) => message.id === pendingId)) {
+            return prev.map((message) => message.id === pendingId ? incoming : message);
+          }
+          if (prev.some((message) => message.id === msg.message_id)) return prev;
+          return [...prev, incoming];
+        });
       } else if (msg.type === "chat.delta") {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === msg.message_id
-              ? { ...m, content: m.content + msg.content, thinking: false, streaming: true,
-                  character_name: get().defaultCharacterName }
+              ? {
+                  ...m,
+                  content: m.content + msg.content,
+                  thinking: false,
+                  streaming: true,
+                  character_id: msg.character_id ?? m.character_id,
+                  character_name: msg.character_name ?? m.character_name,
+                }
               : m
           )
         );
@@ -103,8 +148,9 @@ export function Chat() {
           prev.map((m) =>
             m.id === msg.message_id
               ? { ...m, thinking: false, streaming: false,
-                  character_name: get().defaultCharacterName,
-                  user_name: get().defaultUserName }
+                  character_id: msg.character_id ?? m.character_id,
+                  character_name: msg.character_name ?? m.character_name,
+                  user_name: getIdentity().userName }
               : m
           )
         );
@@ -210,14 +256,36 @@ export function Chat() {
   };
 
   const handleSend = () => {
-    if (!input.trim() || busy) return;
+    if (!client || !input.trim() || busy) return;
     const text = input.trim();
+    const identity = getIdentity(currentId);
+    const userMessageId = nextId();
+    const assistantMessageId = nextId();
+    pendingAssistantId.current = assistantMessageId;
     setInput("");
     setPopoverOpen(false);
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", content: text }]);
-    client?.send({
+    setBusy(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: userMessageId,
+        role: "user",
+        content: text,
+        user_name: identity.userName,
+      },
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        thinking: true,
+        character_id: identity.character?.id,
+        character_name: identity.character?.name ?? "Assistant",
+      },
+    ]);
+    client.send({
       type: "chat.send",
       conversation_id: currentId ?? undefined,
+      character_id: identity.requestedCharacterId,
       content: text,
       mode,
     });
@@ -258,9 +326,9 @@ export function Chat() {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-w-0 flex-1 flex-col rounded-[28px] bg-[color:var(--glass)]/20">
         {isIdle ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-8 px-8">
+          <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">
             <BlackHole width={64} />
             <Greeting />
           </div>
@@ -274,8 +342,8 @@ export function Chat() {
             />
           </div>
         )}
-        <div className="border-t border-border bg-surface">
-          <div className="relative max-w-[720px] mx-auto px-8 py-4">
+        <div className="px-4 pb-4 pt-3 sm:px-8">
+          <div className="relative mx-auto max-w-[900px]">
             {popoverOpen && (
               <SlashPopover
                 filter={popoverFilter}
@@ -289,15 +357,18 @@ export function Chat() {
                 onClose={() => setPopoverOpen(false)}
               />
             )}
-            <div className="flex gap-3 items-center">
-              <CharacterSelector sessionId={currentId ?? ""} />
-              <div className="flex rounded border border-border overflow-hidden shrink-0">
+            <div className="glass-strong glow-focus flex items-center gap-2 rounded-full px-3 py-2 shadow-[0_12px_48px_var(--glow-faint)]">
+              <div className="hidden items-center gap-2 md:flex">
+                <CharacterSelector sessionId={currentId ?? ""} />
+                <UserSelector />
+              </div>
+              <div className="glass flex shrink-0 overflow-hidden rounded-full p-0.5">
                 {(["agent", "companion"] as const).map((m) => (
                   <button
                     key={m}
                     onClick={() => setMode(m)}
-                    className={`px-3 h-9 text-[11px] font-display font-semibold uppercase tracking-[0.08em] ${
-                      mode === m ? "bg-text text-surface" : "text-text-muted hover:text-text"
+                    className={`rounded-full px-3 py-1.5 text-[10px] font-display font-semibold uppercase tracking-[0.08em] transition ${
+                      mode === m ? "bg-text text-bg" : "text-text-muted hover:text-text"
                     }`}
                   >
                     {m === "agent" ? t.modeAgent : t.modeCompanion}
@@ -309,19 +380,19 @@ export function Chat() {
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t.placeholderInput}
-                className="flex-1 bg-transparent border-none outline-none text-text placeholder:text-text-muted"
+                className="min-w-0 flex-1 bg-transparent px-2 text-sm text-text outline-none placeholder:text-text-muted"
               />
               {busy ? (
                 <button
                   onClick={handleCancel}
-                  className="px-4 h-9 rounded border border-border text-text-muted hover:text-text hover:bg-bg"
+                  className="rounded-full px-4 py-2 text-xs text-text-muted transition hover:bg-glass hover:text-text"
                 >
                   {t.chatStop}
                 </button>
               ) : (
                 <button
                   onClick={handleSend}
-                  className="px-4 h-9 rounded border border-border-strong text-text hover:bg-bg"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-text text-bg shadow-[0_0_20px_var(--glow-soft)] transition hover:scale-105"
                 >
                   ↵
                 </button>

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { NavLink } from "react-router-dom";
 import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2 } from "lucide-react";
+import { motion } from "framer-motion";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 
@@ -17,11 +18,16 @@ const items = [
 
 export function Sidebar() {
   return (
-    <nav className="w-[240px] shrink-0 border-r border-border h-full flex flex-col bg-bg">
-      <div className="px-6 py-5 font-display font-semibold text-display">
-        {t.appName}
+    <motion.nav
+      initial={{ x: -24, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      className="glass relative z-20 m-3 flex w-[68px] shrink-0 flex-col items-center rounded-[28px] py-4 shadow-[0_16px_48px_var(--glow-faint)]"
+      aria-label="Primary navigation"
+    >
+      <div className="mb-5 flex h-9 w-9 items-center justify-center rounded-full bg-text font-display text-sm font-semibold text-bg shadow-[0_0_22px_var(--glow-soft)]">
+        F
       </div>
-      <ul className="flex-1 px-2">
+      <ul className="flex flex-1 flex-col items-center gap-1">
         {items.map((it) => (
           <li key={it.to}>
             <NavLink
@@ -29,17 +35,18 @@ export function Sidebar() {
               end={it.to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 px-3 h-9 rounded text-text-muted hover:text-text hover:bg-surface",
-                  isActive && "text-text bg-surface font-medium border-l-2 border-border-strong pl-[10px]"
+                  "group relative flex h-10 w-10 items-center justify-center rounded-full text-text-muted transition-all duration-300 hover:scale-105 hover:bg-glass hover:text-text",
+                  isActive && "bg-text text-bg shadow-[0_0_22px_var(--glow-soft)]"
                 )
               }
+              title={it.label}
             >
               <it.icon size={16} strokeWidth={1.5} />
-              <span>{it.label}</span>
             </NavLink>
           </li>
         ))}
       </ul>
-    </nav>
+      <span className="font-mono text-[9px] tracking-[0.18em] text-text-faint">0.1</span>
+    </motion.nav>
   );
 }

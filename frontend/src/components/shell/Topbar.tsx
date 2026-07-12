@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown, Cpu, Sun, Moon, Monitor } from "lucide-react";
+import { motion } from "framer-motion";
 import { useWS } from "../../stores/ws";
 import { useUI, type Theme } from "../../stores/ui";
 import { cn } from "../../lib/cn";
@@ -69,13 +70,13 @@ export function Topbar() {
   const label = active?.label || active?.model || activeId || "(no provider)";
 
   return (
-    <div className="h-12 border-b border-border bg-bg flex items-center px-6 justify-between">
+    <motion.header initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="glass fixed left-[5.5rem] right-3 top-3 z-30 flex h-12 items-center justify-between rounded-full px-4 shadow-[0_12px_36px_var(--glow-faint)]">
       <div className="flex items-center gap-2">
         <div className="text-[13px] text-text-muted font-mono">FSAR · local-first agent</div>
         <button
           onClick={cycle}
           title={`Theme: ${theme}`}
-          className="h-7 w-7 flex items-center justify-center rounded border border-border hover:bg-surface text-text-muted hover:text-text"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-glass hover:text-text"
         >
           <ThemeIcon size={12} strokeWidth={1.5} />
         </button>
@@ -84,7 +85,7 @@ export function Topbar() {
         <button
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            "flex items-center gap-2 px-3 h-8 border border-border rounded text-[12px] hover:bg-surface",
+            "glass flex h-8 items-center gap-2 rounded-full px-3 text-[12px] transition hover:bg-glass-strong",
             !active && "border-warning text-warning"
           )}
         >
@@ -93,7 +94,7 @@ export function Topbar() {
           <ChevronDown size={12} strokeWidth={1.5} />
         </button>
         {open && (
-          <div className="absolute right-0 top-9 z-50 w-[260px] border border-border rounded bg-bg shadow-lg">
+          <div className="glass-strong absolute right-0 top-10 z-50 w-[260px] overflow-hidden rounded-2xl shadow-[0_16px_44px_var(--glow-faint)]">
             {enabled.length === 0 ? (
               <div className="px-4 py-3 text-[12px] text-text-muted">
                 No enabled providers. <a href="/settings" className="underline">Configure</a>
@@ -105,8 +106,8 @@ export function Topbar() {
                     <button
                       onClick={() => pick(p.id)}
                       className={cn(
-                        "w-full text-left px-3 py-2 text-[12px] hover:bg-surface flex items-center justify-between gap-3",
-                        p.id === activeId && "bg-surface"
+                        "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition hover:bg-glass",
+                        p.id === activeId && "bg-glass"
                       )}
                     >
                       <div className="flex flex-col">
@@ -124,6 +125,6 @@ export function Topbar() {
           </div>
         )}
       </div>
-    </div>
+    </motion.header>
   );
 }

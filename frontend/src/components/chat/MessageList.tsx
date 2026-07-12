@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useCardsStore } from "../../stores/cards";
+import { Avatar } from "../ui/Avatar";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { PluggableList } from "unified";
 import remarkGfm from "remark-gfm";
@@ -10,6 +13,7 @@ import { ThinkingDot } from "./ThinkingDot";
 import { RiskConfirm } from "./RiskConfirm";
 import { RateStars } from "./RateStars";
 import { splitThinkBlocks } from "../../lib/thinking";
+import { motion } from "framer-motion";
 
 // `throwOnError: false` lets partial LaTeX (common during streaming) render
 // as plain text instead of crashing the assistant bubble mid-sentence.
@@ -31,6 +35,7 @@ export interface ChatMessage {
   streaming?: boolean;
   thinking?: boolean;
   tools?: ToolEvent[];
+  character_id?: number;
   character_name?: string;
   user_name?: string;
 }
@@ -51,7 +56,7 @@ interface Props {
 
 function ToolCallRow({ ev }: { ev: ToolEvent }) {
   return (
-    <details className="border border-border rounded px-3 py-2 my-1 text-sm">
+    <details className="glass rounded-xl px-3 py-2 text-sm">
       <summary className="cursor-pointer select-none">
         <span className="font-mono text-[12px] font-medium">{ev.tool}</span>
         <span className="ml-2 font-mono text-[11px] text-text-muted">
@@ -76,7 +81,7 @@ function ThinkingBlock({ content }: { content: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div
-      className="my-2 rounded border border-border bg-bg/40 text-[12px] text-text-muted"
+      className="my-2 rounded-xl bg-bg/40 text-[12px] text-text-muted ring-1 ring-border"
       data-testid="thinking-block"
     >
       <button
@@ -93,7 +98,7 @@ function ThinkingBlock({ content }: { content: string }) {
         </span>
       </button>
       {open && (
-        <div className="px-3 pb-2 pl-7 italic whitespace-pre-wrap break-words border-t border-border/60">
+        <div className="border-t border-border/60 px-3 pb-2 pl-7 italic whitespace-pre-wrap break-words">
           {content}
         </div>
       )}
@@ -132,20 +137,33 @@ function AssistantBody({ content }: { content: string }) {
 }
 
 export function MessageList({ messages, pendingRisks, onRespond, onRate }: Props) {
+  const characters = useCardsStore((s) => s.characters);
+  const charactersById = useMemo(() => {
+    const byId = new Map<number, (typeof characters)[number]>();
+    for (const character of characters) byId.set(character.id, character);
+    return byId;
+  }, [characters]);
+
   return (
-    <div className="flex flex-col gap-6 max-w-[720px] mx-auto px-8 py-6">
-      {messages.map((m) => (
-        <div key={m.id} className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <span className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-              {m.role === "user"
-                ? (m.user_name ?? "USER")
-                : (m.character_name ?? "ASSISTANT")}
-            </span>
-            <span className="font-mono text-xs text-text-muted">just now</span>
-          </div>
+    <div className="mx-auto flex max-w-[900px] flex-col gap-5 px-4 py-8 sm:px-8">
+      {messages.map((m) => {
+        const character = m.character_id != null ? charactersById.get(m.character_id) : undefined;
+        return (
+        <motion.div key={m.id} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex items-end gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+          {m.role === "assistant" && (
+            <Avatar
+              name={m.character_name ?? character?.name ?? "Assistant"}
+              avatarPath={character?.avatar_path}
+              cardId={character?.id}
+              size={32}
+            />
+          )}
+          <div className={`flex max-w-[min(78%,680px)] flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+          <span className="px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-text-faint">
+            {m.role === "user" ? (m.user_name ?? "You") : (m.character_name ?? character?.name ?? "Assistant")}
+          </span>
           {m.tools?.map((ev) => <ToolCallRow key={ev.callId} ev={ev} />)}
-          <div className="text-text leading-relaxed [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:overflow-auto [&_pre]:bg-bg [&_pre]:p-3 [&_pre]:rounded">
+          <div className={`leading-relaxed [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:overflow-auto [&_pre]:bg-bg [&_pre]:p-3 [&_pre]:rounded-xl ${m.role === "user" ? "rounded-[24px] rounded-br-md bg-text px-4 py-3 text-bg shadow-[0_8px_24px_var(--glow-faint)]" : "glass rounded-[24px] rounded-bl-md px-4 py-3 text-text"}`}>
             {m.thinking ? (
               <ThinkingDot />
             ) : m.role === "assistant" && !m.streaming ? (
@@ -157,9 +175,10 @@ export function MessageList({ messages, pendingRisks, onRespond, onRate }: Props
           {m.role === "assistant" && !m.thinking && !m.streaming && (
             <RateStars messageId={m.id} onRate={onRate} />
           )}
-          <hr className="border-border" />
-        </div>
-      ))}
+          </div>
+        </motion.div>
+        );
+      })}
       {pendingRisks.map((r) => (
         <RiskConfirm key={r.callId} {...r} onRespond={onRespond} />
       ))}

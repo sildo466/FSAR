@@ -46,11 +46,11 @@ export function HistoryPanel({ open, onToggle }: Props) {
 
   return (
     <aside
-      className={`h-full border-l border-border bg-surface flex flex-col transition-[width] duration-200 shrink-0 ${
+      className={`glass m-0 ml-3 flex h-full shrink-0 flex-col overflow-hidden rounded-[24px] shadow-[0_12px_36px_var(--glow-faint)] transition-[width] duration-300 ${
         open ? "w-64" : "w-10"
       }`}
     >
-      <div className="flex items-center justify-end px-2 h-14 border-b border-border shrink-0">
+      <div className="flex h-14 shrink-0 items-center justify-end px-3">
         {open && (
           <span className="font-display text-xs uppercase tracking-[0.1em] text-text-muted mr-auto pl-2">
             History
@@ -59,7 +59,7 @@ export function HistoryPanel({ open, onToggle }: Props) {
         {open && (
           <button
             onClick={() => createNew()}
-            className="flex items-center gap-1 px-2 h-7 rounded border border-border-strong text-text text-xs hover:bg-bg"
+            className="rounded-full bg-text px-3 py-1.5 text-xs text-bg transition hover:scale-105"
             title="New conversation"
           >
             <Plus size={12} /> New
@@ -67,7 +67,7 @@ export function HistoryPanel({ open, onToggle }: Props) {
         )}
         <button
           onClick={onToggle}
-          className="ml-1 p-2 rounded border border-border text-text hover:bg-bg hover:border-border-strong"
+          className="ml-1 rounded-full p-2 text-text-muted transition hover:bg-glass hover:text-text"
           aria-label={open ? "Close history" : "Open history"}
           title={open ? "Close history" : "Open history"}
         >
@@ -82,7 +82,7 @@ export function HistoryPanel({ open, onToggle }: Props) {
               No conversations yet.<br />Click + New to start.
             </div>
           ) : (
-            <ul className="py-2">
+            <ul className="space-y-1 px-2 py-2">
               {sorted.map((s) => {
                 const isActive = s.id === currentId;
                 const isEditing = editingId === s.id;
@@ -90,13 +90,11 @@ export function HistoryPanel({ open, onToggle }: Props) {
                 return (
                   <li
                     key={s.id}
-                    className={`group relative border-l-2 ${
-                      isActive ? "border-text bg-bg" : "border-transparent hover:bg-bg"
-                    }`}
+                    className={`group relative rounded-2xl transition ${isActive ? "bg-glass shadow-[0_0_18px_var(--glow-faint)]" : "hover:bg-glass"}`}
                   >
                     <button
                       onClick={() => switchTo(s.id)}
-                      className="w-full text-left px-3 py-2 pr-16"
+                      className="w-full rounded-2xl px-3 py-2.5 pr-16 text-left"
                     >
                       <div className="flex items-center gap-1">
                         {s.pinned && <Pin size={10} className="text-text-muted shrink-0" />}
@@ -114,7 +112,7 @@ export function HistoryPanel({ open, onToggle }: Props) {
                               }
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="flex-1 bg-bg border border-border rounded px-1 py-0.5 text-xs text-text"
+                            className="glass flex-1 rounded-lg px-1 py-0.5 text-xs text-text"
                           />
                         ) : (
                           <span className="text-sm text-text truncate">{titleDisplay}</span>
