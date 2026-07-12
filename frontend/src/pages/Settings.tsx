@@ -13,9 +13,13 @@ import { cn } from "../lib/cn";
 interface Provider {
   id: string;
   label?: string;
+  preset_id?: string;
+  family?: string;
   provider_family?: string;
   base_url?: string;
   model?: string;
+  context_window?: number;
+  max_output_tokens?: number;
   pricing?: { input_per_1m?: number; output_per_1m?: number };
   enabled?: boolean;
 }
@@ -98,7 +102,7 @@ function ModelsTab({
                       <span className="text-text-muted text-[10px]">{p.id}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-mono">{p.provider_family || "—"}</td>
+                  <td className="px-3 py-2 font-mono">{p.provider_family || p.family || "—"}</td>
                   <td className="px-3 py-2 font-mono">{p.model || "—"}</td>
                   <td className="px-3 py-2 text-right font-mono text-text-muted">
                     {p.pricing?.input_per_1m ?? 0} / {p.pricing?.output_per_1m ?? 0}

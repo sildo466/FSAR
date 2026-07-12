@@ -2,7 +2,7 @@
 
 export type ClientMsg =
   | { type: "chat.send"; conversation_id?: string; character_id?: number; content: string; mode: "agent" | "companion"; attached_files?: string[] }
-  | { type: "chat.cancel" }
+  | { type: "chat.cancel"; conversation_id?: string }
   | { type: "chat.rate"; message_id: string; score: 1 | 2 | 3 | 4 | 5; reason?: string }
   | { type: "conversation.list"; limit?: number }
   | { type: "conversation.create" }

@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState } from "react";
-import { X, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { X, Loader2, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { useWS } from "../../stores/ws";
 
 interface Provider {
   id: string;
   label?: string;
+  preset_id?: string;
+  family?: string;
   provider_family?: string;
   base_url?: string;
   api_key?: string;
   model?: string;
+  context_window?: number;
+  max_output_tokens?: number;
   pricing?: { input_per_1m?: number; output_per_1m?: number };
   enabled?: boolean;
 }
@@ -33,15 +37,26 @@ function generateId(label: string): string {
   return slug || `provider-${Date.now().toString(36)}`;
 }
 
+function normalizeFamily(family?: string): string {
+  if (family === "openai" || family === "openai-compatible") return "openai_compat";
+  if (family === "google") return "gemini";
+  return family || "openai_compat";
+}
+
 export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: Props) {
   const send = useWS((s) => s.send);
   const config = useWS((s) => s.config);
+  const client = useWS((s) => s.client);
 
   const [label, setLabel] = useState(initial?.label ?? "");
-  const [providerFamily, setProviderFamily] = useState(initial?.provider_family ?? "openai");
+  const [providerFamily, setProviderFamily] = useState(normalizeFamily(initial?.provider_family ?? initial?.family));
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "");
   const [apiKey, setApiKey] = useState(initial?.api_key ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
+  const [contextWindow, setContextWindow] = useState(String(initial?.context_window ?? 128000));
+  const [maxOutputTokens, setMaxOutputTokens] = useState(String(initial?.max_output_tokens ?? 4096));
+  const [models, setModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
   const [inputPer1m, setInputPer1m] = useState<string>(
     initial?.pricing?.input_per_1m?.toString() ?? ""
   );
@@ -54,10 +69,14 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
   useEffect(() => {
     if (open) {
       setLabel(initial?.label ?? "");
-      setProviderFamily(initial?.provider_family ?? "openai");
+      setProviderFamily(normalizeFamily(initial?.provider_family ?? initial?.family));
       setBaseUrl(initial?.base_url ?? "");
       setApiKey(initial?.api_key ?? "");
       setModel(initial?.model ?? "");
+      setContextWindow(String(initial?.context_window ?? 128000));
+      setMaxOutputTokens(String(initial?.max_output_tokens ?? 4096));
+      setModels([]);
+      setFetchingModels(false);
       setInputPer1m(initial?.pricing?.input_per_1m?.toString() ?? "");
       setOutputPer1m(initial?.pricing?.output_per_1m?.toString() ?? "");
       setEnabled(initial?.enabled !== false);
@@ -65,35 +84,61 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
     }
   }, [open, initial]);
 
+  useEffect(() => {
+    if (!open || !client) return;
+    return client.on((msg) => {
+      if (msg.type === "provider.test_result") {
+        setTest(msg.ok
+          ? { kind: "ok", model: model || undefined }
+          : { kind: "fail", reason: msg.error || "Connection failed." });
+      } else if (msg.type === "provider.models") {
+        setFetchingModels(false);
+        if (msg.ok) {
+          setModels(msg.models);
+          if (!model && msg.models.length > 0) setModel(msg.models[0]);
+        } else {
+          setTest({ kind: "fail", reason: msg.error || "Unable to fetch models." });
+        }
+      }
+    });
+  }, [open, client, model]);
+
   if (!open) return null;
 
-  async function testConnection() {
+  function presetId(): string {
+    if (initial?.preset_id) return initial.preset_id;
+    if (providerFamily === "anthropic") return "anthropic";
+    if (providerFamily === "gemini" || providerFamily === "google") return "google";
+    return "openai";
+  }
+
+  function testConnection() {
     if (!baseUrl) {
       setTest({ kind: "fail", reason: "Base URL is empty." });
       return;
     }
     setTest({ kind: "testing" });
-    try {
-      const url = `${baseUrl.replace(/\/$/, "")}/models`;
-      const res = await fetch(url, {
-        method: "GET",
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-      });
-      if (!res.ok) {
-        setTest({ kind: "fail", reason: `HTTP ${res.status}` });
-        return;
-      }
-      const data = await res.json().catch(() => null);
-      const firstModel =
-        Array.isArray(data?.data)
-          ? data.data[0]?.id
-          : Array.isArray(data?.models)
-            ? data.models[0]?.name
-            : undefined;
-      setTest({ kind: "ok", model: firstModel });
-    } catch (e) {
-      setTest({ kind: "fail", reason: e instanceof Error ? e.message : String(e) });
+    send({
+      type: "provider.test_connection",
+      preset_id: presetId(),
+      base_url: baseUrl,
+      api_key: apiKey,
+      model,
+    });
+  }
+
+  function fetchModels() {
+    if (!baseUrl) {
+      setTest({ kind: "fail", reason: "Base URL is empty." });
+      return;
     }
+    setFetchingModels(true);
+    send({
+      type: "provider.fetch_models",
+      preset_id: presetId(),
+      base_url: baseUrl,
+      api_key: apiKey,
+    });
   }
 
   function save() {
@@ -109,10 +154,13 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
     const next: Provider = {
       id,
       label,
-      provider_family: providerFamily,
+      preset_id: presetId(),
+      family: providerFamily,
       base_url: baseUrl,
       api_key: apiKey,
       model,
+      context_window: Number(contextWindow) || 128000,
+      max_output_tokens: Number(maxOutputTokens) || 4096,
       pricing: {
         input_per_1m: Number(inputPer1m) || 0,
         output_per_1m: Number(outputPer1m) || 0,
@@ -166,7 +214,7 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
               onChange={(e) => setProviderFamily(e.target.value)}
               className="w-full bg-bg border border-border rounded px-2 h-7 font-mono"
             >
-              <option value="openai">openai</option>
+              <option value="openai_compat">openai compatible</option>
               <option value="anthropic">anthropic</option>
               <option value="gemini">gemini</option>
             </select>
@@ -188,12 +236,44 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
               placeholder="${API_KEY}"
             />
           </Field>
-          <Field label="Model">
+          <Field label="Model" wide>
+            <div className="flex gap-2">
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                list="provider-models"
+                className="min-w-0 flex-1 bg-bg border border-border rounded px-2 h-7 font-mono"
+                placeholder="claude-sonnet-4-6"
+              />
+              <datalist id="provider-models">
+                {models.map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <button
+                onClick={fetchModels}
+                disabled={fetchingModels}
+                className="px-2 h-7 border border-border rounded text-[12px] hover:bg-surface flex items-center gap-1 disabled:opacity-50"
+              >
+                <RefreshCw size={11} className={fetchingModels ? "animate-spin" : ""} />
+                Fetch models
+              </button>
+            </div>
+          </Field>
+          <Field label="Context window">
             <input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
+              value={contextWindow}
+              onChange={(e) => setContextWindow(e.target.value)}
+              type="number"
+              min="1024"
               className="w-full bg-bg border border-border rounded px-2 h-7 font-mono"
-              placeholder="claude-sonnet-4-6"
+            />
+          </Field>
+          <Field label="Max output tokens">
+            <input
+              value={maxOutputTokens}
+              onChange={(e) => setMaxOutputTokens(e.target.value)}
+              type="number"
+              min="1"
+              className="w-full bg-bg border border-border rounded px-2 h-7 font-mono"
             />
           </Field>
           <Field label="Enabled">

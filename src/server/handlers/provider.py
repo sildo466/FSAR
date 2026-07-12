@@ -287,4 +287,10 @@ async def provider_fetch_models(preset_id: str, base_url: str, api_key: str) -> 
                 models.append(m["id"])
             elif isinstance(m, str):
                 models.append(m)
+    elif isinstance(data, dict) and isinstance(data.get("models"), list):
+        for m in data["models"]:
+            if isinstance(m, dict) and "name" in m:
+                models.append(m["name"])
+            elif isinstance(m, str):
+                models.append(m)
     return {"type": "provider.models", "ok": True, "models": models, "error": None}

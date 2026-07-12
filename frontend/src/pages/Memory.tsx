@@ -257,8 +257,9 @@ export function Memory() {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={() => setModalSession(null)}
         >
-          <dialog
-            open
+          <div
+            role="dialog"
+            aria-modal="true"
             className="w-[80vw] max-w-[720px] max-h-[80vh] overflow-auto bg-surface border border-border rounded p-6"
             onClick={(e) => e.stopPropagation()}
           >
@@ -292,7 +293,7 @@ export function Memory() {
                 ))}
               </ul>
             )}
-          </dialog>
+          </div>
         </div>
       )}
     </div>

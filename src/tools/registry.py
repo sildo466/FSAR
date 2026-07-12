@@ -85,9 +85,9 @@ class ToolRegistry:
         """Get all tool names."""
         return list(self._tools.keys())
 
-    async def execute(self, name: str, **kwargs) -> str:
+    async def execute(self, tool_name: str, **kwargs) -> str:
         """Execute a tool by name."""
-        tool = self.get(name)
+        tool = self.get(tool_name)
         if tool is None:
-            return f"Error: Unknown tool '{name}'"
+            return f"Error: Unknown tool '{tool_name}'"
         return await tool.execute(**kwargs)

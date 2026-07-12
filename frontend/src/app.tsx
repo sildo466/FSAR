@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { useWS } from "./stores/ws";
 import { useCardsStore } from "./stores/cards";
 import { Sidebar } from "./components/shell/Sidebar";
@@ -15,6 +15,38 @@ import { Settings } from "./pages/Settings";
 import { Usage } from "./pages/Usage";
 import { Onboarding } from "./pages/Onboarding";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
+
+function AppShell() {
+  const location = useLocation();
+  const isChat = location.pathname === "/" || location.pathname === "/chat";
+
+  return (
+    <div className="relative flex h-screen overflow-hidden">
+      <div className="app-backdrop" aria-hidden="true">
+        <div className="app-orb one" />
+        <div className="app-orb two" />
+        <div className="app-orb three" />
+      </div>
+      <Sidebar />
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+        {isChat && <Topbar />}
+        <main className={`flex-1 overflow-auto px-3 pb-3 ${isChat ? "pt-[4.5rem]" : "pt-3"}`}>
+          <Routes>
+            <Route path="/" element={<Chat />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/reflection" element={<Reflection />} />
+            <Route path="/memory" element={<Memory />} />
+            <Route path="/library" element={<Library />} />
+            <Route path="/cards" element={<Cards />} />
+            <Route path="/insights" element={<Insights />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/usage" element={<Usage />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
+}
 
 export function App() {
   const init = useWS((s) => s.init);
@@ -39,30 +71,7 @@ export function App() {
 
   return (
     <BrowserRouter>
-      <div className="relative flex h-screen overflow-hidden">
-        <div className="app-backdrop" aria-hidden="true">
-          <div className="app-orb one" />
-          <div className="app-orb two" />
-          <div className="app-orb three" />
-        </div>
-        <Sidebar />
-        <div className="relative z-10 flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <main className="flex-1 overflow-auto px-3 pb-3 pt-[4.5rem]">
-          <Routes>
-            <Route path="/" element={<Chat />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/reflection" element={<Reflection />} />
-            <Route path="/memory" element={<Memory />} />
-            <Route path="/library" element={<Library />} />
-            <Route path="/cards" element={<Cards />} />
-            <Route path="/insights" element={<Insights />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/usage" element={<Usage />} />
-          </Routes>
-        </main>
-        </div>
-      </div>
+      <AppShell />
       {required && <Onboarding />}
     </BrowserRouter>
   );

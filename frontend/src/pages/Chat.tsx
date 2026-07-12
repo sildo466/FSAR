@@ -291,7 +291,7 @@ export function Chat() {
   };
 
   const handleCancel = () => {
-    client?.send({ type: "chat.cancel" });
+    client?.send({ type: "chat.cancel", conversation_id: currentId ?? undefined });
   };
 
   const onRespond = (callId: string, response: "y" | "n" | "all" | "never") => {

@@ -62,3 +62,27 @@ it("shows thinking immediately and sends the selected draft character", () => {
     mode: "agent",
   });
 });
+
+it("sends cancel while a reply is in progress", () => {
+  const client = new FakeClient();
+  useWS.setState({ client: client as never, init: () => {} });
+  useSessions.setState({
+    sessions: [], currentId: "session-1", history: { "session-1": [] },
+    loadingHistory: false, listLoaded: true,
+  });
+  useCardsStore.setState({
+    characters: [], userCards: [], defaultUserCard: null,
+    sessionCharacters: {}, draftCharacterId: null,
+  });
+
+  const { getByPlaceholderText, getByText } = render(<Chat />);
+  const input = getByPlaceholderText("Ask FSAR anything…");
+  fireEvent.change(input, { target: { value: "Hello" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.click(getByText("Stop"));
+
+  expect(client.sent).toContainEqual({
+    type: "chat.cancel",
+    conversation_id: "session-1",
+  });
+});

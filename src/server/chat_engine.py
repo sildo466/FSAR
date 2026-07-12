@@ -53,6 +53,8 @@ MAX_TOOL_TURNS = 50
 DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
+DEFAULT_CONTEXT_WINDOW = 128000
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
 
 
 class ChatEngine:
@@ -277,6 +279,112 @@ class ChatEngine:
     def cancel(self) -> None:
         self._cancelled = True
 
+    def _model_limits(self) -> tuple[int, int]:
+        provider = self.config.get_llm_config(self.config.get("llm.active", ""))
+        try:
+            context_window = int(provider.get("context_window", DEFAULT_CONTEXT_WINDOW))
+        except (TypeError, ValueError):
+            context_window = DEFAULT_CONTEXT_WINDOW
+        try:
+            max_output = int(provider.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS))
+        except (TypeError, ValueError):
+            max_output = DEFAULT_MAX_OUTPUT_TOKENS
+        context_window = max(1024, context_window)
+        max_output = max(1, min(max_output, context_window - 1))
+        return context_window, max_output
+
+    @staticmethod
+    def _fit_history(
+        system_prompt: str,
+        history: list[dict[str, Any]],
+        context_window: int,
+        max_output: int,
+    ) -> list[dict[str, Any]]:
+        input_budget = max(1, context_window - max_output)
+        used = max(1, len(system_prompt) // 4)
+        selected: list[dict[str, Any]] = []
+        for message in reversed(history):
+            cost = max(1, len(str(message.get("content", ""))) // 4 + 8)
+            if selected and used + cost > input_budget:
+                break
+            selected.append(message)
+            used += cost
+        selected.reverse()
+        return selected
+
+    @staticmethod
+    def _message_cost(message: Any) -> int:
+        if isinstance(message, dict):
+            content = message.get("content", "")
+            tool_calls = message.get("tool_calls", "")
+        else:
+            content = getattr(message, "content", "")
+            tool_calls = getattr(message, "tool_calls", "")
+        return max(1, (len(str(content)) + len(str(tool_calls))) // 4 + 8)
+
+    @classmethod
+    def _fit_agent_messages(
+        cls,
+        messages: list[Any],
+        context_window: int,
+        max_output: int,
+    ) -> list[Any]:
+        if len(messages) <= 2:
+            return messages
+        budget = max(1, context_window - max_output)
+        system = messages[0]
+        latest_user_index = max(
+            (i for i, message in enumerate(messages)
+             if isinstance(message, dict) and message.get("role") == "user"),
+            default=1,
+        )
+        latest_user = messages[latest_user_index]
+        used = cls._message_cost(system) + cls._message_cost(latest_user)
+
+        older_groups: list[list[Any]] = []
+        current_groups: list[list[Any]] = []
+        i = 1
+        while i < len(messages):
+            message = messages[i]
+            if i == latest_user_index:
+                i += 1
+                continue
+            tool_calls = (message.get("tool_calls") if isinstance(message, dict)
+                          else getattr(message, "tool_calls", None))
+            group = [message]
+            i += 1
+            if tool_calls:
+                while i < len(messages):
+                    following = messages[i]
+                    if not isinstance(following, dict) or following.get("role") != "tool":
+                        break
+                    group.append(following)
+                    i += 1
+            if i <= latest_user_index:
+                older_groups.append(group)
+            else:
+                current_groups.append(group)
+
+        used += sum(
+            cls._message_cost(message)
+            for group in current_groups
+            for message in group
+        )
+        selected: list[list[Any]] = []
+        for group in reversed(older_groups):
+            cost = sum(cls._message_cost(message) for message in group)
+            if used + cost > budget:
+                break
+            selected.append(group)
+            used += cost
+        selected.reverse()
+        return [
+            system,
+            *(message for group in selected for message in group),
+            latest_user,
+            *(message for group in current_groups for message in group),
+        ]
+
     def rate(self, message_id: str, score: int, reason: str = "") -> dict[str, Any]:
         msg_id = self._msg_ids.get(message_id)
         if msg_id is None:
@@ -355,6 +463,10 @@ class ChatEngine:
                     await self._run_companion(ws, message_id, client, model, conv_id, content, character, char_name)
                 else:
                     await self._run_agent(ws, message_id, client, model, conv_id, content, character, char_name)
+            except asyncio.CancelledError:
+                self._cancelled = True
+                await self._emit_text(ws, message_id, "(Cancelled.)", save=False, conv_id=conv_id)
+                await self._done(ws, message_id, "failure", conv_id=conv_id)
             except Exception as e:
                 logger.error(f"chat.send failed: {e}")
                 await ws.send_json({
@@ -372,8 +484,10 @@ class ChatEngine:
         system_prompt = self._build_prompt(conv_id, "agent", user_input)
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
         self._ensure_short(conv_id)
-        messages.extend(self._short_cache[conv_id])
-        messages.append({"role": "user", "content": user_input})
+        context_window, max_output = self._model_limits()
+        messages.extend(self._fit_history(
+            system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
+        ))
         deepseek = is_deepseek_official(str(getattr(client, "base_url", "") or ""))
 
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
@@ -386,12 +500,15 @@ class ChatEngine:
                     outcome = "failure"
                     final_text = "(Cancelled.)"
                     break
+                messages = self._fit_agent_messages(
+                    messages, context_window, max_output,
+                )
                 call_kwargs: dict[str, Any] = {
                     "model": model,
                     "messages": messages,
                     "tools": tools if tools else None,
                     "tool_choice": "auto" if tools else None,
-                    "max_tokens": 4096,
+                    "max_tokens": max_output,
                 }
                 if deepseek:
                     call_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
@@ -529,8 +646,10 @@ class ChatEngine:
         system_prompt = self._build_prompt(conv_id, "companion", user_input)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._ensure_short(conv_id)
-        messages.extend(self._short_cache[conv_id])
-        messages.append({"role": "user", "content": user_input})
+        context_window, max_output = self._model_limits()
+        messages.extend(self._fit_history(
+            system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
+        ))
         deepseek = is_deepseek_official(str(getattr(client, "base_url", "") or ""))
 
         loop = asyncio.get_running_loop()
@@ -542,7 +661,7 @@ class ChatEngine:
                 stream_kwargs: dict[str, Any] = {
                     "model": model,
                     "messages": messages,
-                    "max_tokens": 65536,
+                    "max_tokens": max_output,
                     "stream": True,
                     "cache_enabled": False,
                 }

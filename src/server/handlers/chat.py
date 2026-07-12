@@ -13,6 +13,7 @@ from src.utils.logger import logger
 
 _engine: ChatEngine | None = None
 _sockets: set[WebSocket] = set()
+_tasks: dict[WebSocket, asyncio.Task[None]] = {}
 
 
 def set_engine(engine: ChatEngine) -> None:
@@ -26,6 +27,24 @@ def register_socket(ws: WebSocket) -> None:
 
 def unregister_socket(ws: WebSocket) -> None:
     _sockets.discard(ws)
+    task = _tasks.pop(ws, None)
+    if task is not None:
+        task.cancel()
+
+
+def _start_chat(ws: WebSocket, msg: dict[str, Any]) -> None:
+    previous = _tasks.get(ws)
+    if previous is not None and not previous.done():
+        previous.cancel()
+    task = asyncio.create_task(_engine.handle_send(
+        ws,
+        msg.get("content", ""),
+        msg.get("mode", "agent"),
+        msg.get("conversation_id"),
+        msg.get("character_id"),
+    ))
+    _tasks[ws] = task
+    task.add_done_callback(lambda done: _tasks.pop(ws, None) if _tasks.get(ws) is done else None)
 
 
 async def _broadcast(event: dict[str, Any]) -> None:
@@ -45,16 +64,13 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
     if _engine is None:
         return False
     if t == "chat.send":
-        asyncio.create_task(_engine.handle_send(
-            ws,
-            msg.get("content", ""),
-            msg.get("mode", "agent"),
-            msg.get("conversation_id"),
-            msg.get("character_id"),
-        ))
+        _start_chat(ws, msg)
         return True
     if t == "chat.cancel":
         _engine.cancel()
+        task = _tasks.get(ws)
+        if task is not None and not task.done():
+            task.cancel()
         return True
     if t == "chat.rate":
         try:
