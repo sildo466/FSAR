@@ -16,6 +16,7 @@ data/
 # Config (user-specific, generated on first run)
 config/fsar.yaml
 config/fsar.yaml.bak
+config/mcp_servers.yaml
 
 # 日志
 *.log
@@ -27,6 +28,23 @@ config/fsar.yaml.bak
 # 系统
 .DS_Store
 Thumbs.db
+
+# Python 工具链
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / 前端构建产物
+node_modules/
+/frontend/tsconfig.tsbuildinfo
+/frontend/tsconfig.node.tsbuildinfo
+/frontend/vite.config.d.ts
+/frontend/vite.config.js
+
+# 根级开发脚本（dev helpers，非产品代码）
+/scripts/
 
 # AI 助手 / 开发工具（个人本地）
 CLAUDE.md
