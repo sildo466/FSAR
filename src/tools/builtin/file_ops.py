@@ -57,9 +57,13 @@ class FileOpsTool(Tool):
     def risk_level(self) -> str:
         return "MEDIUM"
 
-    async def execute(self, operation: str, path: str, content: str = "",
+    async def execute(self, operation: str = "", path: str = "", content: str = "",
                       destination: str = "", recursive: bool = False, **kwargs) -> str:
         """Execute a file operation."""
+        if not operation:
+            return "Error: operation is required"
+        if not path:
+            return "Error: path is required"
         try:
             file_path = Path(path)
 
@@ -90,6 +94,11 @@ class FileOpsTool(Tool):
             return f"Error: Path is a directory: {path}. Use list operation."
         if path.stat().st_size > 1_000_000:  # 1MB limit
             return f"Error: File too large ({path.stat().st_size} bytes). Max 1MB."
+
+        with path.open("rb") as f:
+            sample = f.read(8192)
+        if b"\x00" in sample:
+            return f"Error: {path} appears to be a binary file ({len(sample)}-byte sample contains null bytes)."
 
         content = path.read_text(encoding="utf-8", errors="replace")
         return content if content else "(empty file)"

@@ -1,11 +1,11 @@
-"""FSAR Embedder 工厂 — 根据配置选择 LM Studio 或 Ollama.
+"""FSAR Embedder factory — selects OpenAI, LM Studio, or Ollama per fsar.yaml.
 
-读取顺序 (高 → 低):
-1. settings.yaml  -> memory.embedder.{provider,base_url,model}
-2. 环境变量       -> EMBED_PROVIDER / EMBED_BASE_URL / EMBED_MODEL
-3. 默认值         -> lmstudio / http://192.168.5.71:1234 / text-embedding-embeddinggemma-300m-qat
+Resolution order (high → low):
+1. fsar.yaml  -> memory.embedder.{provider,base_url,model,api_key,timeout}
+2. Env vars   -> EMBED_PROVIDER / EMBED_BASE_URL / EMBED_MODEL
+3. Defaults   -> lmstudio / http://192.168.5.71:1234 / text-embedding-embeddinggemma-300m-qat
 
-provider 可选: "lmstudio" | "ollama"
+Provider choices: "openai" | "lmstudio" | "ollama"
 """
 
 from __future__ import annotations
@@ -17,12 +17,13 @@ from src.utils.config import get_config
 from src.utils.logger import logger
 
 
-PROVIDERS = ("lmstudio", "ollama")
+PROVIDERS = ("openai", "lmstudio", "ollama")
 
 
 def build_embedder(provider: str | None = None,
                    base_url: str | None = None,
                    model: str | None = None,
+                   api_key: str | None = None,
                    timeout: float | None = None):
     """构造一个 ChromaDB 兼容的 EmbeddingFunction.
 
@@ -40,7 +41,18 @@ def build_embedder(provider: str | None = None,
         raise ValueError(f"未知 embedder provider: {p!r}（可选: {PROVIDERS}）")
 
     timeout = timeout or float(emb_cfg.get("timeout", 60.0))
+    api_key = api_key or emb_cfg.get("api_key", "")
+    base_url = base_url or emb_cfg.get("base_url")
+    model = model or emb_cfg.get("model")
 
+    if p == "openai":
+        from src.memory.openai_embed import OpenAIEmbeddingFunction
+        return OpenAIEmbeddingFunction(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout,
+        )
     if p == "lmstudio":
         from src.memory.lmstudio_embed import LMStudioEmbeddingFunction
         return LMStudioEmbeddingFunction(

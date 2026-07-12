@@ -7,10 +7,13 @@ import os
 import re
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from src.utils.logger import logger
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "fsar.yaml"
 
@@ -105,6 +108,12 @@ class FsarConfig:
         return str(self.get("reflection.intensity", "medium"))
 
     @property
+    def reflection_triggers(self) -> dict:
+        """GUI-configured reflection triggers. Empty dict when unset."""
+        v = self.get("reflection.triggers", {}) or {}
+        return v if isinstance(v, dict) else {}
+
+    @property
     def memory_sqlite_path(self) -> str:
         return str(self.get("memory.sqlite_path", "data/memory.db"))
 
@@ -118,6 +127,17 @@ class FsarConfig:
         if enabled_only:
             providers = [p for p in providers if p.get("enabled")]
         return providers
+
+    def get_mcp_servers(self) -> list[dict]:
+        """Read MCP server configs from `mcp.servers` in fsar.yaml.
+
+        Returns the list as-authored (not env-expanded) — callers that need
+        ${VAR} interpolation in `env` blocks should still call os.path.expandvars
+        on the result. Returns [] when the key is absent so callers can fall
+        back to env var / mcp_servers.yaml.
+        """
+        with self._lock:
+            return list(self._settings.get("mcp", {}).get("servers", []) or [])
 
     def get_llm_config(self, provider_id: str) -> dict:
         for p in self.list_providers():
@@ -154,6 +174,7 @@ class FsarConfig:
 
     def save(self) -> None:
         with self._lock:
+            import time
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._path.with_suffix(self._path.suffix + ".tmp")
             with tmp.open("w", encoding="utf-8") as f:
@@ -162,4 +183,27 @@ class FsarConfig:
                 os.fsync(f.fileno())
             if self._path.exists():
                 shutil.copy2(self._path, self._path.with_suffix(self._path.suffix + ".bak"))
-            tmp.replace(self._path)
+            # Atomic replace can race with antivirus / Windows Search / dev-server
+            # file watchers on Windows (PermissionError [WinError 5]). Retry with
+            # exponential backoff, then fall back to a non-atomic overwrite so
+            # the wizard never gets stuck.
+            last_err: Exception | None = None
+            for attempt in range(6):
+                try:
+                    tmp.replace(self._path)
+                    return
+                except PermissionError as e:
+                    last_err = e
+                    time.sleep(0.05 * (attempt + 1))
+            with self._path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(self._settings, f, allow_unicode=True, sort_keys=False)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+            logger.warning(
+                f"fsar_config.save: atomic replace failed after retries "
+                f"({last_err}); fell back to non-atomic write"
+            )

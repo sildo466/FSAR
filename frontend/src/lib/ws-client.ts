@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export type ClientMsg =
-  | { type: "chat.send"; conversation_id?: string; content: string; mode: "agent" | "companion"; attached_files?: string[] }
+  | { type: "chat.send"; conversation_id?: string; character_id?: number; content: string; mode: "agent" | "companion"; attached_files?: string[] }
   | { type: "chat.cancel" }
   | { type: "chat.rate"; message_id: string; score: 1 | 2 | 3 | 4 | 5; reason?: string }
   | { type: "conversation.list"; limit?: number }
@@ -42,12 +42,15 @@ export type ClientMsg =
   | { type: "llm.set_active"; provider_id: string }
   | { type: "permissions.patch"; patch: Record<string, unknown> }
   | { type: "provider.list_presets" }
-  | { type: "provider.create_builtin"; preset_id: string; label: string; api_key: string; base_url: string; model: string }
+  | { type: "provider.create_builtin"; preset_id: string; label: string; api_key: string; base_url: string; model: string; pricing?: { input_per_1m: number; output_per_1m: number } }
   | { type: "provider.test_connection"; preset_id: string; base_url: string; api_key: string; model?: string }
   | { type: "provider.fetch_models"; preset_id: string; base_url: string; api_key: string }
   | { type: "onboarding.get_state" }
   | { type: "onboarding.complete_step"; step: string; data?: Record<string, unknown> }
   | { type: "onboarding.complete" }
+  | { type: "onboarding.skip" }
+  | { type: "embedding.upsert"; provider: "openai" | "lmstudio" | "ollama"; base_url: string; model: string; api_key?: string; timeout?: number }
+  | { type: "embedding.probe"; provider?: "openai" | "lmstudio" | "ollama"; base_url?: string; model?: string; api_key?: string }
   | { type: "onboarding.reset" }
   | { type: "style.patch"; patch: Record<string, unknown> }
   | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
@@ -74,6 +77,8 @@ export interface StoredMessage {
   summary: string;
   tags: string;
   timestamp: string;
+  character_id?: number;
+  character_name?: string;
 }
 
 export interface OnboardingStatePayload {
@@ -87,17 +92,17 @@ export type ServerMsg =
   | { type: "snapshot"; config: Record<string, unknown>; runtime?: Record<string, unknown>; onboarding?: OnboardingStatePayload }
   | { type: "onboarding.state"; required: boolean; completed: boolean; completed_steps: string[]; current_step: string | null }
   | { type: "provider.presets"; presets: Array<Record<string, unknown>> }
-  | { type: "provider.created"; provider: { id: string; preset_id: string; model: string; family: string; [k: string]: unknown } }
+  | { type: "provider.created"; provider: { id: string; preset_id: string; model: string; family: string; [k: string]: unknown }; providers: Array<Record<string, unknown>>; active: string }
   | { type: "provider.test_result"; ok: boolean; error: string | null; latency_ms: number | null }
   | { type: "provider.models"; ok: boolean; models: string[]; error: string | null }
   | { type: "onboarding.step_completed"; step: string }
   | { type: "onboarding.completed"; redirect: string }
   | { type: "onboarding.error"; step: string; code: string; message: string }
-  | { type: "chat.delta"; message_id: string; content: string }
-  | { type: "chat.thinking"; message_id: string; conversation_id?: string }
+  | { type: "chat.delta"; message_id: string; content: string; character_id?: number; character_name?: string }
+  | { type: "chat.thinking"; message_id: string; conversation_id?: string; character_id?: number; character_name?: string }
   | { type: "chat.tool_call"; message_id: string; call_id: string; tool: string; args: unknown; risk: "SAFE" | "LOW" | "MEDIUM" | "HIGH" }
   | { type: "chat.tool_result"; call_id: string; result: unknown; latency_ms: number }
-  | { type: "chat.done"; message_id: string; outcome: "success" | "failure" | "timeout"; summary?: string }
+  | { type: "chat.done"; message_id: string; outcome: "success" | "failure" | "timeout"; summary?: string; character_id?: number; character_name?: string; emotion_state?: Record<string, number> }
   | { type: "chat.rate.ack"; message_id: string; status: "ok" | "no_message" | "error"; db_id?: number; error?: string }
   | { type: "conversation.list"; sessions: SessionMeta[] }
   | { type: "conversation.created"; session: SessionMeta }

@@ -5,8 +5,7 @@
   "identifier": "ai.fsar.gui",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:8765",
     "beforeBuildCommand": "npm run build"
   },
   "app": {

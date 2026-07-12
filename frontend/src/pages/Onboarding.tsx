@@ -159,7 +159,7 @@ export function Onboarding() {
 
   const handleSkipSetup = () => {
     setSubmitError(null)
-    send({ type: 'onboarding.skip' })
+    send({ type: 'onboarding.skip' } as never)
   }
 
   if (!welcomed) {

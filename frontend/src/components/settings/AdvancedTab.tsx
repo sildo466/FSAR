@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, FileCode2 } from "lucide-react";
 import { useWS } from "../../stores/ws";
+import { useWizardState } from "../../stores/onboarding";
 
 interface RecentDecision {
   task_id: string;
@@ -119,10 +120,13 @@ export function AdvancedTab() {
             Reset permissions
           </button>
           <button
-            onClick={() => useWS.getState().send({ type: 'onboarding.reset' })}
+            onClick={() => {
+              useWizardState.getState().reset();
+              useWS.getState().send({ type: "onboarding.reset" });
+            }}
             data-testid="reset-onboarding-button"
             className="h-7 px-3 border border-border rounded text-[12px]"
-            title="Wizard will reappear on next launch"
+            title="Restart the setup wizard now"
           >
             Reset onboarding
           </button>

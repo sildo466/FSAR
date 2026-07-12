@@ -49,9 +49,13 @@ class EditTool(Tool):
     def risk_level(self) -> str:
         return "MEDIUM"
 
-    async def execute(self, file_path: str, old_text: str, new_text: str,
+    async def execute(self, file_path: str = "", old_text: str = "", new_text: str = "",
                       replace_all: bool = False, **kwargs) -> str:
         """Edit a file by replacing text."""
+        if not file_path:
+            return "Error: file_path is required"
+        if not old_text:
+            return "Error: old_text cannot be empty"
         try:
             path = Path(file_path)
             if not path.exists():
@@ -59,10 +63,8 @@ class EditTool(Tool):
 
             content = path.read_text(encoding="utf-8", errors="replace")
 
-            # Check if old_text exists
             count = content.count(old_text)
             if count == 0:
-                # Try to give helpful hint
                 lines = content.split("\n")
                 old_lines = old_text.strip().split("\n")
                 if len(old_lines) > 0:
@@ -75,7 +77,6 @@ class EditTool(Tool):
             if not replace_all and count > 1:
                 return f"Error: Found {count} matches. Set replace_all=true or provide more context to make it unique."
 
-            # Perform replacement
             if replace_all:
                 new_content = content.replace(old_text, new_text)
             else:

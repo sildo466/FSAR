@@ -255,17 +255,46 @@ class IdleReflector:
                  feedback: FeedbackStore | None = None,
                  llm_client=None,
                  model: str | None = None,
-                 interval_hours: float = DEFAULT_INTERVAL_HOURS):
+                 interval_hours: float = DEFAULT_INTERVAL_HOURS,
+                 intensity: str = "medium"):
         self.long_term = long_term or LongTermMemory()
         self.user_model = user_model or UserModel()
         self.feedback = feedback or FeedbackStore()
         self._llm = llm_client
         self._model = model
         self.interval_hours = interval_hours
+        self.intensity = intensity
+        self._events_since_reflect = 0
 
     def set_llm(self, llm_client):
         """Lazily inject the LLM client."""
         self._llm = llm_client
+
+    def set_intensity(self, intensity: str) -> None:
+        if intensity not in VALID_INTENSITIES:
+            raise ValueError(f"intensity must be one of {VALID_INTENSITIES}, got {intensity!r}")
+        self.intensity = intensity
+
+    def should_reflect_by_triggers(self, triggers: dict | None) -> bool:
+        """GUI-driven trigger: per-task/on_failure are handled by TaskReflector;
+        idle_batch is ours. Returns True if idle_batch thresholds are met."""
+        cfg = (triggers or {}).get("idle_batch") or {}
+        if not cfg.get("enabled"):
+            return False
+        threshold_events = int(cfg.get("threshold_events") or 0)
+        if threshold_events > 0 and self._events_since_reflect >= threshold_events:
+            return True
+        threshold_hours = float(cfg.get("threshold_hours") or 0)
+        if threshold_hours > 0:
+            last = self.last_reflection_at()
+            if last is None:
+                return True
+            if (datetime.now() - last).total_seconds() >= threshold_hours * 3600:
+                return True
+        return False
+
+    def bump_event(self) -> None:
+        self._events_since_reflect += 1
 
     def should_reflect(self) -> bool:
         """Should we reflect now? Based on last reflection time + data volume."""
@@ -284,6 +313,7 @@ class IdleReflector:
 
     def mark_done(self):
         """Mark a reflection as just completed."""
+        self._events_since_reflect = 0
         self.user_model.set_preference(
             self.REFLECTION_STATE_KEY,
             datetime.now().isoformat(),
@@ -452,7 +482,7 @@ VALID_INTENSITIES = {INTENSITY_OFF, INTENSITY_LOW, INTENSITY_MEDIUM, INTENSITY_H
 class TaskReflector:
     """Per-task reflection — invoked by orchestrator on task completion / failure.
 
-    Three trigger modes (independent flags derived from intensity):
+    Three trigger modes (independent flags from GUI):
     - per_task:    always invoked after a task (highest learning cadence)
     - on_failure:  only on failure / timeout / low-rating
     - idle_batch:  collected by IdleReflector (separate class)
@@ -463,7 +493,8 @@ class TaskReflector:
                  user_model: UserModel | None = None,
                  llm_client=None,
                  model: str | None = None,
-                 intensity: str = INTENSITY_MEDIUM):
+                 intensity: str = INTENSITY_MEDIUM,
+                 triggers: dict | None = None):
         if intensity not in VALID_INTENSITIES:
             raise ValueError(f"intensity must be one of {VALID_INTENSITIES}, got {intensity!r}")
         self.store = store or ReflectionStore()
@@ -471,6 +502,7 @@ class TaskReflector:
         self._llm = llm_client
         self._model = model
         self.intensity = intensity
+        self.triggers = triggers or {}
 
     def set_llm(self, llm_client):
         self._llm = llm_client
@@ -480,20 +512,29 @@ class TaskReflector:
             raise ValueError(f"intensity must be one of {VALID_INTENSITIES}, got {intensity!r}")
         self.intensity = intensity
 
+    def set_triggers(self, triggers: dict) -> None:
+        self.triggers = triggers or {}
+
     @property
     def per_task_enabled(self) -> bool:
-        return self.intensity in (INTENSITY_MEDIUM, INTENSITY_HIGH)
+        t = self.triggers.get("per_task")
+        if t is None:
+            return self.intensity in (INTENSITY_MEDIUM, INTENSITY_HIGH)
+        return bool(t)
 
     @property
     def on_failure_enabled(self) -> bool:
-        return self.intensity in (INTENSITY_LOW, INTENSITY_MEDIUM, INTENSITY_HIGH)
+        t = self.triggers.get("on_failure")
+        if t is None:
+            return self.intensity in (INTENSITY_LOW, INTENSITY_MEDIUM, INTENSITY_HIGH)
+        return bool(t)
 
     @property
     def writeback_enabled(self) -> bool:
         return self.intensity == INTENSITY_HIGH
 
     def should_reflect(self, *, outcome: str) -> bool:
-        """Decide whether to run reflection based on intensity + outcome."""
+        """Decide whether to run reflection based on triggers + intensity + outcome."""
         if self.intensity == INTENSITY_OFF:
             return False
         if outcome == "success":

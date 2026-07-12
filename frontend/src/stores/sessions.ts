@@ -66,7 +66,10 @@ export const useSessions = create<SessionsState>((set, get) => {
           limit: 100,
         });
       } else if (state.currentId == null && incoming.length === 0) {
-        attached?.send({ type: "conversation.create" });
+        // Don't auto-create on empty list. Stay on the welcome canvas;
+        // chat_engine.handle_send creates a session lazily on the first
+        // user message. Avoids ghost "untitled" rows appearing in the
+        // history panel before the user has actually said anything.
       }
     } else if (msg.type === "conversation.created") {
       set((s) => ({
@@ -74,11 +77,6 @@ export const useSessions = create<SessionsState>((set, get) => {
         currentId: msg.session.id,
       }));
       saveId(msg.session.id);
-      attached?.send({
-        type: "conversation.history",
-        conversation_id: msg.session.id,
-        limit: 100,
-      });
     } else if (msg.type === "conversation.switched") {
       set({ currentId: msg.conversation_id });
       saveId(msg.conversation_id);
@@ -142,7 +140,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     refreshList: () => attached?.send({ type: "conversation.list" }),
 
     createNew: () => {
-      set({ currentId: null, history: { ...get().history } });
+      set({ currentId: null, loadingHistory: false });
       saveId(null);
     },
 

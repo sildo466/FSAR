@@ -231,9 +231,73 @@ def _normalize_windows_paths(server: dict) -> dict:
     return out
 
 
+# ---- fsar.yaml helpers ----
+#
+# After fsar.yaml became the single source of truth for MCP server configs,
+# the CLI needs to be able to read/write its `mcp.servers` block. The .env
+# path remains as a fallback for users who haven't migrated yet — see the
+# precedence rules in src/mcp/manager.py::_load_configs.
+
+
+def find_fsar_yaml(start: Path | None = None) -> Path:
+    """Walk up from `start` looking for config/fsar.yaml. Default to cwd/config/fsar.yaml."""
+    p = start or Path.cwd()
+    for _ in range(6):
+        candidate = p / "config" / "fsar.yaml"
+        if candidate.is_file():
+            return candidate
+        if p.parent == p:
+            break
+        p = p.parent
+    return Path.cwd() / "config" / "fsar.yaml"
+
+
+def read_fsar_mcp_servers(path: Path) -> list[dict]:
+    """Read the `mcp.servers` list from fsar.yaml. Returns [] when absent."""
+    import yaml
+
+    if not path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        print(f"[fsar-mcp] WARN: failed to read {path}: {e}", file=sys.stderr)
+        return []
+    return list(data.get("mcp", {}).get("servers", []) or [])
+
+
+def write_fsar_mcp_servers(path: Path, servers: list[dict]) -> None:
+    """Replace `mcp.servers` in fsar.yaml, preserving every other top-level section.
+
+    Mirrors FsarConfig.save()'s atomic-write pattern (tmp + os.replace) so a
+    mid-write crash doesn't leave a half-written YAML on disk.
+    """
+    import yaml
+
+    if path.is_file():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            data = {}
+    else:
+        data = {}
+    data.setdefault("mcp", {})["servers"] = servers
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp.replace(path)
+
+
 # ---- Subcommands ----
 
 def cmd_add(args) -> int:
+    if args.fsar and args.env_file:
+        print("[fsar-mcp] --fsar and --env-file are mutually exclusive", file=sys.stderr)
+        return 1
+
     server: dict = {"name": args.name, "command": args.command}
     arg_list = _collect_args(args)
     if arg_list is not None:
@@ -245,6 +309,24 @@ def cmd_add(args) -> int:
     else:
         # Default: enable on add (user is actively registering it)
         server["enabled"] = True
+
+    if args.fsar:
+        # Canonical path: write fsar.yaml's `mcp.servers` block.
+        fsar_path = find_fsar_yaml()
+        if args.dry_run:
+            servers = read_fsar_mcp_servers(fsar_path)
+            servers = _upsert(servers, server)
+            print(f"[fsar-mcp] DRY RUN — would write to {fsar_path}:")
+            print(f"mcp.servers = {json.dumps(servers, ensure_ascii=False, indent=2)}")
+            return 0
+        existed = any(s.get("name") == args.name for s in read_fsar_mcp_servers(fsar_path))
+        servers = read_fsar_mcp_servers(fsar_path)
+        servers = _upsert(servers, server)
+        write_fsar_mcp_servers(fsar_path, servers)
+        action = "updated" if existed else "added"
+        print(f"[fsar-mcp] {action} '{args.name}' in {fsar_path}")
+        print(f"[fsar-mcp] restart FSAR or run '/mcp reload' to activate.")
+        return 0
 
     env_path = Path(args.env_file) if args.env_file else find_env_file()
 
@@ -290,6 +372,22 @@ def _collect_args(args) -> list[str] | None:
 
 
 def cmd_remove(args) -> int:
+    if args.fsar and args.env_file:
+        print("[fsar-mcp] --fsar and --env-file are mutually exclusive", file=sys.stderr)
+        return 1
+
+    if args.fsar:
+        fsar_path = find_fsar_yaml()
+        servers = read_fsar_mcp_servers(fsar_path)
+        filtered = [s for s in servers if s.get("name") != args.name]
+        if len(filtered) == len(servers):
+            print(f"[fsar-mcp] '{args.name}' not in {fsar_path}")
+            return 1
+        write_fsar_mcp_servers(fsar_path, filtered)
+        print(f"[fsar-mcp] removed '{args.name}' from {fsar_path}")
+        print(f"[fsar-mcp] restart FSAR or run '/mcp reload' to deactivate.")
+        return 0
+
     env_path = Path(args.env_file) if args.env_file else find_env_file()
     if not env_path.is_file():
         print(f"[fsar-mcp] {env_path} not found", file=sys.stderr)
@@ -314,6 +412,28 @@ def cmd_remove(args) -> int:
 
 
 def cmd_list(args) -> int:
+    if args.fsar and args.env_file:
+        print("[fsar-mcp] --fsar and --env-file are mutually exclusive", file=sys.stderr)
+        return 1
+
+    if args.fsar:
+        fsar_path = find_fsar_yaml()
+        servers = read_fsar_mcp_servers(fsar_path)
+        if not servers:
+            print("(no MCP servers configured)")
+            print(f"  config source: {fsar_path}")
+            return 0
+        print(f"source: {fsar_path}")
+        for s in servers:
+            name = s.get("name", "?")
+            cmd = s.get("command", "?")
+            cmd_args = " ".join(s.get("args") or [])
+            risk = s.get("risk_level", "HIGH")
+            enabled = "ON " if s.get("enabled", False) else "off"
+            line = f"  [{enabled}] {name} ({risk}): {cmd} {cmd_args}".rstrip()
+            print(line)
+        return 0
+
     env_path = Path(args.env_file) if args.env_file else find_env_file()
     servers = _read_servers(env_path if env_path.is_file() else None)
     if not servers:
@@ -403,6 +523,11 @@ def main() -> int:
         "--disabled", action="store_true", help="Add but don't enable",
     )
     p_add.add_argument("--env-file", help="Path to .env (default: auto-detect)")
+    p_add.add_argument(
+        "--fsar", action="store_true",
+        help="Write to config/fsar.yaml (`mcp.servers`) instead of .env — "
+             "use this after migrating MCP config into fsar.yaml.",
+    )
     p_add.add_argument("--dry-run", action="store_true", help="Show what would be written")
     # Alias --args JSON to args_json internally so we can merge cleanly
     p_add.set_defaults(func=cmd_add, args_json=None)
@@ -446,10 +571,18 @@ def main() -> int:
     p_rm = sub.add_parser("remove", help="Remove an MCP server entry")
     p_rm.add_argument("name")
     p_rm.add_argument("--env-file")
+    p_rm.add_argument(
+        "--fsar", action="store_true",
+        help="Remove from config/fsar.yaml instead of .env",
+    )
     p_rm.set_defaults(func=cmd_remove)
 
     p_ls = sub.add_parser("list", help="List configured MCP servers")
     p_ls.add_argument("--env-file")
+    p_ls.add_argument(
+        "--fsar", action="store_true",
+        help="List from config/fsar.yaml instead of .env",
+    )
     p_ls.set_defaults(func=cmd_list)
 
     p_sn = sub.add_parser("snippet", help="Print a single-server JSON snippet")

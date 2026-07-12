@@ -11,11 +11,6 @@ onboarding:
 llm:
   active: ""
   providers: []
-embedder:
-  provider: ""
-  base_url: ""
-  model: ""
-  timeout: 60
 memory:
   sqlite_path: data/memory.db
   short_term_window: 50
@@ -24,6 +19,12 @@ memory:
   reflection_intensity: medium
   recall_max_chars: 2000
   enable_rating_prompt: true
+  embedder:
+    provider: ""
+    base_url: ""
+    model: ""
+    api_key: ""
+    timeout: 60
 llm_cache:
   enabled: true
   db_path: data/llm_cache.db

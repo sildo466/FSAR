@@ -38,6 +38,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
                 api_key=msg.get("api_key", ""),
                 base_url=msg.get("base_url", ""),
                 model=msg.get("model", ""),
+                pricing=msg.get("pricing"),
             )
             await ws.send_json(result)
         except ValueError as e:
@@ -76,6 +77,7 @@ async def provider_create_builtin(
     api_key: str,
     base_url: str,
     model: str,
+    pricing: dict | None = None,
 ) -> dict:
     """Create a provider instance from a preset; write to fsar.yaml atomically."""
     presets = load_presets(_PRESETS_PATH)
@@ -87,32 +89,86 @@ async def provider_create_builtin(
     if not base_url or not base_url.strip():
         raise ValueError("base_url is required")
 
-    providers = fsar_config.get("llm.providers", []) or []
-    existing_ids = {p.get("id") for p in providers}
-    suffix = 1
-    while f"{preset_id}-{suffix}" in existing_ids:
-        suffix += 1
-    new_id = f"{preset_id}-{suffix}"
+    providers = list(fsar_config.get("llm.providers", []) or [])
+    active_id = fsar_config.get("llm.active", "")
+    target_index = next(
+        (i for i, provider in enumerate(providers) if provider.get("id") == active_id),
+        None,
+    )
+    if target_index is None:
+        target_index = next(
+            (
+                i for i, provider in enumerate(providers)
+                if provider.get("preset_id") == preset_id
+                and str(provider.get("base_url", "")).rstrip("/") == base_url.rstrip("/")
+                and provider.get("model") == model
+            ),
+            None,
+        )
+
+    if target_index is None:
+        existing_ids = {provider.get("id") for provider in providers}
+        suffix = 1
+        while f"{preset_id}-{suffix}" in existing_ids:
+            suffix += 1
+        provider_id = f"{preset_id}-{suffix}"
+        created_at = _now_iso()
+    else:
+        provider_id = str(providers[target_index].get("id"))
+        created_at = providers[target_index].get("created_at") or _now_iso()
 
     now = _now_iso()
     provider_row = {
-        "id": new_id,
+        "id": provider_id,
         "preset_id": preset_id,
         "label": label or preset["label"],
-        "base_url": base_url,
+        "base_url": base_url.rstrip("/"),
         "api_key": api_key or "",
-        "model": model,
+        "model": model.strip(),
         "family": preset["family"],  # B-D5: server-derived, not user-editable
         "enabled": True,
-        "created_at": now,
+        "created_at": created_at,
         "updated_at": now,
     }
-    providers.append(provider_row)
-    fsar_config.patch("llm.providers", providers)
-    if not fsar_config.get("llm.active"):
-        fsar_config.patch("llm.active", new_id)
+    if pricing:
+        provider_row["pricing"] = {
+            "input_per_1m": float(pricing.get("input_per_1m", 0) or 0),
+            "output_per_1m": float(pricing.get("output_per_1m", 0) or 0),
+        }
+    if target_index is None:
+        providers.append(provider_row)
+    else:
+        providers[target_index] = provider_row
+
+    deduplicated = [provider_row]
+    seen = {_provider_signature(provider_row)}
+    for provider in providers:
+        if provider.get("id") == provider_id:
+            continue
+        signature = _provider_signature(provider)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduplicated.append(provider)
+
+    fsar_config.patch("llm.providers", deduplicated)
+    fsar_config.patch("llm.active", provider_id)
     fsar_config.save()
-    return {"type": "provider.created", "provider": provider_row}
+    return {
+        "type": "provider.created",
+        "provider": provider_row,
+        "providers": deduplicated,
+        "active": provider_id,
+    }
+
+
+def _provider_signature(provider: dict) -> tuple[str, str, str, str]:
+    return (
+        str(provider.get("preset_id", "")),
+        str(provider.get("base_url", "")).rstrip("/"),
+        str(provider.get("model", "")),
+        str(provider.get("api_key", "")),
+    )
 
 
 async def provider_test_connection(

@@ -62,8 +62,10 @@ class RunCommandTool(Tool):
     def risk_level(self) -> str:
         return "HIGH"
 
-    async def execute(self, command: str, shell: str = "powershell", timeout: int = 30, **kwargs) -> str:
+    async def execute(self, command: str = "", shell: str = "powershell", timeout: int = 30, **kwargs) -> str:
         """Execute a shell command and return the output."""
+        if not command or not command.strip():
+            return "Error: command is required"
         bat_path: Optional[str] = None
         try:
             if shell == "powershell":

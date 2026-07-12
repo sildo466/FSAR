@@ -10,7 +10,7 @@ interface Provider {
   base_url?: string;
   api_key?: string;
   model?: string;
-  pricing?: { input_per_1k?: number; output_per_1k?: number };
+  pricing?: { input_per_1m?: number; output_per_1m?: number };
   enabled?: boolean;
 }
 
@@ -42,11 +42,11 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "");
   const [apiKey, setApiKey] = useState(initial?.api_key ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
-  const [inputPer1k, setInputPer1k] = useState<string>(
-    initial?.pricing?.input_per_1k?.toString() ?? ""
+  const [inputPer1m, setInputPer1m] = useState<string>(
+    initial?.pricing?.input_per_1m?.toString() ?? ""
   );
-  const [outputPer1k, setOutputPer1k] = useState<string>(
-    initial?.pricing?.output_per_1k?.toString() ?? ""
+  const [outputPer1m, setOutputPer1m] = useState<string>(
+    initial?.pricing?.output_per_1m?.toString() ?? ""
   );
   const [enabled, setEnabled] = useState(initial?.enabled !== false);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
@@ -58,8 +58,8 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
       setBaseUrl(initial?.base_url ?? "");
       setApiKey(initial?.api_key ?? "");
       setModel(initial?.model ?? "");
-      setInputPer1k(initial?.pricing?.input_per_1k?.toString() ?? "");
-      setOutputPer1k(initial?.pricing?.output_per_1k?.toString() ?? "");
+      setInputPer1m(initial?.pricing?.input_per_1m?.toString() ?? "");
+      setOutputPer1m(initial?.pricing?.output_per_1m?.toString() ?? "");
       setEnabled(initial?.enabled !== false);
       setTest({ kind: "idle" });
     }
@@ -114,8 +114,8 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
       api_key: apiKey,
       model,
       pricing: {
-        input_per_1k: Number(inputPer1k) || 0,
-        output_per_1k: Number(outputPer1k) || 0,
+        input_per_1m: Number(inputPer1m) || 0,
+        output_per_1m: Number(outputPer1m) || 0,
       },
       enabled,
     };
@@ -206,20 +206,20 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
               <span className="text-text-muted">enable on save</span>
             </label>
           </Field>
-          <Field label="Pricing (per 1k)">
+          <Field label="Pricing (per 1M tokens, USD)">
             <div className="flex items-center gap-2">
               <input
-                value={inputPer1k}
-                onChange={(e) => setInputPer1k(e.target.value)}
+                value={inputPer1m}
+                onChange={(e) => setInputPer1m(e.target.value)}
                 className="w-20 bg-bg border border-border rounded px-2 h-7 font-mono text-right"
-                placeholder="0.001"
+                placeholder="0.15"
               />
               <span className="text-text-muted text-[11px]">in</span>
               <input
-                value={outputPer1k}
-                onChange={(e) => setOutputPer1k(e.target.value)}
+                value={outputPer1m}
+                onChange={(e) => setOutputPer1m(e.target.value)}
                 className="w-20 bg-bg border border-border rounded px-2 h-7 font-mono text-right"
-                placeholder="0.002"
+                placeholder="0.60"
               />
               <span className="text-text-muted text-[11px]">out</span>
             </div>

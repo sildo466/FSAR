@@ -30,11 +30,14 @@ class LMStudioEmbeddingFunction(EmbeddingFunction[Documents]):
                  base_url: str | None = None,
                  model: str | None = None,
                  timeout: float = 60.0):
-        self.base_url = (
+        configured_base_url = (
             base_url
             or os.environ.get("LMSTUDIO_BASE_URL")
             or self.DEFAULT_BASE_URL
         ).rstrip("/")
+        while configured_base_url.lower().endswith("/v1"):
+            configured_base_url = configured_base_url[: -len("/v1")].rstrip("/")
+        self.base_url = configured_base_url
         self.model = (
             model
             or os.environ.get("LMSTUDIO_EMBED_MODEL")

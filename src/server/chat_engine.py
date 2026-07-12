@@ -301,6 +301,7 @@ class ChatEngine:
     async def handle_send(
         self, ws: WebSocket, content: str, mode: str,
         conversation_id: str | None = None,
+        character_id: int | None = None,
     ) -> None:
         if conversation_id and self.session_store.get(conversation_id):
             conv_id = conversation_id
@@ -312,6 +313,17 @@ class ChatEngine:
                 "session": row.to_dict(),
             })
         self._active_conv_id = conv_id
+        if character_id is not None:
+            requested_character = self.card_repo.get_character(character_id)
+            if requested_character is not None:
+                self.session_store.set_character(conv_id, requested_character.id)
+        char_id = self.session_store.get_character(conv_id)
+        character = self.card_repo.get_character(char_id) if char_id else None
+        if character is None:
+            character = self.card_repo.get_default_character()
+            if character is not None:
+                self.session_store.set_character(conv_id, character.id)
+        char_name = character.name if character else "Assistant"
         async with self._lock_for(conv_id):
             self._cancelled = False
             message_id = f"msg_{uuid.uuid4().hex[:8]}"
@@ -319,6 +331,8 @@ class ChatEngine:
                 "type": "chat.thinking",
                 "message_id": message_id,
                 "conversation_id": conv_id,
+                "character_id": character.id if character else None,
+                "character_name": char_name,
             })
             try:
                 if content.strip().startswith("/"):
@@ -338,9 +352,9 @@ class ChatEngine:
                     return
                 self._save_user(conv_id, content)
                 if mode == "companion":
-                    await self._run_companion(ws, message_id, client, model, conv_id, content)
+                    await self._run_companion(ws, message_id, client, model, conv_id, content, character, char_name)
                 else:
-                    await self._run_agent(ws, message_id, client, model, conv_id, content)
+                    await self._run_agent(ws, message_id, client, model, conv_id, content, character, char_name)
             except Exception as e:
                 logger.error(f"chat.send failed: {e}")
                 await ws.send_json({
@@ -352,7 +366,8 @@ class ChatEngine:
     # ---------- agent mode ----------
 
     async def _run_agent(self, ws: WebSocket, message_id: str, client: Any,
-                         model: str, conv_id: str, user_input: str) -> None:
+                         model: str, conv_id: str, user_input: str,
+                         character: Any = None, char_name: str | None = None) -> None:
         tools = self.registry.get_tools_for_llm()
         system_prompt = self._build_prompt(conv_id, "agent", user_input)
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
@@ -417,7 +432,7 @@ class ChatEngine:
         finally:
             clear_task_context()
 
-        await self._emit_text(ws, message_id, final_text)
+        await self._emit_text(ws, message_id, final_text, conv_id=conv_id)
         await self._done(ws, message_id, outcome, conv_id=conv_id)
         await asyncio.to_thread(self._reflect, task_id, conv_id, user_input, outcome)
         self._maybe_title(conv_id, user_input)
@@ -509,7 +524,8 @@ class ChatEngine:
     # ---------- companion mode ----------
 
     async def _run_companion(self, ws: WebSocket, message_id: str, client: Any,
-                             model: str, conv_id: str, user_input: str) -> None:
+                             model: str, conv_id: str, user_input: str,
+                             character: Any = None, char_name: str | None = None) -> None:
         system_prompt = self._build_prompt(conv_id, "companion", user_input)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._ensure_short(conv_id)
@@ -556,6 +572,8 @@ class ChatEngine:
             full.append(delta)
             await ws.send_json({
                 "type": "chat.delta", "message_id": message_id, "content": delta,
+                "character_id": character.id if character else None,
+                "character_name": char_name,
             })
         await pump
         text = "".join(full)
@@ -570,11 +588,23 @@ class ChatEngine:
     async def _emit_text(self, ws: WebSocket, message_id: str, text: str,
                          *, save: bool = True, conv_id: str | None = None) -> None:
         text = text or "(Task ended.)"
+        char_name = None
+        char_id = None
+        if conv_id:
+            try:
+                cid = self.session_store.get_character(conv_id)
+                c = self.card_repo.get_character(cid) if cid else None
+                if c:
+                    char_id, char_name = c.id, c.name
+            except Exception:
+                pass
         for i in range(0, len(text), DELTA_CHUNK):
             await ws.send_json({
                 "type": "chat.delta",
                 "message_id": message_id,
                 "content": text[i:i + DELTA_CHUNK],
+                "character_id": char_id,
+                "character_name": char_name,
             })
         if save:
             cid = conv_id or self._active_conv_id
@@ -601,17 +631,28 @@ class ChatEngine:
     async def _done(self, ws: WebSocket, message_id: str, outcome: str,
                     conv_id: str | None = None) -> None:
         emotion_state = None
+        char_id = None
+        char_name = None
         if conv_id is not None:
             try:
                 emotion_state = self._post_turn_emotion_pass(conv_id)
             except Exception as e:
                 logger.debug(f"Post-turn emotion pass skipped: {e}")
+            try:
+                cid = self.session_store.get_character(conv_id)
+                c = self.card_repo.get_character(cid) if cid else None
+                if c:
+                    char_id, char_name = c.id, c.name
+            except Exception:
+                pass
         payload = {
             "type": "chat.done", "message_id": message_id,
             "outcome": outcome, "summary": "",
         }
         if emotion_state is not None:
             payload["emotion_state"] = emotion_state
+        payload["character_id"] = char_id
+        payload["character_name"] = char_name
         await ws.send_json(payload)
 
     def _ensure_short(self, conv_id: str) -> None:

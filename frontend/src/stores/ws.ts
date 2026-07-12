@@ -58,6 +58,24 @@ export const useWS = create<WSStore>((set, get) => ({
             },
           },
         });
+      } else if (msg.type === "onboarding.completed") {
+        const current = (get().config ?? {}) as Record<string, unknown>;
+        const ob = (current.onboarding ?? {}) as Record<string, unknown>;
+        set({
+          config: {
+            ...current,
+            onboarding: { ...ob, required: false, completed: true },
+          },
+        });
+      } else if (msg.type === "provider.created") {
+        const current = (get().config ?? {}) as Record<string, unknown>;
+        const llm = (current.llm ?? {}) as Record<string, unknown>;
+        set({
+          config: {
+            ...current,
+            llm: { ...llm, providers: msg.providers, active: msg.active },
+          },
+        });
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {

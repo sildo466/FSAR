@@ -32,7 +32,10 @@ def get_embedder():
         try:
             _singleton = build_embedder()
         except Exception as e:
-            logger.debug(f"embedder init failed: {e}")
+            logger.warning(
+                f"embedder init failed: {e} — semantic recall will be disabled. "
+                "Configure memory.embedder.* in Settings → Embedding."
+            )
             return None
     return _singleton
 

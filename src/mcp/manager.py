@@ -48,10 +48,16 @@ class MCPManager:
         registry: ToolRegistry,
         config_path: str | Path = "config/mcp_servers.yaml",
         env_var: str = ENV_VAR_NAME,
+        fsar_servers: list[dict] | None = None,
     ):
         self._registry = registry
         self._config_path = Path(config_path)
         self._env_var = env_var
+        # Pre-loaded server list from fsar.yaml (`mcp.servers`). When non-empty
+        # this takes precedence over both the env var and the YAML file, so a
+        # user migrating to a single fsar.yaml gets one source of truth without
+        # having to delete the old YAML.
+        self._fsar_servers: list[dict] = list(fsar_servers or [])
         self._clients: dict[str, MCPClient] = {}
         self._registered_tools: list[Tool] = []
         self._started: dict[str, bool] = {}
@@ -131,12 +137,22 @@ class MCPManager:
     # --- internals ---
 
     def _load_configs(self) -> list[dict[str, Any]]:
-        """Read server configurations from env (preferred) or YAML.
+        """Read server configurations.
 
-        Env var MCP_SERVERS holds a JSON array of server objects with the
-        same schema as YAML entries. YAML is used as a fallback when the env
-        var is unset or empty, so existing setups keep working.
+        Precedence (highest first):
+            1. fsar.yaml `mcp.servers` (when non-empty — set via __init__ arg)
+            2. Environment variable MCP_SERVERS (JSON array)
+            3. YAML file at `config/mcp_servers.yaml` (or `config_path`)
+
+        fsar.yaml is the single source of truth once populated, so the env
+        var / YAML path remains as a fallback for users who haven't migrated.
         """
+        if self._fsar_servers:
+            log.info(
+                f"MCP: loaded {len(self._fsar_servers)} server(s) from fsar.yaml"
+            )
+            return self._validate(self._fsar_servers)
+
         env_raw = os.environ.get(self._env_var, "").strip()
         if env_raw:
             # Tolerate values that include surrounding quotes — both forms

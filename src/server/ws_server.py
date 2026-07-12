@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from src.utils.fsar_config import FsarConfig
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
+from src.server.handlers import embedding as embedding_handler
 from src.server.handlers import card as card_handler
 from src.server.handlers import conversation as conversation_handler
 from src.server.handlers import insights as insights_handler
@@ -72,6 +73,12 @@ async def _startup() -> None:
         loop = asyncio.get_event_loop()
         loop.create_task(_chat_broadcast({"type": event_type, **payload}))
     _engine.card_repo.set_change_listener(_listener)
+    seeded = _engine.card_repo.seed_builtins_if_empty()
+    if seeded:
+        logger.info(f"seeded {seeded} built-in card(s) from data/cards")
+    renamed = _engine.card_repo.fix_builtin_display_names()
+    if renamed:
+        logger.info(f"renamed {renamed} built-in card(s) with language suffix")
 
 
 @app.get("/health")
@@ -184,6 +191,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await provider_handler.dispatch(ws, msg, _config):
         return
     if await onboarding_handler.dispatch(ws, msg, _config):
+        return
+    if await embedding_handler.dispatch(ws, msg, _config):
         return
     if msg.get("type") == "heartbeat":
         await ws.send_json({"type": "heartbeat", "ts": 0})

@@ -248,8 +248,12 @@ class CardRepo:
                 if not is_default_set and meta.get("role") == "FSAR" and data.get("language") == "zh":
                     is_default = 1
                     is_default_set = True
+                # Distinguish en/zh variants in the UI by suffixing name.
+                base_name = data["name"]
+                lang = data.get("language") or meta.get("language")
+                display_name = f"{base_name} ({lang})" if lang else base_name
                 self.upsert_character(CharacterCard(
-                    id=None, name=data["name"],
+                    id=None, name=display_name,
                     description=data["description"],
                     personality=data["personality"],
                     scenario=data.get("scenario", ""),
@@ -262,6 +266,51 @@ class CardRepo:
                 ))
                 seeded += 1
         return seeded
+
+    def fix_builtin_display_names(self) -> int:
+        """One-time migration: rename built-in cards that share a base name.
+
+        Built-ins used to store the same `name` for en/zh variants (e.g. two
+        rows named "FSAR"), making them indistinguishable in selectors. Seed
+        inserts JSONs in `sorted(glob(...))` order, so id N corresponds to
+        the Nth JSON (skipping default-user). This migration walks existing
+        rows in id order and assigns each row the same base_name + lang suffix
+        the seed would have used.
+        """
+        cards_dir = DEFAULT_EMOTION_PATH.parent / "cards"
+        if not cards_dir.exists():
+            return 0
+        seed_order: list[tuple[str, str | None]] = []
+        for json_path in sorted(cards_dir.glob("*.json")):
+            if json_path.name == "_meta.json":
+                continue
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            if data.get("name") == "default-user":
+                continue
+            seed_order.append((data["name"], data.get("language")))
+
+        renamed = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, name FROM character_cards WHERE created_by = 'builtin' ORDER BY id"
+            ).fetchall()
+            for idx, (cid, name) in enumerate(rows):
+                if idx >= len(seed_order):
+                    break
+                base_name, lang = seed_order[idx]
+                base = name.split(" (")[0] if " (" in name else name
+                if base != base_name:
+                    continue
+                new_name = f"{base_name} ({lang})" if lang else base_name
+                if new_name == name:
+                    continue
+                conn.execute(
+                    "UPDATE character_cards SET name = ?, updated_at = ? WHERE id = ?",
+                    (new_name, _dt.datetime.now().isoformat(), cid),
+                )
+                renamed += 1
+            conn.commit()
+        return renamed
 
     def ensure_tables(self, conn: sqlite3.Connection) -> None:
         conn.execute(

@@ -242,9 +242,9 @@ export function Usage() {
           ) : (
             <p className="text-[13px] text-text-muted">
               Forecast activates once the active LLM provider has its
-              <code className="font-mono px-1">input_per_1k</code>/
-              <code className="font-mono px-1">output_per_1k</code> rates
-              configured and usage has been recorded.
+              <code className="font-mono px-1">input_per_1m</code>/
+              <code className="font-mono px-1">output_per_1m</code> rates
+              (USD per 1M tokens) configured and usage has been recorded.
             </p>
           )}
         </div>

@@ -109,23 +109,38 @@ def messages_to_responses_input(messages: list[dict]) -> list[dict]:
     alongside the assistant's text content.
     """
     out: list[dict] = []
+    seen_non_system = False
     for m in messages or []:
         role = m.get("role")
         content = m.get("content", "")
         if role == "system":
+            # Leading system blocks belong in `instructions` (caller extracts
+            # via extract_system_prompt); silently drop them here so they
+            # aren't duplicated. Mid-history system blocks (e.g. re-injected
+            # after a tool round-trip) MUST be preserved as typed items, so
+            # gate the drop on whether we've already seen a non-system item.
+            if seen_non_system:
+                # Always emit a typed message — empty text still surfaces as
+                # `[{input_text,""}]` so the role remains visible to the API,
+                # matching the empty-assistant guarantee.
+                text = _flatten_text(content) or ""
+                out.append({
+                    "type": "message", "role": "system",
+                    "content": [{"type": "input_text", "text": text}],
+                })
             continue
+        seen_non_system = True
         if role == "user":
             items = _content_to_input_items("user", content)
-            if items:
-                out.append({"role": "user", "content": items})
-            else:
-                out.append({"role": "user", "content": [{"type": "input_text", "text": ""}]})
+            if not items:
+                items = [{"type": "input_text", "text": ""}]
+            out.append({"type": "message", "role": "user", "content": items})
         elif role == "assistant":
             text_items = _content_to_input_items("assistant", content)
-            assistant_item: dict[str, Any] = {}
-            if text_items:
-                assistant_item["content"] = text_items
             tcs = m.get("tool_calls") or []
+            # Tool calls first (Responses API expects them before the trailing
+            # message for that assistant turn; ordering matters when the model
+            # re-grounds to its own prior tool calls).
             for tc in tcs:
                 fn = tc.get("function") or {}
                 call_id = tc.get("id", "")
@@ -141,8 +156,13 @@ def messages_to_responses_input(messages: list[dict]) -> list[dict]:
                     "name": name,
                     "arguments": json.dumps(args_obj, ensure_ascii=False),
                 })
-            if assistant_item:
-                out.append(assistant_item)
+            if text_items:
+                out.append({"type": "message", "role": "assistant", "content": text_items})
+            elif not tcs:
+                # Empty assistant turn (no content, no tool calls) — still emit
+                # a typed message so the API doesn't reject on missing role.
+                out.append({"type": "message", "role": "assistant",
+                            "content": [{"type": "output_text", "text": ""}]})
         elif role == "tool":
             call_id = m.get("tool_call_id", "")
             out.append({

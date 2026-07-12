@@ -13,7 +13,8 @@ describe('StepCharacterCard', () => {
       step: 'character_card',
       current_step_index: 2,
       data: {
-        provider: { preset_id: null, api_key: '', base_url: '', model: '', test_result: null },
+        provider: { preset_id: null, api_key: '', base_url: '', model: '', input_per_1m: '', output_per_1m: '', test_result: null },
+        embedding: { provider: '', api_key: '', base_url: '', model: '', probe_result: null },
         user_card: { name: '', bio: '' },
         character_card: {
           mode: 'use_default',

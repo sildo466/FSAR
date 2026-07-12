@@ -12,7 +12,7 @@ describe('WizardShell', () => {
     useWizardState.setState({ current_step_index: 0, step: 'provider' })
     render(<WizardShell><div>child</div></WizardShell>)
     expect(screen.getByTestId('wizard-progress')).toBeInTheDocument()
-    expect(screen.getAllByTestId(/^wizard-dot-/)).toHaveLength(3)
+    expect(screen.getAllByTestId(/^wizard-dot-/)).toHaveLength(4)
   })
 
   it('marks active dot on current step', () => {

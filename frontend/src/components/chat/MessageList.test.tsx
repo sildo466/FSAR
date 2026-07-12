@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { MessageList, type ChatMessage } from "./MessageList";
+import { useCardsStore } from "../../stores/cards";
 
 afterEach(cleanup);
 
@@ -52,5 +53,37 @@ describe("AssistantBody think-block rendering", () => {
         const { queryByTestId, container } = renderMessage("just **markdown**");
         expect(queryByTestId("thinking-block")).toBeNull();
         expect(container.innerHTML).toContain("<strong>markdown</strong>");
+    });
+
+    it("renders the active character name and avatar", () => {
+        useCardsStore.setState({
+            characters: [{
+                id: 7,
+                name: "Coding Coach",
+                description: "",
+                personality: "",
+                is_default: 0,
+                avatar_path: "avatars/7.jpg",
+            }],
+        });
+        const messages: ChatMessage[] = [{
+            id: "m1",
+            role: "assistant",
+            content: "Ready",
+            character_id: 7,
+            character_name: "Coding Coach",
+        }];
+
+        const { getByText, getByAltText } = render(
+            <MessageList
+                messages={messages}
+                pendingRisks={[]}
+                onRespond={() => {}}
+                onRate={() => {}}
+            />
+        );
+
+        expect(getByText("Coding Coach")).toBeTruthy();
+        expect(getByAltText("Coding Coach").getAttribute("src")).toContain("/api/card/7/avatar");
     });
 });

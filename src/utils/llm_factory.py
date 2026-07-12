@@ -874,12 +874,32 @@ def _rehydrate_response(stored: Any) -> Any:
     enough.
     """
 
+    class _ToolCallFunction:
+        def __init__(self, fn: dict):
+            self.name = fn.get("name", "")
+            self.arguments = fn.get("arguments", "")
+
+    class _ToolCall:
+        def __init__(self, t: dict):
+            self.id = t.get("id", "")
+            self.type = t.get("type", "function")
+            self.function = _ToolCallFunction(t.get("function") or {})
+
     class _Msg:
         def __init__(self, m: dict):
             self.content = m.get("content", "") or ""
             self.role = m.get("role", "assistant")
-            self.tool_calls = m.get("tool_calls")
+            raw_tcs = m.get("tool_calls")
+            if isinstance(raw_tcs, list):
+                self.tool_calls = [_ToolCall(tc) for tc in raw_tcs if isinstance(tc, dict)]
+            else:
+                self.tool_calls = raw_tcs
             self.reasoning = m.get("reasoning", "")
+
+        def get(self, key, default=None):
+            """Dict-style read for callers that treat messages as mappings
+            (e.g. apply_provider_cache_markers, _record_llm_usage)."""
+            return getattr(self, key, default)
 
     class _Choice:
         def __init__(self, c: dict):

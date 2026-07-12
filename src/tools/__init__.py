@@ -15,6 +15,7 @@ from src.tools.builtin import (
     LearnExperienceTool,
     ListExperiencesTool,
     RememberFactTool,
+    UpdateEmotionTool,
 )
 
 
@@ -34,6 +35,7 @@ def create_default_registry() -> ToolRegistry:
     registry.register(LearnExperienceTool())
     registry.register(ListExperiencesTool())
     registry.register(RememberFactTool())
+    registry.register(UpdateEmotionTool())
     return registry
 
 
@@ -54,4 +56,5 @@ __all__ = [
     "LearnExperienceTool",
     "ListExperiencesTool",
     "RememberFactTool",
+    "UpdateEmotionTool",
 ]

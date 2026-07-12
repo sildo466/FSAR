@@ -11,6 +11,7 @@ from src.tools.builtin.pdf_analyze import PdfAnalyzeTool
 from src.tools.builtin.experience_tools import (
     ExperienceViewTool, LearnExperienceTool, ListExperiencesTool, RememberFactTool,
 )
+from src.tools.builtin.update_emotion import UpdateEmotionTool
 
 __all__ = [
     "RunCommandTool",
@@ -26,9 +27,11 @@ __all__ = [
     "LearnExperienceTool",
     "ListExperiencesTool",
     "RememberFactTool",
+    "UpdateEmotionTool",
 ]
 
-# Note: update_emotion is intentionally NOT re-exported here. Re-exporting the
-# function with the same name as the module replaces sys.modules[...update_emotion]
-# with the function, breaking tests that import the module.
-# from src.tools.builtin.update_emotion import update_emotion
+# Note: the `update_emotion` FUNCTION is intentionally NOT re-exported here.
+# Re-exporting a function with the same name as its module replaces
+# sys.modules[...update_emotion] with the function, breaking tests that
+# import the module. The Tool wrapper class is exported instead — it
+# delegates to the function internally.

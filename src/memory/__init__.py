@@ -2,6 +2,7 @@
 
 from src.memory.short_term import ShortTermMemory, Message
 from src.memory.long_term import LongTermMemory, MemoryRecord
+from src.memory.session_store import SessionStore, SessionRow, MessageRow
 from src.memory.semantic import SemanticMemory, SemanticHit
 from src.memory.user_model import UserModel, UserPreference
 from src.memory.feedback import FeedbackStore, Feedback
@@ -24,6 +25,7 @@ from src.memory.experience_store import (
 
 __all__ = [
     "ShortTermMemory", "LongTermMemory", "Message", "MemoryRecord",
+    "SessionStore", "SessionRow", "MessageRow",
     "SemanticMemory", "SemanticHit",
     "UserModel", "UserPreference",
     "FeedbackStore", "Feedback",
