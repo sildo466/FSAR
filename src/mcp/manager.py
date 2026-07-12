@@ -6,7 +6,7 @@ Configuration sources (highest priority first):
     2. YAML file at `config/mcp_servers.yaml` (or `config_path`) — for users
        who prefer editing a structured file. Useful for ${VAR} interpolation.
 
-Spawns one `MCPClient` per enabled server, queries `tools/list`, and wraps
+Connects one `MCPClient` per enabled server, queries `tools/list`, and wraps
 each tool into an `MCPTool` registered into the supplied `ToolRegistry`.
 
 Failure policy: one broken server must not break others or block FSAR startup.
@@ -208,12 +208,16 @@ class MCPManager:
             if not s.get("enabled", False):
                 continue
             transport = (s.get("transport") or "stdio").lower()
-            if transport != "stdio":
+            if transport not in {"stdio", "streamable_http"}:
                 log.warning(f"MCP server '{name}': transport '{transport}' not supported yet, skipping")
                 continue
-            command = s.get("command")
-            if not command:
+            command = s.get("command", "")
+            url = s.get("url")
+            if transport == "stdio" and not command:
                 log.warning(f"MCP server '{name}': missing 'command', skipping")
+                continue
+            if transport == "streamable_http" and not url:
+                log.warning(f"MCP server '{name}': missing 'url', skipping")
                 continue
             risk = (s.get("risk_level") or DEFAULT_RISK).upper()
             if risk not in VALID_RISK_LEVELS:
@@ -221,10 +225,13 @@ class MCPManager:
                 risk = DEFAULT_RISK
             out.append({
                 "name": name,
+                "transport": transport,
                 "command": command,
                 "args": s.get("args") or [],
                 "env": s.get("env") or {},
                 "cwd": s.get("cwd"),
+                "url": url,
+                "headers": s.get("headers") or {},
                 "risk_level": risk,
                 "_raw": s,
             })
@@ -240,6 +247,8 @@ class MCPManager:
             args=cfg["args"],
             env=env,
             cwd=cfg["cwd"],
+            url=cfg["url"] if cfg["transport"] == "streamable_http" else None,
+            headers=self._expand_env(cfg["headers"]),
         )
         self._clients[name] = client
         try:

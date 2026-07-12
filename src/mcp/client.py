@@ -1,8 +1,7 @@
-"""MCP stdio client — owns one subprocess + one ClientSession.
+"""MCP client for stdio subprocesses and streamable HTTP servers.
 
-Wraps `mcp.client.stdio.stdio_client` and `mcp.client.session.ClientSession`
-so the rest of FSAR deals with one object: `.start()` → `.list_tools()` /
-`.call_tool()` → `.stop()`.
+Wraps the MCP SDK transports and `ClientSession` so the rest of FSAR deals
+with one object: `.start()` → `.list_tools()` / `.call_tool()` → `.stop()`.
 
 Designed to run inside `MCPManager`; one client per server.
 """
@@ -17,12 +16,13 @@ from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from src.utils.logger import logger as log
 
 
 class MCPClient:
-    """Async wrapper around one MCP server subprocess (stdio transport)."""
+    """Async wrapper around one stdio or streamable HTTP MCP server."""
 
     def __init__(
         self,
@@ -31,6 +31,8 @@ class MCPClient:
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
     ):
         self.name = name
         self._command = command
@@ -38,6 +40,8 @@ class MCPClient:
         # Inherit parent env unless caller overrides
         self._env = dict(os.environ) if env is None else {**os.environ, **env}
         self._cwd = cwd
+        self._url = url
+        self._headers = headers
 
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
@@ -73,16 +77,20 @@ class MCPClient:
             if sys.platform == "win32" and "PATH" not in self._env:
                 self._env["PATH"] = os.environ.get("PATH", "")
 
-            params = StdioServerParameters(
-                command=self._command,
-                args=self._args,
-                env=self._env,
-                cwd=self._cwd,
-            )
-
             self._stack = AsyncExitStack()
             try:
-                read, write = await self._stack.enter_async_context(stdio_client(params))
+                if self._url:
+                    read, write, _ = await self._stack.enter_async_context(
+                        streamablehttp_client(self._url, headers=self._headers)
+                    )
+                else:
+                    params = StdioServerParameters(
+                        command=self._command,
+                        args=self._args,
+                        env=self._env,
+                        cwd=self._cwd,
+                    )
+                    read, write = await self._stack.enter_async_context(stdio_client(params))
                 self._session = await self._stack.enter_async_context(
                     ClientSession(read, write)
                 )

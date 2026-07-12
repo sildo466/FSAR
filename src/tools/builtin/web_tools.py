@@ -1,19 +1,34 @@
-"""FSAR web tools — web_search and web_fetch."""
+"""FSAR web search and webpage reading tools."""
 
 from __future__ import annotations
 
-import json
-from typing import Optional
-from urllib.parse import quote_plus
-
-import httpx
-
+from src.mcp.client import MCPClient
 from src.tools.registry import Tool
 from src.utils.logger import logger
 
 
+EXA_MCP_URL = "https://mcp.exa.ai/mcp"
+
+
+async def _call_exa(tool_name: str, arguments: dict) -> str:
+    client = MCPClient(name="exa", command="", url=EXA_MCP_URL)
+    try:
+        await client.start()
+        result = await client.call_tool(tool_name, arguments)
+        text = "\n".join(
+            getattr(block, "text", "")
+            for block in (getattr(result, "content", None) or [])
+            if getattr(block, "type", None) == "text"
+        ).strip()
+        if getattr(result, "isError", False):
+            raise RuntimeError(text or "Exa returned an error")
+        return text or "(no content)"
+    finally:
+        await client.stop()
+
+
 class WebSearchTool(Tool):
-    """Search the web using DuckDuckGo."""
+    """Search the public web through Exa's MCP service."""
 
     @property
     def name(self) -> str:
@@ -21,7 +36,10 @@ class WebSearchTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Search the web for information. Returns search results with titles, URLs, and snippets."
+        return (
+            "Search the public web for current information. Returns source titles, URLs, "
+            "and excerpts; treat excerpts as source material and verify important claims."
+        )
 
     @property
     def parameters(self) -> dict:
@@ -30,7 +48,7 @@ class WebSearchTool(Tool):
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query",
+                    "description": "A specific natural-language description of what to find",
                 },
                 "num_results": {
                     "type": "integer",
@@ -46,75 +64,28 @@ class WebSearchTool(Tool):
         return "SAFE"
 
     async def execute(self, query: str, num_results: int = 5, **kwargs) -> str:
-        """Search the web using DuckDuckGo HTML API."""
-        num_results = min(max(num_results, 1), 10)
+        query = query.strip()
+        if not query:
+            return "Error searching: query must not be empty"
 
         try:
-            url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-
-            # Parse HTML results (simple extraction)
-            results = self._parse_results(resp.text, num_results)
-
-            if not results:
+            result = await _call_exa(
+                "web_search_exa",
+                {"query": query, "numResults": min(max(num_results, 1), 10)},
+            )
+            if result == "(no content)":
                 return f"No results found for: {query}"
-
-            output = f"Search results for: {query}\n\n"
-            for i, r in enumerate(results, 1):
-                output += f"{i}. {r['title']}\n"
-                output += f"   URL: {r['url']}\n"
-                if r.get("snippet"):
-                    output += f"   {r['snippet']}\n"
-                output += "\n"
-
-            return output.strip()
-
-        except Exception as e:
-            logger.error(f"Web search failed: {e}")
-            return f"Error searching: {e}"
-
-    def _parse_results(self, html: str, num_results: int) -> list:
-        """Parse DuckDuckGo HTML results."""
-        results = []
-        # Simple regex-based parsing for DuckDuckGo HTML
-        import re
-
-        # Find result blocks
-        links = re.findall(r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', html)
-        snippets = re.findall(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', html)
-
-        for i, (url, title) in enumerate(links[:num_results]):
-            # Clean HTML tags from title
-            title = re.sub(r'<[^>]+>', '', title).strip()
-            snippet = ""
-            if i < len(snippets):
-                snippet = re.sub(r'<[^>]+>', '', snippets[i]).strip()
-
-            # Decode DuckDuckGo redirect URL
-            if "uddg=" in url:
-                from urllib.parse import unquote, urlparse, parse_qs
-                parsed = urlparse(url)
-                params = parse_qs(parsed.query)
-                if "uddg" in params:
-                    url = unquote(params["uddg"][0])
-
-            results.append({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-            })
-
-        return results
+            return (
+                f"Search results for: {query}\n\n{result}\n\n"
+                "Note: These are excerpts from the linked sources, not independently verified facts."
+            )
+        except Exception as exc:
+            logger.error(f"Web search failed: {exc}")
+            return f"Error searching the web: {exc}"
 
 
 class WebFetchTool(Tool):
-    """Fetch webpage content."""
+    """Read webpage content through Exa's MCP service."""
 
     @property
     def name(self) -> str:
@@ -122,7 +93,7 @@ class WebFetchTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Fetch and extract text content from a webpage URL."
+        return "Fetch a webpage and return its readable content with source metadata."
 
     @property
     def parameters(self) -> dict:
@@ -131,7 +102,7 @@ class WebFetchTool(Tool):
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "URL to fetch",
+                    "description": "HTTP or HTTPS URL to fetch",
                 },
                 "max_length": {
                     "type": "integer",
@@ -147,55 +118,19 @@ class WebFetchTool(Tool):
         return "SAFE"
 
     async def execute(self, url: str, max_length: int = 5000, **kwargs) -> str:
-        """Fetch webpage content."""
+        url = url.strip()
+        if not url:
+            return "Error fetching: URL must not be empty"
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+
+        max_length = max(max_length, 1)
         try:
-            if not url.startswith(("http://", "https://")):
-                url = "https://" + url
-
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            }
-
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-
-            content_type = resp.headers.get("content-type", "")
-
-            # For HTML, extract text
-            if "html" in content_type:
-                text = self._extract_text(resp.text)
-            else:
-                text = resp.text
-
-            # Truncate if needed
-            if len(text) > max_length:
-                text = text[:max_length] + f"\n\n... (truncated at {max_length} chars)"
-
-            return text if text else "(empty response)"
-
-        except Exception as e:
-            logger.error(f"Web fetch failed: {e}")
-            return f"Error fetching: {e}"
-
-    def _extract_text(self, html: str) -> str:
-        """Extract readable text from HTML."""
-        import re
-
-        # Remove script and style tags
-        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
-
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', ' ', html)
-
-        # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text)
-        text = text.strip()
-
-        # Decode HTML entities
-        import html as html_module
-        text = html_module.unescape(text)
-
-        return text
+            result = await _call_exa(
+                "web_fetch_exa",
+                {"urls": [url], "maxCharacters": max_length},
+            )
+            return result if result != "(no content)" else "(empty response)"
+        except Exception as exc:
+            logger.error(f"Web fetch failed: {exc}")
+            return f"Error fetching the webpage: {exc}"
