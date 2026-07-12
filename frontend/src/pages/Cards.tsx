@@ -1,9 +1,70 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState } from "react";
 import { useCardsStore, type CardSummary, type UserCardSummary } from "../stores/cards";
+import { useWS } from "../stores/ws";
+import type { ClientMsg, ServerMsg, WSClient } from "../lib/ws-client";
 
 type Tab = "character" | "user";
 type EditorTarget = { kind: Tab; id: number | "new" } | null;
+type EmotionMetric = { key: string; name: string; min: number; max: number; initial: number };
+
+const DEFAULT_EMOTION_SCHEMA: EmotionMetric[] = [
+  { key: "affection", name: "Affection", min: 0, max: 100, initial: 50 },
+  { key: "trust", name: "Trust", min: 0, max: 100, initial: 50 },
+  { key: "mood", name: "Mood", min: -100, max: 100, initial: 0 },
+  { key: "energy", name: "Energy", min: 0, max: 100, initial: 50 },
+  { key: "empathy", name: "Empathy", min: 0, max: 100, initial: 50 },
+  { key: "playfulness", name: "Playfulness", min: 0, max: 100, initial: 50 },
+  { key: "formality", name: "Formality", min: 0, max: 100, initial: 50 },
+];
+
+const DEFAULT_EMOTION_FORMULAS: Record<string, string> = {
+  affection: "affection + 0.05",
+  trust: "trust * 0.99 + 0.05",
+  mood: "mood * 0.95",
+  energy: "energy - 0.5",
+};
+
+function defaultEmotionSchema(): EmotionMetric[] {
+  return DEFAULT_EMOTION_SCHEMA.map((metric) => ({ ...metric }));
+}
+
+function stateFromSchema(schema: EmotionMetric[]): Record<string, number> {
+  return Object.fromEntries(schema.map((metric) => [metric.key, metric.initial]));
+}
+
+type ServerMessageOfType<T extends ServerMsg["type"]> = Extract<ServerMsg, { type: T }>;
+
+function requestCard<T extends ServerMsg["type"]>(
+  client: WSClient | null,
+  request: ClientMsg,
+  responseType: T,
+): Promise<ServerMessageOfType<T>> {
+  if (!client) return Promise.reject(new Error("WebSocket is not connected"));
+
+  return new Promise((resolve, reject) => {
+    let detach = () => {};
+    const timeout = window.setTimeout(() => {
+      detach();
+      reject(new Error("Card request timed out"));
+    }, 5000);
+    const finish = () => {
+      window.clearTimeout(timeout);
+      detach();
+    };
+
+    detach = client.on((message) => {
+      if (message.type === "card.error") {
+        finish();
+        reject(new Error(message.message ?? message.code));
+      } else if (message.type === responseType) {
+        finish();
+        resolve(message as ServerMessageOfType<T>);
+      }
+    });
+    client.send(request);
+  });
+}
 
 function field(card: CardSummary | UserCardSummary | null, key: string, fallback = ""): string {
   if (!card) return fallback;
@@ -22,9 +83,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Bar({ value, max, lo = 0, hi = 100 }: { value: number; max?: number; lo?: number; hi?: number }) {
-  const range = max ?? (hi - lo);
-  const pct = Math.max(0, Math.min(100, ((value - lo) / range) * 100));
+function Bar({ value, min = 0, max = 100 }: { value: number; min?: number; max?: number }) {
+  const range = Math.max(1, max - min);
+  const pct = Math.max(0, Math.min(100, ((value - min) / range) * 100));
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-2 bg-bg/40 rounded overflow-hidden">
@@ -119,6 +180,7 @@ export function Cards() {
 }
 
 function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onDone: () => void }) {
+  const client = useWS((s) => s.client);
   const characters = useCardsStore((s) => s.characters);
   const userCards = useCardsStore((s) => s.userCards);
   const card = target.kind === "character"
@@ -140,24 +202,63 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
       ? JSON.stringify((card && (card as UserCardSummary).preferences) ?? {}, null, 2)
       : ""
   );
-  const [emotionState] = useState<Record<string, number>>(
-    target.kind === "character" ? ((card as CardSummary | null)?.emotion_state ?? {}) : {}
-  );
-  const [emotionSchema] = useState<unknown[]>(
-    target.kind === "character" ? ((card as CardSummary | null)?.emotion_schema ?? []) : []
-  );
-  const [emotionFormulas] = useState<Record<string, string>>(
-    target.kind === "character" ? ((card as CardSummary | null)?.emotion_formulas ?? {}) : {}
-  );
-  const [formulaInput, setFormulaInput] = useState<Record<string, string>>({});
+  const [emotionSchema, setEmotionSchema] = useState<EmotionMetric[]>(() => {
+    if (target.kind !== "character") return [];
+    const stored = (card as CardSummary | null)?.emotion_schema as EmotionMetric[] | undefined;
+    return stored?.length ? stored.map((metric) => ({ ...metric })) : defaultEmotionSchema();
+  });
+  const [emotionState, setEmotionState] = useState<Record<string, number>>(() => {
+    if (target.kind !== "character") return {};
+    const stored = (card as CardSummary | null)?.emotion_state;
+    return stored && Object.keys(stored).length ? { ...stored } : stateFromSchema(emotionSchema);
+  });
+  const [emotionFormulas, setEmotionFormulas] = useState<Record<string, string>>(() => {
+    if (target.kind !== "character") return {};
+    const stored = (card as CardSummary | null)?.emotion_formulas;
+    return stored && Object.keys(stored).length ? { ...stored } : { ...DEFAULT_EMOTION_FORMULAS };
+  });
   const [formulaStatus, setFormulaStatus] = useState<Record<string, { valid: boolean; error?: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const send = (msg: unknown) => {
-    const w = window as unknown as { __WS?: { send: (m: unknown) => Promise<unknown> } };
-    return w.__WS?.send(msg);
+  const schemaError = emotionSchema.find((metric) => (
+    metric.min >= metric.max || metric.initial < metric.min || metric.initial > metric.max
+  ));
+
+  const updateEmotionMetric = (
+    index: number,
+    field: "min" | "max" | "initial",
+    value: number,
+  ) => {
+    if (!Number.isFinite(value)) return;
+    const metricKey = emotionSchema[index]?.key;
+    setEmotionSchema((schema) => schema.map((metric, metricIndex) => (
+      metricIndex === index ? { ...metric, [field]: value } : metric
+    )));
+    if (target.id === "new" && field === "initial" && metricKey) {
+      setEmotionState((state) => ({ ...state, [metricKey]: value }));
+    }
+  };
+
+  const updateFormula = (key: string, formula: string) => {
+    setFormulaStatus((status) => {
+      const next = { ...status };
+      delete next[key];
+      return next;
+    });
+    setEmotionFormulas((formulas) => {
+      const next = { ...formulas };
+      if (formula.trim()) next[key] = formula;
+      else delete next[key];
+      return next;
+    });
   };
 
   const onSave = async () => {
+    if (schemaError) {
+      setActionError(`${schemaError.name}: require min < max and min <= initial <= max`);
+      return;
+    }
     const card: Record<string, unknown> = {
       id: target.id === "new" ? null : target.id,
       name,
@@ -174,15 +275,31 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
       card.communication_style = communicationStyle;
       try { card.preferences = JSON.parse(preferencesJson || "{}"); } catch { card.preferences = {}; }
     }
-    await send({ type: "card.upsert", kind: target.kind, card });
-    onDone();
+    setBusy(true);
+    setActionError(null);
+    try {
+      await requestCard(client, { type: "card.upsert", kind: target.kind, card }, "card.upserted");
+      onDone();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onDelete = async () => {
     if (target.id === "new") { onDone(); return; }
     if (!confirm(`Delete this ${target.kind} card?`)) return;
-    await send({ type: "card.delete", kind: target.kind, id: target.id });
-    onDone();
+    setBusy(true);
+    setActionError(null);
+    try {
+      await requestCard(client, { type: "card.delete", kind: target.kind, id: target.id }, "card.deleted");
+      onDone();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onAvatar = async (file: File) => {
@@ -201,28 +318,52 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
   const onImportV2 = async () => {
     const text = prompt("Paste SillyTavern V2 JSON:");
     if (!text) return;
-    await send({ type: "card.import_v2", json_text: text });
-    onDone();
+    setBusy(true);
+    setActionError(null);
+    try {
+      await requestCard(client, { type: "card.import_v2", json_text: text }, "card.imported");
+      onDone();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onExport = async () => {
     if (target.id === "new") return;
-    const res = (await send({ type: "card.export", id: target.id })) as { card: CardSummary };
-    const blob = new Blob([JSON.stringify(res.card, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${name || "card"}.json`;
-    a.click();
+    setActionError(null);
+    try {
+      const response = await requestCard(client, { type: "card.export", id: target.id }, "card.exported");
+      const blob = new Blob([JSON.stringify(response.card, null, 2)], { type: "application/json" });
+      const anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = `${name || "card"}.json`;
+      anchor.click();
+      URL.revokeObjectURL(anchor.href);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const onValidateFormula = async (key: string) => {
     if (target.id === "new") return;
-    const res = (await send({
-      type: "card.validate_formula",
-      character_id: target.id,
-      formula: formulaInput[key] ?? "",
-    })) as { valid: boolean; error?: string | null };
-    setFormulaStatus((s) => ({ ...s, [key]: { valid: res.valid, error: res.error ?? undefined } }));
+    try {
+      const response = await requestCard(client, {
+        type: "card.validate_formula",
+        character_id: target.id,
+        formula: emotionFormulas[key] ?? "",
+      }, "card.formula_validated");
+      setFormulaStatus((status) => ({
+        ...status,
+        [key]: { valid: response.valid, error: response.error ?? undefined },
+      }));
+    } catch (error) {
+      setFormulaStatus((status) => ({
+        ...status,
+        [key]: { valid: false, error: error instanceof Error ? error.message : String(error) },
+      }));
+    }
   };
 
   return (
@@ -270,44 +411,93 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
             <textarea value={systemPromptOverride} onChange={(e) => setSystemPromptOverride(e.target.value)} rows={3} className="w-full px-2 py-1 bg-bg border border-border font-mono text-xs" />
           </Field>
 
-          <details className="mt-4 border border-border p-3">
+          <details open={target.id === "new"} className="mt-4 border border-border p-3">
             <summary className="cursor-pointer font-display text-[12px] uppercase tracking-[0.06em]">
-              Emotion (current values)
+              Emotion profile
             </summary>
+            <p className="mt-2 text-xs text-text-muted">
+              Current values evolve during chat. Initial values seed a newly created character.
+            </p>
+            <div className="mt-4 font-display text-[11px] uppercase tracking-[0.06em] text-text-muted">
+              Current values
+            </div>
             <div className="mt-3 space-y-2">
-              {Object.entries(emotionState).map(([key, value]) => (
-                <div key={key} className="flex items-center gap-2 text-xs">
-                  <span className="w-24 text-text-muted">{key}</span>
-                  <Bar value={Number(value)} max={(emotionSchema as Array<{key: string; max: number; min?: number}>).find((m) => m.key === key)?.max ?? 100} />
+              {emotionSchema.map((metric) => (
+                <div key={metric.key} className="grid grid-cols-[7rem_1fr] items-center gap-3 text-xs">
+                  <span className="text-text-muted">{metric.name}</span>
+                  <Bar
+                    value={Number(emotionState[metric.key] ?? metric.initial)}
+                    min={metric.min}
+                    max={metric.max}
+                  />
                 </div>
               ))}
             </div>
 
-            <div className="mt-4 font-display text-[11px] uppercase tracking-[0.06em] text-text-muted">Schema</div>
-            {(emotionSchema as Array<{key: string; name: string; min: number; max: number; initial: number}>).map((m) => (
-              <div key={m.key} className="flex items-center gap-2 mt-1 text-xs">
-                <span className="w-20">{m.name ?? m.key}</span>
-                <span className="font-mono text-text-muted">[{m.min}..{m.max}] init {m.initial}</span>
+            <div className="mt-5 font-display text-[11px] uppercase tracking-[0.06em] text-text-muted">Schema</div>
+            <div className="mt-2 grid grid-cols-[minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem] gap-2 px-2 text-[10px] uppercase tracking-[0.08em] text-text-muted">
+              <span>Metric</span>
+              <span>Min</span>
+              <span>Max</span>
+              <span>Initial</span>
+            </div>
+            <div className="mt-1 space-y-1">
+              {emotionSchema.map((metric, index) => (
+                <div key={metric.key} className="grid grid-cols-[minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem] items-center gap-2 border border-border/50 px-2 py-1.5 text-xs">
+                  <div>
+                    <div>{metric.name}</div>
+                    <div className="font-mono text-[10px] text-text-muted">{metric.key}</div>
+                  </div>
+                  {(["min", "max", "initial"] as const).map((fieldName) => (
+                    <input
+                      key={fieldName}
+                      type="number"
+                      value={metric[fieldName]}
+                      onChange={(event) => updateEmotionMetric(index, fieldName, event.currentTarget.valueAsNumber)}
+                      data-testid={`emotion-${fieldName}-${metric.key}`}
+                      aria-label={`${metric.name} ${fieldName}`}
+                      className="h-8 w-full border border-border bg-bg px-2 font-mono"
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            {schemaError && (
+              <div role="alert" className="mt-2 border-l-2 border-red-500 pl-3 text-xs text-red-500">
+                {schemaError.name}: require min &lt; max and min &le; initial &le; max.
               </div>
-            ))}
+            )}
 
-            <div className="mt-4 font-display text-[11px] uppercase tracking-[0.06em] text-text-muted">Formulas</div>
-            {Object.entries(emotionFormulas).map(([key, formula]) => (
-              <div key={key} className="flex items-center gap-2 mt-1 text-xs">
-                <span className="w-20">{key}</span>
-                <input
-                  value={formulaInput[key] ?? formula}
-                  onChange={(e) => setFormulaInput((s) => ({ ...s, [key]: e.target.value }))}
-                  className="flex-1 px-2 h-7 bg-bg border border-border font-mono"
-                />
-                <button onClick={() => onValidateFormula(key)} className="px-2 h-7 text-xs border border-border">
-                  validate
-                </button>
-                <span className={formulaStatus[key]?.valid ? "text-green-500" : "text-red-500"}>
-                  {formulaStatus[key] ? (formulaStatus[key].valid ? "✓" : `✗ ${formulaStatus[key].error}`) : ""}
-                </span>
-              </div>
-            ))}
+            <div className="mt-5 font-display text-[11px] uppercase tracking-[0.06em] text-text-muted">Formulas</div>
+            <p className="mt-1 text-[11px] text-text-muted">Leave blank to keep a metric static.</p>
+            <div className="mt-2 space-y-1">
+              {emotionSchema.map((metric) => (
+                <div key={metric.key} className="grid grid-cols-[7rem_minmax(10rem,1fr)_4.5rem] items-center gap-2 text-xs">
+                  <span>{metric.name}</span>
+                  <input
+                    value={emotionFormulas[metric.key] ?? ""}
+                    onChange={(event) => updateFormula(metric.key, event.target.value)}
+                    data-testid={`emotion-formula-${metric.key}`}
+                    aria-label={`${metric.name} formula`}
+                    placeholder="Static"
+                    className="h-8 border border-border bg-bg px-2 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onValidateFormula(metric.key)}
+                    disabled={target.id === "new" || !emotionFormulas[metric.key]}
+                    className="h-8 border border-border text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Validate
+                  </button>
+                  {formulaStatus[metric.key] && (
+                    <span className={`col-start-2 col-span-2 text-[11px] ${formulaStatus[metric.key].valid ? "text-green-500" : "text-red-500"}`}>
+                      {formulaStatus[metric.key].valid ? "Valid" : formulaStatus[metric.key].error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           </details>
         </>
       )}
@@ -322,11 +512,18 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
         </>
       )}
 
+      {actionError && (
+        <div role="alert" className="mt-4 border border-red-500 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+          {actionError}
+        </div>
+      )}
       <div className="flex gap-2 mt-6">
-        <button onClick={onSave} className="px-4 h-9 bg-text text-surface text-[12px] font-semibold">Save</button>
-        <button onClick={onDone} className="px-4 h-9 border border-border text-[12px]">Cancel</button>
+        <button disabled={busy || Boolean(schemaError)} onClick={onSave} className="px-4 h-9 bg-text text-surface text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40">
+          {busy ? "Saving..." : "Save"}
+        </button>
+        <button disabled={busy} onClick={onDone} className="px-4 h-9 border border-border text-[12px] disabled:opacity-40">Cancel</button>
         {target.id !== "new" && (
-          <button onClick={onDelete} className="px-4 h-9 border border-red-500 text-red-500 text-[12px]">Delete</button>
+          <button disabled={busy} onClick={onDelete} className="px-4 h-9 border border-red-500 text-red-500 text-[12px] disabled:opacity-40">Delete</button>
         )}
       </div>
     </div>
