@@ -28,8 +28,9 @@ export function StepEmbedding() {
     const def = PROVIDERS.find(p => p.key === key)
     if (!def) return
     setField('provider', key)
-    if (!data.base_url) setField('base_url', def.defaults.base_url)
-    if (!data.model) setField('model', def.defaults.model)
+    setField('base_url', def.defaults.base_url)
+    setField('model', def.defaults.model)
+    setField('api_key', '')
     setField('probe_result', null)
   }
 

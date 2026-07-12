@@ -12,7 +12,7 @@ from src.utils.fsar_config import FsarConfig
 
 logger = logging.getLogger(__name__)
 
-ALL_STEPS = ("provider", "user_card", "character_card")
+ALL_STEPS = ("provider", "embedding", "character_card", "user_card")
 
 
 def _now_iso() -> str:
@@ -49,6 +49,9 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig) -> bo
             await ws.send_json(result)
         except ValueError as e:
             await ws.send_json({"type": "onboarding.error", "code": "bad_request", "message": str(e)})
+        return True
+    if t == "onboarding.skip":
+        await ws.send_json(await onboarding_skip(config))
         return True
     if t == "onboarding.reset":
         await ws.send_json(await onboarding_reset(config))
@@ -87,15 +90,28 @@ async def onboarding_complete_step(
 
 
 async def onboarding_complete(fsar_config: FsarConfig) -> dict:
-    """Mark onboarding.completed = true; only succeeds if all 3 steps done."""
+    """Mark onboarding.completed = true; succeeds when required steps done.
+
+    embedding is optional (wizard can be skipped without configuring).
+    """
     steps = list(fsar_config.get("onboarding.completed_steps") or [])
-    missing = [s for s in ALL_STEPS if s not in steps]
+    required = [s for s in ALL_STEPS if s != "embedding"]
+    missing = [s for s in required if s not in steps]
     if missing:
         raise ValueError(f"onboarding incomplete: missing steps {missing}")
     fsar_config.patch("onboarding.completed", True)
     fsar_config.patch("onboarding.completed_at", _now_iso())
     fsar_config.save()
     logger.info("onboarding.completed")
+    return {"type": "onboarding.completed", "redirect": "/chat"}
+
+
+async def onboarding_skip(fsar_config: FsarConfig) -> dict:
+    """Finish onboarding without requiring setup data."""
+    fsar_config.patch("onboarding.completed", True)
+    fsar_config.patch("onboarding.completed_at", _now_iso())
+    fsar_config.save()
+    logger.info("onboarding.skipped")
     return {"type": "onboarding.completed", "redirect": "/chat"}
 
 

@@ -7,15 +7,15 @@ import { IconButton, Pill } from '../ui/primitives'
 interface StepFooterProps {
   onNext?: () => void
   onFinish?: () => void
+  onSkip?: () => void
 }
 
-export function StepFooter({ onNext, onFinish }: StepFooterProps = {}) {
+export function StepFooter({ onNext, onFinish, onSkip }: StepFooterProps = {}) {
   const step = useWizardState(s => s.step)
   const current = useWizardState(s => s.current_step_index)
   const errors = useWizardState(s => s.errors)
   const back = useWizardState(s => s.back)
   const next = useWizardState(s => s.next)
-  const skip = useWizardState(s => s.skip)
   const finish = useWizardState(s => s.finish)
   const handleNext = onNext ?? next
   const handleFinish = onFinish ?? finish
@@ -43,7 +43,7 @@ export function StepFooter({ onNext, onFinish }: StepFooterProps = {}) {
           <IconButton onClick={back} aria-label="Back"><ArrowLeft size={16} /></IconButton>
         )}
         {(step === 'embedding' || step === 'character_card') && (
-          <Pill onClick={skip} variant="ghost">Skip for now</Pill>
+          <Pill onClick={onSkip} variant="ghost">Skip for now</Pill>
         )}
         {current < 3 && step !== 'submitting' && step !== 'completed' && (
           <Pill onClick={handleNext} variant="primary" size="lg" icon={<ArrowRight size={15} />}>Next</Pill>

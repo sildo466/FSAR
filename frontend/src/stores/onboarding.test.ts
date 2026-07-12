@@ -101,7 +101,7 @@ describe("useWizardState", () => {
   });
 
   it("back() decrements step index without backend call", () => {
-    useWizardState.setState({ current_step_index: 2, step: "user_card" });
+    useWizardState.setState({ current_step_index: 2, step: "character_card" });
     useWizardState.getState().back();
     expect(useWizardState.getState().current_step_index).toBe(1);
     expect(useWizardState.getState().step).toBe("embedding");
@@ -115,7 +115,7 @@ describe("useWizardState", () => {
   });
 
   it("finish() sets step to submitting then completed", async () => {
-    useWizardState.setState({ current_step_index: 3, step: "character_card" });
+    useWizardState.setState({ current_step_index: 3, step: "user_card" });
     await useWizardState.getState().finish();
     expect(["submitting", "completed"]).toContain(useWizardState.getState().step);
   });

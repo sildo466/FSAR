@@ -10,7 +10,7 @@ import pytest
 from src.server.handlers import onboarding as onboarding_handler
 from src.utils.fsar_config import FsarConfig
 
-ALL_STEPS = ["provider", "user_card", "character_card"]
+ALL_STEPS = ["provider", "embedding", "character_card", "user_card"]
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def test_get_state_resumes_from_completed_steps(fsar_config):
 
     result = asyncio.run(_run())
     assert result["required"] is True
-    assert result["current_step"] == "user_card"
+    assert result["current_step"] == "embedding"
 
 
 def test_complete_step_appends_to_completed_steps(fsar_config, tmp_path: Path):
@@ -107,7 +107,7 @@ def test_complete_sets_completed_true(fsar_config, tmp_path: Path):
     assert cfg2.get("onboarding.completed_at") is not None
 
 
-def test_complete_requires_all_three_steps(fsar_config):
+def test_complete_requires_all_required_steps(fsar_config):
     async def _run():
         await onboarding_handler.onboarding_complete_step(
             fsar_config=fsar_config, step="provider", data={},

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWS } from '../stores/ws'
 import { useWizardState } from '../stores/onboarding'
@@ -19,6 +19,8 @@ type WizardStepName = typeof STEP_ORDER[number]
 export function Onboarding() {
   const [welcomed, setWelcomed] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const restored = useRef(false)
   const step = useWizardState(s => s.step)
   const currentIndex = useWizardState(s => s.current_step_index)
   const data = useWizardState(s => s.data)
@@ -38,6 +40,7 @@ export function Onboarding() {
   }, [onboardingState?.completed_steps])
 
   useEffect(() => {
+    if (restored.current) return
     const current = onboardingState?.current_step
     if (current && (STEP_ORDER as readonly string[]).includes(current)) {
       const idx = STEP_ORDER.indexOf(current as WizardStepName) as 0 | 1 | 2 | 3
@@ -45,13 +48,18 @@ export function Onboarding() {
         current_step_index: idx,
         step: current as WizardStepName,
       })
+      restored.current = true
     }
   }, [onboardingState?.current_step])
 
   useEffect(() => {
     return client?.on((msg) => {
       if (msg.type === 'onboarding.completed') {
-        navigate('/chat', { replace: true })
+        setFinishing(true)
+        window.setTimeout(() => navigate('/chat', { replace: true }), 650)
+      } else if (msg.type === 'onboarding.error') {
+        setFinishing(false)
+        setSubmitError(msg.message)
       }
     })
   }, [client, navigate])
@@ -128,9 +136,30 @@ export function Onboarding() {
   }
 
   const handleFinish = () => {
+    const u = data.user_card
+    if (!u.name.trim() || !u.bio.trim()) {
+      useWizardState.getState().next()
+      return
+    }
+    if (!client) return
+    setSubmitError(null)
+    let off: (() => void) | undefined
+    const timeout = window.setTimeout(() => {
+      off?.()
+      setSubmitError('Saving your profile took too long. Please try again.')
+    }, 8000)
+    off = client.on((msg) => {
+      if (msg.type !== 'onboarding.step_completed' || msg.step !== 'user_card') return
+      window.clearTimeout(timeout)
+      off?.()
+      send({ type: 'onboarding.complete' })
+    })
     saveUserCard()
-    setFinishing(true)
-    send({ type: 'onboarding.complete' })
+  }
+
+  const handleSkipSetup = () => {
+    setSubmitError(null)
+    send({ type: 'onboarding.skip' })
   }
 
   if (!welcomed) {
@@ -142,13 +171,14 @@ export function Onboarding() {
   }
 
   return (
-    <WizardShell>
+    <WizardShell onSkipSetup={handleSkipSetup}>
       <AnimatePresence mode="wait"><motion.div key={step} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} data-testid={`step-${step}`}>
         {step === 'provider' && <StepProvider />}
         {step === 'embedding' && <StepEmbedding />}
         {step === 'user_card' && <StepUserCard />}
         {step === 'character_card' && <StepCharacterCard />}
       </motion.div></AnimatePresence>
+      {submitError && <div role="alert" className="glass mx-auto mb-4 max-w-6xl rounded-2xl border-red-500 bg-red-500/10 px-4 py-3 text-sm text-red-500">{submitError}</div>}
       {!(currentIndex === 0 && !providerSelected) && <StepFooter
         onNext={
           currentIndex === 0 ? handleProviderNext
@@ -157,6 +187,7 @@ export function Onboarding() {
           : undefined
         }
         onFinish={currentIndex === 3 ? handleFinish : undefined}
+        onSkip={currentIndex === 1 ? handleEmbeddingNext : currentIndex === 2 ? handleCharacterNext : undefined}
       />}
     </WizardShell>
   )
