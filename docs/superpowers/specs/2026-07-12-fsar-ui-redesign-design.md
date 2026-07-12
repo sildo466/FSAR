@@ -779,6 +779,105 @@ Style tab 整体改用 Dynamic Glass 风格:玻璃容器 + pill 按钮 + spring 
 > 推翻 PL2.1 spec 的 3 步硬切流程。新流程:**Welcome → Provider Picker → Provider Detail → Embedding → Character Card → User Card → Done**。
 > 所有 step 共享 Dynamic Glass 视觉 + spring 动效。
 
+### 13.0 Wizard 整体视觉锚定(必读)
+
+**Wizard 必须是主界面 Dynamic Glass 风格的延伸,不是另一套设计**。本节定义 wizard 全局共享的视觉锚点,所有 §13.x 步骤页都基于此。
+
+#### 13.0.1 动态背景光晕(沿用 §5.5)
+
+Wizard 全屏 overlay 容器(`position: fixed; inset: 0; z-index: 100`)**必须**带 §5.5 描述的 `.app-backdrop`:
+
+```tsx
+<div className="wizard-backdrop" aria-hidden="true">
+  <div className="orb orb-1" />
+  <div className="orb orb-2" />
+  <div className="orb orb-3" />
+</div>
+```
+
+光晕位置/速度沿用 §5.5 的 12s/18s/22s 漂移参数,但 wizard 期间 orb **强度提到 0.55**(主界面是 0.45),让背景更有"诞生感"。完成后跳 /chat 时,光晕自动降回主界面强度。
+
+#### 13.0.2 Wizard 品牌标识(顶部中央)
+
+每个 wizard 步骤页**顶部居中**都显示 FSAR 品牌 mark,带 `<BreathGlow>` 包裹:
+
+```
+        ┌─────┐
+        │  ✨  │   ← BreathGlow active,3s loop
+        └─────┘
+         FSAR
+```
+
+- 圆形 36px 容器,`bg-glow/10`(光晕 10% 透明度)
+- 内嵌 Sparkles icon(strokeWidth 1.5)
+- 下方 8px 间距显示 "FSAR" 字样,`font-mono text-[11px] tracking-[0.18em] uppercase`,muted 色
+- 点击品牌 mark = 弹品牌卡片(可选,future)
+
+#### 13.0.3 Step 进度指示器(顶部条)
+
+每个 wizard 步骤页**顶部品牌标识下方 16px** 显示一个 step progress 条:
+
+```
+  ●───●───○───○───○───○       Step 2 of 6: Provider
+```
+
+**结构**:
+
+- `<div className="glass rounded-pill h-2 w-64 mx-auto">` —— 玻璃底容器,pill 形
+- 内嵌 `<motion.div layoutId="wizard-step-bar">` —— **layoutId 滑动填充条**,指示当前步
+- 当前步用 `--glow` 实色,已完成步骤用 `--glow-soft`,未到达步骤用 `--glass`
+- 容器右侧显示 "Step N of 6" 文字,`font-mono text-[10px] uppercase tracking-[0.15em] text-text-muted`
+
+**动效**:
+- 每步切换时,填充条用 `layoutId` 从旧位置 spring 滑动(smooth spring)
+- 当前步节点用 `<motion.span layoutId="wizard-step-dot">` 同模式缩放
+
+#### 13.0.4 步骤容器(Squircle)
+
+每个 step 的内容**外层容器**必须是 Squircle (§4.2 `<Squircle>`)—— 大圆角(20-28px)+ G2 连续曲率,跟主界面的浮动胶囊一致:
+
+```tsx
+<div className="absolute inset-0 flex items-center justify-center px-8">
+  <Squircle size="xl" corner={0.18} className="w-full max-w-3xl glass-strong p-10">
+    {/* 当前 step 的内容 */}
+  </Squircle>
+</div>
+```
+
+最大宽度约束:
+- Welcome 屏:`max-w-2xl`
+- Provider Picker:`max-w-5xl`(网格更宽)
+- Provider Detail / Embedding / Character / User:`max-w-3xl`(表单聚焦)
+
+#### 13.0.5 主行动按钮位置规则
+
+**所有 wizard step 的主行动按钮(Next / Let's start / Finish)统一**:
+
+- 位置:Squircle 内容区**右下角内边距 32px 处**
+- 尺寸:`<Pill variant="primary" size="lg">`(高度 44px,内边距 24px)
+- 形态:右箭头 icon + 文字
+- 动画:disabled 时 scale 0.95 + opacity 0.4(bouncy spring);enabled 时 hover scale 1.04 + glow shadow 增量
+
+#### 13.0.6 Back 按钮统一
+
+所有 step 的 Back 按钮**统一位置 + 形态**:
+- 左上角(品牌标识左侧 24px)
+- `<IconButton>` 圆形 36px,ChevronLeft icon
+- 不带文字(避免冗余),tooltip "Back"
+- hover 时 scale 1.08(bouncy)
+
+#### 13.0.7 Skip Setup 按钮统一
+
+所有 step 右上角:
+- `<Pill variant="ghost" size="sm">` "Skip Setup"
+- 点击 = 弹出确认 modal("Skip setup? You can configure later in Settings."),确认后写最小 fsar.yaml,跳 /chat
+
+#### 13.0.8 全局背景色
+
+Wizard 全屏 overlay 容器底色 = `--bg`(跟主界面一致),不做任何覆盖。Squircle 内容容器用 `glass-strong` 浮在背景上。
+
+---
+
 ### 13.1 流程总览
 
 ```
