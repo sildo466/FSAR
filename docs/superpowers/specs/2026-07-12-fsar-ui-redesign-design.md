@@ -742,7 +742,7 @@ Style tab 整体改用 Dynamic Glass 风格:玻璃容器 + pill 按钮 + spring 
 
 ## 10. 不在本次范围(后续 spec)
 
-- Onboarding Wizard 全部重做(已有 PL2.1 spec,本次不动)
+- Onboarding Wizard 全部重做(已在 §13 中加入,本页覆盖)
 - Library / Memory / Reflection / Insights / Usage 页面内部 UI 改造(本次只换 shell + token,内部按钮和卡片沿用 Dynamic Glass 通用规则)
 - Tauri native 主题适配(等前端稳了再处理)
 - 移动端布局(完全未考虑)
@@ -772,4 +772,335 @@ Style tab 整体改用 Dynamic Glass 风格:玻璃容器 + pill 按钮 + spring 
 
 ---
 
-**Spec 状态:完成,等用户审阅确认**
+---
+
+## 13. Onboarding Wizard 重做
+
+> 推翻 PL2.1 spec 的 3 步硬切流程。新流程:**Welcome → Provider Picker → Provider Detail → Embedding → Character Card → User Card → Done**。
+> 所有 step 共享 Dynamic Glass 视觉 + spring 动效。
+
+### 13.1 流程总览
+
+```
+┌──────────────┐   click   ┌──────────────┐   click provider   ┌──────────────┐
+│   Welcome    │ ────────► │   Provider   │ ─────────────────► │   Provider   │
+│   (新加)     │           │   Picker     │                    │   Detail     │
+│              │           │  (父页面)    │                    │  (子页面)    │
+└──────────────┘           └──────────────┘                    └──────┬───────┘
+        │                                                              │ Next
+        │                                                              ▼
+        │                                                      ┌──────────────┐
+        │                                                      │  Embedding   │
+        │                                                      └──────┬───────┘
+        │                                                             │ Next
+        │                                                             ▼
+        │                                                      ┌──────────────┐
+        │                                                      │ Character    │
+        │                                                      │ Card         │
+        │                                                      └──────┬───────┘
+        │                                                             │ Next
+        │                                                             ▼
+        │                                                      ┌──────────────┐
+        │                                                      │  User Card   │
+        │                                                      └──────┬───────┘
+        │                                                             │ Finish
+        ▼                                                             ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │  弹窗全屏覆盖,任何 step 期间按 ESC 不会退出  │
+   │  (退出必须走 [Skip] 或 完成 → 跳 /chat)  │
+   └──────────────────────────────────────────────────────────────┘
+```
+
+**关键规则**:
+- Wizard 用全屏 overlay 渲染(脱离 §5 的浮动胶囊布局),底色仍走 `--bg`,有动态光晕呼吸背景
+- **任何页面都没有"硬"Next/Back 按钮**:Next 在每个子页面是 pill 胶囊(§13.6),Back 是左上角圆形 IconButton
+- 步骤间用 AnimatePresence `mode="wait"` 切换,每个 step 进入用 default spring `opacity+y` 弹簧入场
+
+### 13.2 步骤 1:Welcome 屏幕(新加)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                                                                │
+│                                                                │
+│                       ✨  ✨  ✨                                │
+│                  (动态光晕呼吸装饰)                            │
+│                                                                │
+│                                                                │
+│                  Welcome to FSAR                               │
+│                  欢迎使用 FSAR                                  │
+│                                                                │
+│        A local-first AI companion that learns with you.        │
+│                                                                │
+│                                                                │
+│           ─── Language ─────────────────                       │
+│                                                                │
+│           ┌─────────────────────────────────┐                 │
+│           │ ● English (only)                │  ← 单选,rounded-xl│
+│           └─────────────────────────────────┘                 │
+│                                                                │
+│                                                                │
+│              ┌──────────────────────────┐                      │
+│              │ Let's start  →           │  ← 主行动 pill      │
+│              └──────────────────────────┘                      │
+│                                                                │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**组件**:
+
+| 元素 | 组件 | 样式 |
+|---|---|---|
+| 顶部装饰 | `<BreathGlow intensity="high" active>` | 3 个小光点呼吸 |
+| 主标题 | h1 display 字体 | 48px / Fraunces italic (Set B 默认) |
+| 副标题 | p | 14px muted |
+| 语言选择 | 单选容器 | `glass rounded-xl`,1 项时整体置灰不可点 |
+| 主按钮 | `<Pill variant="primary" size="lg">` | "Let's start" + ArrowRight icon |
+
+**动效**:
+- 整个屏幕 fade+y 弹簧入场(延迟 0.2s)
+- 装饰光点 3s loop pulse
+- 主按钮 hover scale 1.06 + 微 glow 增量
+
+### 13.3 步骤 2:Provider Picker(父页面,无 Next)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ←  Welcome                                       Skip Setup  │
+│                                                                │
+│  Choose your LLM provider                                      │
+│  Pick one to configure.                                        │
+│                                                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ OpenAI   │  │ Anthropic│  │ DeepSeek │  │ Gemini   │        │
+│  │  GPT-4   │  │  Sonnet  │  │  Reasoner│  │  1.5 Pro │        │
+│  │ [✓]      │  │ [ ]      │  │ [ ]      │  │ [greyed] │        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │  Ollama  │  │ LMStudio │  │  Qwen    │  │  Zhipu   │        │
+│  │  local   │  │  local   │  │  Turbo   │  │  GLM-4   │        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+│  ... (25 个预设)                                               │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**关键设计决策 —— 此页面无 Next 按钮**:
+
+- 用户点击某个 provider 卡片 → **直接进入子页面(§13.4)配置**
+- 父页面仅展示 provider 网格,**没有任何"下一步"按钮**
+- "Skip Setup" 在右上角(可选)
+- 选中的 provider 不在此页面"高亮"——一旦点击就跳走,不需要返回反馈
+
+**组件**:
+
+| 元素 | 组件 |
+|---|---|
+| 顶部 nav | `<IconButton>` Back + 文字"Skip Setup"(`<Pill variant="ghost" size="sm">`) |
+| 网格容器 | `<div className="grid grid-cols-4 gap-4">`,响应式 col-2/3/4 |
+| provider 卡片 | 自定义 `<ProviderCard>`:Squircle rounded-xl,glass 底,hover scale + glow |
+| 已实现预设 | 25 个,包含 PL2.1 spec 列出的(OpenAI, Anthropic, DeepSeek, Gemini, Ollama, LMStudio, Qwen, Zhipu 等) |
+| deferred 预设(如 Gemini) | `<ProviderCard disabled>` + tooltip "Available in PL2.4" |
+
+**ProviderCard 详情**:
+
+```tsx
+<motion.button
+  whileHover={{ scale: 1.03, y: -2 }}
+  whileTap={{ scale: 0.97 }}
+  transition={springs.bouncy}
+  disabled={provider.deferred}
+  className="glass rounded-xl p-5 text-left
+             hover:shadow-[0_0_24px_var(--glow-soft)]
+             disabled:opacity-40 disabled:cursor-not-allowed"
+>
+  <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
+    {provider.family}
+  </div>
+  <div className="font-display text-lg mt-1">{provider.name}</div>
+  <div className="text-[11px] text-text-muted mt-2 line-clamp-2">
+    {provider.description}
+  </div>
+</motion.button>
+```
+
+**动效**:
+- 网格整体 stagger 入场:每个卡片延迟 0.04s × index,`opacity+y=12`
+- 卡片 hover:scale 1.03 + y -2 + glow shadow(全部 bouncy spring)
+- 卡片点击 → 跳子页面用 `<AnimatePresence>` 切换,卡片飞出,子页面从右侧滑入
+
+### 13.4 步骤 3:Provider Detail(子页面,有 Next)
+
+**这是新加的子页面**,用户在 Provider Picker 点击某个 provider 后进入。
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ←  OpenAI                                                     │
+│                                                                │
+│  Configure your OpenAI access                                  │
+│                                                                │
+│  ─── Preset ─────────────────────────────                      │
+│  Family:        openai_compat                                  │
+│  Default URL:   https://api.openai.com/v1                      │
+│                                                                │
+│  ─── Credentials ──────────────────────────                    │
+│  ┌─────────────────────────────────────────┐                  │
+│  │ API Key                                   │                  │
+│  │ sk-...                                    │  pill Input     │
+│  └─────────────────────────────────────────┘                  │
+│                                                                │
+│  ─── Model ────────────────────────────────                    │
+│  ┌─────────────────────────────────────────┐                  │
+│  │ Model                                     │                  │
+│  │ gpt-4o-mini                               │  pill Input     │
+│  └─────────────────────────────────────────┘                  │
+│  ┌────────────────────┐                                       │
+│  │ Load model list    │  ← Pill secondary, only if model_list │
+│  └────────────────────┘     URL suffix available               │
+│                                                                │
+│  ─── Test ──────────────────────────────────                   │
+│  ┌────────────────────┐                                       │
+│  │ Test connection    │  ← Pill ghost                          │
+│  └────────────────────┘                                       │
+│  (Test result text appears here, muted)                        │
+│                                                                │
+│                                                                │
+│         ┌────────────────────────────┐                         │
+│         │ Next →                     │  ← Pill primary         │
+│         └────────────────────────────┘                         │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**组件**:
+
+| 元素 | 组件 |
+|---|---|
+| 顶部 Back | `<IconButton>` 圆形 36px |
+| 区块标题 | font-mono uppercase 10px + tracking + muted |
+| 预设信息 | 显示 readonly,等宽字体 |
+| API Key 输入 | `<Input>` pill,radius-pill,focus glow,type="password" toggle 显示 |
+| Model 输入 | `<Input>` pill,同 API Key |
+| Load model list | `<Pill variant="ghost" size="sm">`,仅当 `model_list_url_suffix` 非空 |
+| Test connection | `<Pill variant="ghost" size="sm">` + Loader spinner when probing |
+| 测试结果 | 文字 + 2x2px 圆点颜色(成功绿/失败红/警告黄) |
+| **Next 按钮** | `<Pill variant="primary" size="lg">` "Next →" |
+
+**关键规则**:
+- **此页面有且仅有一个主行动按钮 = Next**(右下角居中或右下角)
+- 点 Next = 保存当前 provider config + 推进到 Embedding 步骤
+- Back 按钮 = 丢弃当前输入,回 Provider Picker
+
+**动效**:
+- 子页面从右侧滑入:`initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }}` (default spring)
+- 每个 input 区块 stagger 入场(0.05s × 区块 index)
+- 输入框 focus 时光晕放大(§6.1 的 `glow-focus`)
+- Test 按钮点击 → spinner 旋转 + 测试结果文字 fade-in
+- Next 按钮可用状态变化用 spring 弹性过渡(disabled 时 scale 0.95 + opacity 0.4)
+
+### 13.5 步骤 4:Embedding 页
+
+**几乎不动结构**,只套 Dynamic Glass 风格。
+
+原 PL2.1 spec 的 EmbeddingTab.tsx 完整保留功能(provider 切换、API key、base URL、model、Test connection、Save),只做视觉套皮:
+
+| 原 P7 元素 | Dynamic Glass 替换 |
+|---|---|
+| `border border-border rounded` 容器 | `<Capsule size="md">` |
+| `border border-border rounded px-2 h-7` input | `<Input size="sm">` |
+| `border border-border rounded` 按钮 | `<Pill variant="ghost" size="sm">` |
+| `bg-text text-bg rounded` Save 按钮 | `<Pill variant="primary" size="md">` |
+| `border-2 border-border-strong` active 态 | `<motion.span layoutId="embed-provider-pill">` |
+| 状态文字 `text-success/warning/danger` | 文字 + 2x2px 圆点(沿用 §3.1 语义色) |
+
+**动效**:
+- Provider 3 按钮切换 = `layoutId` 滑动(跟 §5.2 sidebar 同模式)
+- 整个 tab fade+y 入场(沿用 wizard step 切换动画)
+
+### 13.6 步骤 5:Character Card 页
+
+**几乎不动结构**,只套 Dynamic Glass。
+
+原 StepCharacterCard 4 种 mode 切换(Use default / Pick existing / Create new / Import ST image)保留,但视觉改造:
+
+| 原 P7 元素 | Dynamic Glass 替换 |
+|---|---|
+| `border text-body` mode tab 按钮 | `<Pill variant={active ? "primary" : "ghost"} size="sm">` |
+| `border-2 border-border-strong` active | `<motion.span layoutId="character-mode-pill">` |
+| `<select>` 元素 | 自定义 `<Pill>` + `<Dropdown>` glass 下拉 |
+| `border border-border rounded` 输入框 | `<Input>` pill |
+| 各种 `border border-border rounded` 按钮 | `<Pill>` 各 variant |
+
+**动效**:
+- mode 4 tab 用 `layoutId` 滑动 thumb(default spring)
+- 各 sub-form(UseDefaultOption / PickExistingOption / CreateNewForm / ImportSTImageOption)fade+y 切换
+- Avatar 卡片(若有)hover scale 1.03 + glow
+
+### 13.7 步骤 6:User Card 页
+
+**几乎不动结构**,只套 Dynamic Glass。
+
+| 原 P7 元素 | Dynamic Glass 替换 |
+|---|---|
+| `border border-border rounded` 容器 | `<Capsule size="md">` |
+| `border border-border rounded px-2 h-7` input | `<Input size="sm">` |
+| `border border-border` 各按钮 | `<Pill>` 各 variant |
+| `text-h2` 标题 | font-display |
+
+### 13.8 步骤 7:Done 收尾
+
+Provider Detail(§13.4)点 Next 后,会按顺序推进到 Embedding → Character → User → 完成。
+
+完成态用一个 0.6s 的 `<BreathGlow intensity="high" active>` 包住一个 ✓ 图标 + "All set. Loading your companion..." 文字,然后 fade out,跳 `/chat`。
+
+### 13.9 Wizard 全局规则
+
+- **所有 step 共享**:`AnimatePresence mode="wait"` 切换,进入用 `opacity+y=12` (default spring)
+- **Skip Setup** 在右上角(每个 step 都有,点 = 写一个最小 fsar.yaml,跳 /chat,后续 Settings 继续配)
+- **Back 按钮** = 左上角圆形 `<IconButton>`,退出当前 step 回上一 step,数据不保留
+- **没有完成前的"X 关闭"** —— ESC 不退出 wizard,必须走 Skip 或 完成
+- **数据持久化**:每个 step 完成时单独保存,断电/重启后 wizard 恢复在中断步骤
+- **URL 路径**:`/onboarding/welcome` / `/onboarding/provider` / `/onboarding/provider/:presetId` / `/onboarding/embedding` / `/onboarding/character` / `/onboarding/user`,允许直接 deep-link
+
+### 13.10 Provider Picker 的特殊性 —— 必须跟 PL2.1 spec 对齐
+
+PL2.1 spec 的 25 个 provider preset 元数据在 `data/presets/llm-providers.json`,本设计**沿用此数据源**,只改造渲染层。每个 preset 卡片的数据 schema 不变:
+
+```ts
+{
+  id: "openai",
+  family: "openai_compat",
+  display_name: "OpenAI",
+  default_base_url: "https://api.openai.com/v1",
+  default_model: "gpt-4o-mini",
+  model_list_url_suffix: "/models",
+  test_url_suffix: null,
+  deferred: false,
+  description: "Industry-standard flagship models",
+  regions: ["global"]
+}
+```
+
+**改动的是渲染,不是数据**。所有 25 个 preset 都按 §13.3 的 ProviderCard 组件渲染。
+
+### 13.11 验收清单(增量)
+
+- [ ] Wizard 是全屏 overlay,覆盖 §5 的浮动胶囊布局
+- [ ] Welcome 屏幕存在,有动态光晕装饰 + 语言选择(只有 English 可选)
+- [ ] Welcome 主按钮 = 黑色 pill capsule("Let's start →")
+- [ ] Provider Picker 父页面**没有** Next 按钮
+- [ ] 点击 provider 卡片 → 进入 Provider Detail 子页面
+- [ ] Provider Detail 子页面有且仅有 1 个主行动 = Next pill
+- [ ] 所有 wizard 步骤用 AnimatePresence 切换
+- [ ] 每个 step 入场用 default spring fade+y
+- [ ] 所有原按钮 / 输入框 / 卡片已替换为 Pill / Input / Capsule / Squircle
+- [ ] 没有 `border-2 border-border-strong` 棱角 active 态残留
+- [ ] 没有 4px `rounded` 元素残留
+- [ ] Skip Setup 在每个 step 右上角都有
+- [ ] Back 按钮 = 圆形 IconButton(不是矩形)
+- [ ] ESC 不退出 wizard
+- [ ] 数据每 step 完成时单独持久化
+
+---
+
+**Spec 状态:完成(含 Onboarding 重做),等用户审阅确认**
