@@ -4,28 +4,32 @@ import { create } from "zustand";
 export type Theme = "light" | "dark" | "system";
 export type Density = "comfortable" | "compact";
 export type Motion = "subtle" | "full" | "none";
+export type FontSet = "A" | "B" | "C";
 
 interface UIState {
   theme: Theme;
   density: Density;
   motion: Motion;
   fontScale: number;
+  fontSet: FontSet;
   perPageOverrides: Record<string, { theme?: Theme; density?: Density; motion?: Motion }>;
 
   setTheme: (t: Theme) => void;
   setDensity: (d: Density) => void;
   setMotion: (m: Motion) => void;
   setFontScale: (s: number) => void;
+  setFontSet: (fontSet: FontSet) => void;
   setOverride: (page: string, key: "theme" | "density" | "motion", value: Theme | Density | Motion | null) => void;
 }
 
 const DEFAULT: Omit<UIState,
-  "setTheme" | "setDensity" | "setMotion" | "setFontScale" | "setOverride"
+  "setTheme" | "setDensity" | "setMotion" | "setFontScale" | "setFontSet" | "setOverride"
 > = {
   theme: "system",
   density: "comfortable",
   motion: "subtle",
   fontScale: 1.0,
+  fontSet: "B",
   perPageOverrides: {},
 };
 
@@ -35,6 +39,7 @@ export const useUI = create<UIState>((set) => ({
   setDensity: (density) => set({ density }),
   setMotion: (motion) => set({ motion }),
   setFontScale: (fontScale) => set({ fontScale }),
+  setFontSet: (fontSet) => set({ fontSet }),
   setOverride: (page, key, value) =>
     set((s) => {
       const next = { ...s.perPageOverrides };

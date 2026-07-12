@@ -12,8 +12,7 @@ import { Greeting } from "../components/ui/Greeting";
 import { useWS } from "../stores/ws";
 import { useSessions } from "../stores/sessions";
 import { useCardsStore } from "../stores/cards";
-import { CharacterSelector } from "../components/chat/CharacterSelector";
-import { UserSelector } from "../components/chat/UserSelector";
+import { useChatUI } from "../stores/chat-ui";
 import type { StoredMessage } from "../lib/ws-client";
 import { t } from "../lib/i18n";
 import { filterCommands } from "../lib/commands";
@@ -34,7 +33,7 @@ function storedToMessage(m: StoredMessage): ChatMessage {
 export function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState<"agent" | "companion">("agent");
+  const mode = useChatUI((s) => s.mode);
   const [busy, setBusy] = useState(false);
   const [pendingRisks, setPendingRisks] = useState<PendingRisk[]>([]);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -358,23 +357,6 @@ export function Chat() {
               />
             )}
             <div className="glass-strong glow-focus flex items-center gap-2 rounded-full px-3 py-2 shadow-[0_12px_48px_var(--glow-faint)]">
-              <div className="hidden items-center gap-2 md:flex">
-                <CharacterSelector sessionId={currentId ?? ""} />
-                <UserSelector />
-              </div>
-              <div className="glass flex shrink-0 overflow-hidden rounded-full p-0.5">
-                {(["agent", "companion"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={`rounded-full px-3 py-1.5 text-[10px] font-display font-semibold uppercase tracking-[0.08em] transition ${
-                      mode === m ? "bg-text text-bg" : "text-text-muted hover:text-text"
-                    }`}
-                  >
-                    {m === "agent" ? t.modeAgent : t.modeCompanion}
-                  </button>
-                ))}
-              </div>
               <input
                 value={input}
                 onChange={(e) => handleInputChange(e.target.value)}

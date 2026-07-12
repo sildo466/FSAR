@@ -49,13 +49,16 @@ export function useMotionApplication(): void {
 
 export function useFontScaleApplication(): void {
   const scale = useUI((s) => s.fontScale);
+  const fontSet = useUI((s) => s.fontSet);
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--font-scale", String(scale));
+    root.setAttribute("data-font-set", fontSet);
     return () => {
       root.style.removeProperty("--font-scale");
+      root.removeAttribute("data-font-set");
     };
-  }, [scale]);
+  }, [scale, fontSet]);
 }
 
 export function useDensityClass(): string {
@@ -85,4 +88,3 @@ export function useResolvedStyle() {
     page,
   };
 }
-

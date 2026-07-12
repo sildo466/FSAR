@@ -5,6 +5,10 @@ import { motion } from "framer-motion";
 import { useWS } from "../../stores/ws";
 import { useUI, type Theme } from "../../stores/ui";
 import { cn } from "../../lib/cn";
+import { CharacterSelector } from "../chat/CharacterSelector";
+import { UserSelector } from "../chat/UserSelector";
+import { useSessions } from "../../stores/sessions";
+import { useChatUI } from "../../stores/chat-ui";
 
 interface Provider {
   id: string;
@@ -35,6 +39,9 @@ export function Topbar() {
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
   const [open, setOpen] = useState(false);
+  const currentId = useSessions((s) => s.currentId);
+  const mode = useChatUI((s) => s.mode);
+  const setMode = useChatUI((s) => s.setMode);
   const ref = useRef<HTMLDivElement>(null);
 
   const providers = readProviders(config);
@@ -60,10 +67,17 @@ export function Topbar() {
     setOpen(false);
   }
 
-  function cycle() {
+  function cycle(event: React.MouseEvent<HTMLButtonElement>) {
     const next: Theme = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
-    setTheme(next);
-    send({ type: "style.set_theme", theme: next });
+    const apply = () => { setTheme(next); send({ type: "style.set_theme", theme: next }); };
+    const root = document.documentElement;
+    const radius = Math.hypot(Math.max(event.clientX, innerWidth - event.clientX), Math.max(event.clientY, innerHeight - event.clientY));
+    root.style.setProperty("--clip-x", `${event.clientX}px`);
+    root.style.setProperty("--clip-y", `${event.clientY}px`);
+    root.style.setProperty("--clip-size", `${radius}px`);
+    const documentWithTransition = document as Document & { startViewTransition?: (update: () => void) => void };
+    if (documentWithTransition.startViewTransition) documentWithTransition.startViewTransition(apply);
+    else apply();
   }
 
   const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
@@ -80,6 +94,13 @@ export function Topbar() {
         >
           <ThemeIcon size={12} strokeWidth={1.5} />
         </button>
+      </div>
+      <div className="glass absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full p-1 lg:flex">
+        <CharacterSelector sessionId={currentId ?? ""} />
+        <div className="flex rounded-full bg-[var(--glow-faint)] p-0.5">
+          {(["agent", "companion"] as const).map((item) => <button key={item} onClick={() => setMode(item)} className={`rounded-full px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wider transition ${mode === item ? "bg-text text-bg" : "text-text-muted"}`}>{item === "agent" ? "Agent" : "Chat"}</button>)}
+        </div>
+        <UserSelector />
       </div>
       <div ref={ref} className="relative">
         <button

@@ -5,6 +5,7 @@ import { useWS } from '../../../stores/ws'
 import { ApiKeyField } from './ApiKeyField'
 import { BaseUrlField } from './BaseUrlField'
 import { ModelField } from './ModelField'
+import { PricingField } from './PricingField'
 import { TestConnectionButton } from './TestConnectionButton'
 import type { Preset } from './types'
 
@@ -42,11 +43,12 @@ export function PresetDetailPanel() {
   if (!preset) return <div data-testid="preset-detail-loading">Loading preset...</div>
 
   return (
-    <div className="border border-border p-4 flex flex-col gap-3" data-testid="preset-detail-panel">
-      <div className="text-h2">{preset.label}</div>
+    <div className="glass-strong flex flex-col gap-5 rounded-[28px] p-7 shadow-[0_18px_60px_var(--glow-faint)]" data-testid="preset-detail-panel">
+      <div><div className="font-mono text-[9px] uppercase tracking-[0.18em] text-text-faint">{preset.family}</div><div className="mt-1 font-display text-2xl italic">{preset.label}</div></div>
       <ApiKeyField required={preset.api_key_required} />
       <BaseUrlField />
       <ModelField preset={preset} />
+      <PricingField />
       <TestConnectionButton apiKeyRequired={preset.api_key_required} />
     </div>
   )

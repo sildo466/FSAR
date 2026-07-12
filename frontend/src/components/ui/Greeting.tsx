@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
 import { t } from "../../lib/i18n";
+import { BreathGlow } from "./primitives";
 
 interface GreetingLine {
   text: string;
@@ -29,11 +30,11 @@ function pickLine(): GreetingLine {
 export function Greeting() {
   const [line] = useState(pickLine);
   return (
-    <div className="text-center text-text-muted">
-      <p className="font-display text-[18px] font-semibold tracking-[-0.005em] text-text">
+    <BreathGlow className="text-center text-text-muted">
+      <p className="font-display text-2xl italic tracking-[-0.015em] text-text">
         {line.text}
       </p>
       <p className="mt-2 text-sm">{t.greetingAsk}</p>
-    </div>
+    </BreathGlow>
   );
 }

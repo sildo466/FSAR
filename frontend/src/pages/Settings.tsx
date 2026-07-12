@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
-import { Plus, Cpu, Plug, Shield, Palette, Wrench } from "lucide-react";
+import { Plus, Cpu, Plug, Shield, Palette, Wrench, Database } from "lucide-react";
 import { useWS } from "../stores/ws";
 import { ProviderModal } from "../components/settings/ProviderModal";
 import { MCPTab } from "../components/settings/MCPTab";
 import { PermissionsTab } from "../components/settings/PermissionsTab";
 import { StyleTab } from "../components/settings/StyleTab";
 import { AdvancedTab } from "../components/settings/AdvancedTab";
+import { EmbeddingTab } from "../components/settings/EmbeddingTab";
 import { cn } from "../lib/cn";
 
 interface Provider {
@@ -15,14 +16,15 @@ interface Provider {
   provider_family?: string;
   base_url?: string;
   model?: string;
-  pricing?: { input_per_1k?: number; output_per_1k?: number };
+  pricing?: { input_per_1m?: number; output_per_1m?: number };
   enabled?: boolean;
 }
 
-type Tab = "models" | "mcp" | "permissions" | "style" | "advanced";
+type Tab = "models" | "embedding" | "mcp" | "permissions" | "style" | "advanced";
 
 const TABS: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "models", label: "Models", icon: Cpu },
+  { id: "embedding", label: "Embedding", icon: Database },
   { id: "mcp", label: "MCP", icon: Plug },
   { id: "permissions", label: "Permissions", icon: Shield },
   { id: "style", label: "Style", icon: Palette },
@@ -99,7 +101,7 @@ function ModelsTab({
                   <td className="px-3 py-2 font-mono">{p.provider_family || "—"}</td>
                   <td className="px-3 py-2 font-mono">{p.model || "—"}</td>
                   <td className="px-3 py-2 text-right font-mono text-text-muted">
-                    {p.pricing?.input_per_1k ?? 0} / {p.pricing?.output_per_1k ?? 0}
+                    {p.pricing?.input_per_1m ?? 0} / {p.pricing?.output_per_1m ?? 0}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {p.id === activeId ? (
@@ -174,23 +176,23 @@ export function Settings() {
   }
 
   return (
-    <div className="max-w-[960px] mx-auto px-8 py-10 flex flex-col gap-8">
+    <div className="mx-auto flex max-w-[1080px] flex-col gap-8 px-8 py-10">
       <header>
-        <h1 className="font-display text-2xl font-semibold tracking-[-0.01em]">Settings</h1>
+        <h1 className="font-display text-4xl italic tracking-[-0.02em]">Settings</h1>
         <p className="text-text-muted">LLM providers, MCP, permissions, and app preferences.</p>
       </header>
 
       <div className="grid grid-cols-[180px_1fr] gap-8">
-        <nav className="flex flex-col gap-1">
+        <nav className="glass flex h-fit flex-col gap-1 rounded-[24px] p-2">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={cn(
-                "flex items-center gap-2 h-8 px-3 rounded text-[12px] text-left",
+                "flex items-center gap-2 h-9 px-3 rounded-full text-[12px] text-left",
                 tab === t.id
-                  ? "bg-surface text-text font-medium"
-                  : "text-text-muted hover:bg-surface hover:text-text"
+                  ? "bg-text text-bg font-medium shadow-[0_0_18px_var(--glow-soft)]"
+                  : "text-text-muted hover:bg-glass hover:text-text"
               )}
             >
               <t.icon size={13} strokeWidth={1.5} />
@@ -199,7 +201,7 @@ export function Settings() {
           ))}
         </nav>
 
-        <section className="flex flex-col gap-4">
+        <section className="glass-strong flex flex-col gap-4 rounded-[28px] p-6 shadow-[0_18px_54px_var(--glow-faint)]">
           {tab === "models" && (
             <ModelsTab
               providers={providers}
@@ -208,6 +210,20 @@ export function Settings() {
               onEdit={openEdit}
               onRemove={removeProvider}
               onSetActive={setActive}
+            />
+          )}
+          {tab === "embedding" && (
+            <EmbeddingTab
+              initial={(() => {
+                const mem = (config as any)?.memory ?? {};
+                const emb = mem.embedder ?? {};
+                return {
+                  provider: emb.provider || undefined,
+                  base_url: emb.base_url || undefined,
+                  model: emb.model || undefined,
+                  api_key: emb.api_key || undefined,
+                };
+              })()}
             />
           )}
           {tab === "mcp" && <MCPTab />}

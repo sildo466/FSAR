@@ -27,7 +27,7 @@ export function PresetGrid() {
   const sorted = [...presets].sort((a, b) => a.order - b.order)
 
   return (
-    <div data-testid="preset-grid" className="grid grid-cols-4 gap-4">
+    <div data-testid="preset-grid" className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
       {sorted.map(p => (
         <PresetCard
           key={p.id}
@@ -35,6 +35,7 @@ export function PresetGrid() {
           selected={presetId === p.id}
           onSelect={() => {
             setProviderField('preset_id', p.id)
+            setProviderField('api_key_required', p.api_key_required)
             setProviderField('base_url', p.default_base_url)
             setProviderField('api_key', '')
             setProviderField('model', '')

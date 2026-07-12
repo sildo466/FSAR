@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useWizardState } from '../../../stores/onboarding'
+import { Input } from '../../ui/primitives'
 
 function lastSegment(url: string): string {
   return '/' + (url.split('/').filter(Boolean).pop() ?? 'v1')
@@ -14,14 +15,13 @@ export function BaseUrlField() {
       <label className="text-caption text-text-muted" htmlFor="provider-base-url">
         Base URL <span className="text-text">(fill to {lastSegment(value)})</span>
       </label>
-      <input
+      <Input
         id="provider-base-url"
         type="text"
         value={value}
         onChange={e => setProviderField('base_url', e.target.value)}
         placeholder="https://api.example.com/v1"
         data-testid="base-url-input"
-        className="border border-border px-2 py-1 bg-surface"
       />
     </div>
   )

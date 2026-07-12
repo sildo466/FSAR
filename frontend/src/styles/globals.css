@@ -159,6 +159,15 @@ body {
   letter-spacing: -0.01em;
 }
 
+main > *:not(.fixed) h1 { font-family: var(--font-display-family); font-style: italic; }
+main > *:not(.fixed) section,
+main > *:not(.fixed) dialog { border-radius: 24px; }
+main input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+main select { border-radius: 9999px; border-color: var(--glass-border); }
+main textarea { border-radius: 18px; border-color: var(--glass-border); }
+main button { transition: transform 180ms var(--ease-standard, ease-out), background-color 180ms ease, box-shadow 180ms ease; }
+main button:hover:not(:disabled) { transform: translateY(-1px); }
+
 body::before {
   content: "";
   position: fixed;
@@ -188,6 +197,25 @@ body::before {
   border-color: var(--glow-soft);
   box-shadow: 0 0 0 4px var(--glow-faint), 0 12px 40px var(--glow-faint);
 }
+
+.squircle {
+  border-radius: 28px;
+  corner-shape: squircle;
+}
+
+.breath-glow { position: relative; isolation: isolate; }
+.breath-glow::before { content: ""; position: absolute; inset: -35%; z-index: -1; border-radius: 50%; background: radial-gradient(circle, var(--glow-soft), transparent 66%); filter: blur(18px); animation: breathe 3s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.16); opacity: .5; } }
+
+.thinking-dots { display: inline-flex; align-items: center; gap: 4px; min-width: 28px; justify-content: center; }
+.thinking-dots i { width: 4px; height: 4px; border-radius: 9999px; background: currentColor; animation: thinking-pulse 1.2s ease-in-out infinite; }
+.thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes thinking-pulse { 0%, 70%, 100% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
+
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { clip-path: circle(0 at var(--clip-x, 50%) var(--clip-y, 50%)); animation: theme-reveal 480ms var(--ease-standard, ease-out) forwards; }
+@keyframes theme-reveal { to { clip-path: circle(var(--clip-size, 150vmax) at var(--clip-x, 50%) var(--clip-y, 50%)); } }
 
 .app-backdrop { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: -2; background: var(--bg); }
 .app-orb { position: absolute; width: 32rem; height: 32rem; border-radius: 50%; filter: blur(90px); opacity: .38; background: var(--glow-faint); animation: drift 18s ease-in-out infinite alternate; }
