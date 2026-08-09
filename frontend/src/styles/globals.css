@@ -1,0 +1,238 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/dm-sans";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/manrope";
+@import "@fontsource/geist-sans";
+@import "@fontsource/geist-mono";
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display-family);
+  --font-mono: var(--font-mono-family);
+}
+
+@utility text-h2 {
+  font-family: var(--font-display-family);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+@utility text-caption {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+@utility text-body-emphasis {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@utility text-body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+@utility text-mono {
+  font-family: var(--font-mono-family);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+:root {
+  --bg: #f5f5f2;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --text: #111111;
+  --text-muted: #727272;
+  --text-faint: #a5a5a5;
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.2);
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(17, 17, 17, 0.12);
+  --glow-soft: rgba(17, 17, 17, 0.14);
+  --glow-faint: rgba(17, 17, 17, 0.07);
+  --success: #16865b;
+  --warning: #ad7414;
+  --danger: #b94a4a;
+  --font-body: "DM Sans Variable", "Inter Variable", sans-serif;
+  --font-display-family: "Fraunces Variable", "Geist Sans Variable", serif;
+  --font-mono-family: "JetBrains Mono Variable", "Geist Mono Variable", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0a;
+    --surface: rgba(20, 20, 20, 0.72);
+    --surface-2: rgba(28, 28, 28, 0.92);
+    --text: #f5f5f5;
+    --text-muted: #929292;
+    --text-faint: #5e5e5e;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-strong: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glow-soft: rgba(255, 255, 255, 0.18);
+    --glow-faint: rgba(255, 255, 255, 0.07);
+    --success: #55d39c;
+    --warning: #f3bb54;
+    --danger: #f08080;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --surface: rgba(20, 20, 20, 0.72);
+  --surface-2: rgba(28, 28, 28, 0.92);
+  --text: #f5f5f5;
+  --text-muted: #929292;
+  --text-faint: #5e5e5e;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glow-soft: rgba(255, 255, 255, 0.18);
+  --glow-faint: rgba(255, 255, 255, 0.07);
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f5f2;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --text: #111111;
+  --text-muted: #727272;
+  --text-faint: #a5a5a5;
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.2);
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(17, 17, 17, 0.12);
+  --glow-soft: rgba(17, 17, 17, 0.14);
+  --glow-faint: rgba(17, 17, 17, 0.07);
+}
+
+:root[data-font-set="A"] { --font-body: "JetBrains Mono Variable", monospace; --font-display-family: "Geist Sans Variable", sans-serif; }
+:root[data-font-set="B"] { --font-body: "DM Sans Variable", sans-serif; --font-display-family: "Fraunces Variable", serif; }
+:root[data-font-set="C"] { --font-body: "Manrope Variable", sans-serif; --font-display-family: "Geist Sans Variable", sans-serif; }
+
+html[lang="ja"]      { --font-body: var(--font-body), "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif; --font-display-family: var(--font-display-family), "Hiragino Mincho ProN", "Yu Mincho", serif; }
+html[lang="zh-Hans"] { --font-body: var(--font-body), "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; --font-display-family: var(--font-display-family), "Songti SC", "Source Han Serif SC", serif; }
+html[lang="zh-Hant"] { --font-body: var(--font-body), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; --font-display-family: var(--font-display-family), "PingFang TC", "Source Han Serif TC", serif; }
+
+:root {
+  --font-scale: 1;
+}
+
+body {
+  font-size: calc(15px * var(--font-scale, 1));
+}
+
+:root[data-motion="none"] *,
+:root[data-motion="none"] *::before,
+:root[data-motion="none"] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+:root.density-compact .ds-tight {
+  gap: 0.5rem !important;
+}
+:root.density-compact h1 { font-size: calc(1.5rem * 0.9); }
+:root.density-compact .p-section { padding: 1.5rem !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  letter-spacing: -0.01em;
+}
+
+main > *:not(.fixed) h1 { font-family: var(--font-display-family); font-style: italic; }
+main > *:not(.fixed) section,
+main > *:not(.fixed) dialog { border-radius: 24px; }
+main input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+main select { border-radius: 9999px; border-color: var(--glass-border); }
+main textarea { border-radius: 18px; border-color: var(--glass-border); }
+main button { transition: transform 180ms var(--ease-standard, ease-out), background-color 180ms ease, box-shadow 180ms ease; }
+main button:hover:not(:disabled) { transform: translateY(-1px); }
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 12% 8%, var(--glow-faint), transparent 30%),
+    radial-gradient(circle at 86% 82%, var(--glow-faint), transparent 34%);
+}
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(22px) saturate(120%);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+}
+
+.glass-strong {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(125%);
+  -webkit-backdrop-filter: blur(28px) saturate(125%);
+}
+
+.glow-focus:focus-within {
+  border-color: var(--glow-soft);
+  box-shadow: 0 0 0 4px var(--glow-faint), 0 12px 40px var(--glow-faint);
+}
+
+.squircle {
+  border-radius: 28px;
+  corner-shape: squircle;
+}
+
+.breath-glow { position: relative; isolation: isolate; }
+.breath-glow::before { content: ""; position: absolute; inset: -35%; z-index: -1; border-radius: 50%; background: radial-gradient(circle, var(--glow-soft), transparent 66%); filter: blur(18px); animation: breathe 3s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.16); opacity: .5; } }
+
+.thinking-dots { display: inline-flex; align-items: center; gap: 4px; min-width: 28px; justify-content: center; }
+.thinking-dots i { width: 4px; height: 4px; border-radius: 9999px; background: currentColor; animation: thinking-pulse 1.2s ease-in-out infinite; }
+.thinking-dots i:nth-child(2) { animation-delay: .15s; }
+.thinking-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes thinking-pulse { 0%, 70%, 100% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
+
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { clip-path: circle(0 at var(--clip-x, 50%) var(--clip-y, 50%)); animation: theme-reveal 480ms var(--ease-standard, ease-out) forwards; }
+@keyframes theme-reveal { to { clip-path: circle(var(--clip-size, 150vmax) at var(--clip-x, 50%) var(--clip-y, 50%)); } }
+
+.app-backdrop { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: -2; background: var(--bg); }
+.app-orb { position: absolute; width: 32rem; height: 32rem; border-radius: 50%; filter: blur(90px); opacity: .38; background: var(--glow-faint); animation: drift 18s ease-in-out infinite alternate; }
+.app-orb.one { top: -18rem; left: 12%; }
+.app-orb.two { right: -14rem; bottom: -16rem; animation-duration: 24s; }
+.app-orb.three { top: 35%; left: 42%; width: 20rem; height: 20rem; opacity: .22; animation-duration: 28s; }
+@keyframes drift { to { transform: translate3d(5vw, 3vh, 0) scale(1.12); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

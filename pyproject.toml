@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "fsar"
+version = "0.1.0"
+description = "FSAR - Fully Self-evolving AI Companion"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=0.4",
+    "mcp>=1.0,<2",
+    "websockets>=12.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-telegram-bot>=21.0",
+    "lark-oapi>=1.7.1",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "loguru>=0.7",
+    "rich>=13.0",
+    "Pillow>=10.0",
+    "PyPDF2>=3.0",
+    "httpx>=0.24",
+    "edge-tts>=6.1",
+    "faster-whisper>=1.0",
+    "anthropic>=0.39",
+    "google-genai>=0.3,<2",
+    "openai>=1.109.1",
+    "cryptography>=42.0",
+    "cua>=0.1.6",
+]
+
+[project.scripts]
+fsar = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]

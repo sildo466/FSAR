@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 环境变量
+.env
+
+# 数据 — 全部忽略；只放行已知的 vendor 资产
+data/
+data/*.db
+data/**/*.db
+data/**/*.sqlite3
+data/**/*.bin
+*.db
+*.sqlite3
+# Vendor presets / cards / emotion schema — 白名单（任何新文件自动忽略）
+!data/presets/llm-providers.json
+!data/cards/_meta.json
+!data/cards/FSAR-en.json
+!data/cards/FSAR-zh.json
+!data/cards/coding-coach-en.json
+!data/cards/coding-coach-zh.json
+!data/cards/research-analyst-en.json
+!data/cards/research-analyst-zh.json
+!data/cards/default-user.json
+!data/emotion_default.json
+
+# Config (user-specific, generated on first run)
+config/fsar.yaml
+config/fsar.yaml.bak
+config/mcp_servers.yaml
+config/permissions.yaml
+
+# 日志
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# Tests（开发自用，不入产品库）
+tests/
+
+# Python 工具链
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / 前端构建产物
+node_modules/
+/frontend/tsconfig.tsbuildinfo
+/frontend/tsconfig.node.tsbuildinfo
+/frontend/vite.config.d.ts
+/frontend/vite.config.js
+
+# 根级开发脚本（dev helpers，非产品代码）
+/scripts/
+/verify_p2.py
+/verify_p2_e2e.py
+/verify_p3.py
+/verify_render.py
+/test_e2e_organize.py
+
+# AI 助手 / 开发工具（个人本地）
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+.superpowers/
+.qoder/
+
+# 开发日志 / 设计文档
+docs/
+
+# 根级调试日志（*.log 已覆盖 .log 后缀）
+/comparelog.txt
+/@AutomationLog.txt

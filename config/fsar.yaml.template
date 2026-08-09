@@ -1,0 +1,150 @@
+# SPDX-License-Identifier: MIT
+# FSAR unified configuration — copy to fsar.yaml and edit.
+
+onboarding:
+  completed: false
+  completed_at: null
+  completed_steps: []
+  skipped_steps: []
+  started_at: null
+  last_step: null
+
+agent:
+  tier: medium
+
+chat:
+  default_model:
+    kind: model
+    provider: ""
+    model: ""
+
+security:
+  hardline_disabled_classes: []
+  power_user_mode: false
+  custom_sensitive_paths: []
+  always_allow_paths: []
+  skills:
+    review_required: true
+    subprocess_env:
+      enabled: true
+      allow: [PATH, HOME, LANG, TMPDIR, SYSTEMROOT, USERPROFILE]
+      strip_prefixes: [API_KEY, TOKEN, SECRET, AUTH]
+    llm_review:
+      enabled: false
+  mcp:
+    review_required: true
+    cwd_pinning:
+      enabled: true
+      require_dir: true
+  egress:
+    enabled: false
+    mode: deny
+    allowlist:
+      - "api.openai.com:443"
+      - "api.anthropic.com:443"
+      - "127.0.0.0/8"
+    blocklist:
+      - "*.onion"
+      - "169.254.0.0/16"
+  redaction:
+    enabled: true
+    max_string_length: 16384
+    patterns: []
+  memory:
+    write_sanitization:
+      enabled: true
+      block_on_match: true
+      custom_patterns: []
+  file_read_blacklist:
+    enabled: true
+    defaults: true
+    extra_patterns: []
+  session:
+    no_trust_mode: false
+  small_agent_review:
+    enabled: false
+
+llm:
+  active: ""
+  providers: []
+  # provider rows may include `format: responses` to route calls through
+  # the OpenAI Responses API (/v1/responses) instead of chat completions.
+  # When the GUI sets "OpenAI Responses" as the family for an openai preset,
+  # it writes format=responses automatically.
+tts:
+  active: ""
+  autoplay: false
+  default_voice: ""
+  providers: []
+asr:
+  active: ""
+  language: ""
+  providers: []
+social:
+  telegram:
+    enabled: false
+    bot_token: ""
+  feishu:
+    enabled: false
+    app_id: ""
+    app_secret: ""
+    verification_token: ""
+    encrypt_key: ""
+  wechat:
+    enabled: false
+    account_id: ""
+    bot_token: ""
+    base_url: ""
+    character_card_id: null
+    user_card_id: null
+memory:
+  short_term_window: 50
+  reflection_interval_hours: 12
+  reflection_intensity: medium
+  recall_max_chars: 2000
+  enable_rating_prompt: true
+  embedder:
+    provider: ""
+    base_url: ""
+    model: ""
+    api_key: ""
+    timeout: 60
+llm_cache:
+  enabled: true
+  l1_max_entries: 256
+  l1_ttl_seconds: 300
+  l2_ttl_seconds: 86400
+  retention: short
+  skip_vision: true
+  use_responses_api: false  # legacy override; per-provider format="responses" in llm.providers[] is preferred
+gui:
+  host: 127.0.0.1
+  port: 8765
+logging:
+  level: INFO
+permissions:
+  mode: normal
+  tools: {}
+  path_rules: []
+mcp:
+  servers: []
+reflection:
+  intensity: medium
+  triggers:
+    per_task: true
+    on_failure: true
+    idle_batch:
+      enabled: false
+      threshold_events: 20
+      threshold_hours: 12
+user:
+  display_name: ""
+style:
+  theme: system
+  font_scale: 1.0
+  density: comfortable
+  motion: subtle
+  locale: en
+  per_page_overrides: {}
+plugins: []
+external_skills: []

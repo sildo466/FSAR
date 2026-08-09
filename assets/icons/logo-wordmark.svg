@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 180" width="500" height="180">
+  <rect width="500" height="180" fill="#ffffff"/>
+
+  <text x="45" y="132"
+        font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', 'Inter', 'Segoe UI', Arial, sans-serif"
+        font-size="108" font-weight="900" font-style="italic"
+        fill="#0a0a0a" letter-spacing="7">FSAR</text>
+
+  <g transform="translate(450 90)">
+    <path d="M 0,75 C 3,50 25,0 25,-25 C 25,-75 -25,-75 -25,-25 C -25,0 -3,50 0,75 Z" fill="#0a0a0a"/>
+  </g>
+</svg>

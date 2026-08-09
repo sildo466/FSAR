@@ -1,0 +1,1 @@
+"""Social channel adapters."""
