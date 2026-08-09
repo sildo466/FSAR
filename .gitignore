@@ -46,9 +46,6 @@ config/permissions.yaml
 .DS_Store
 Thumbs.db
 
-# Tests（开发自用，不入产品库）
-tests/
-
 # Python 工具链
 .pytest_cache/
 .mypy_cache/
