@@ -155,7 +155,7 @@ Ein Computer-Use-Tier (`cua`) erlaubt dem Modell Screenshot, Klick, Tippen und T
 
 ### Geringe Ressourcen
 
-FSAR ist kompakt und leichtgewichtig — ein einziger Python-Dienst plus ein schlankes Tauri-Frontend; der Clone ist nur ~6–7 MB, nach dem Deployment ~200 MB. Kein schwerer Laufzeit- oder Cloud-Bedarf; es läuft auch auf bescheidener Hardware flüssig.
+FSAR ist kompakt und leichtgewichtig — ein einziger Python-Dienst plus ein schlankes Tauri-Frontend. Der Quellcode ist nur ~6–7 MB groß und wächst nach der Installation der Frontend-Abhängigkeiten auf etwa 200 MB (ohne Python-Abhängigkeiten). Kein schwerer Laufzeit- oder Cloud-Bedarf; es läuft auch auf bescheidener Hardware flüssig.
 
 ## Anleitung
 
