@@ -155,7 +155,7 @@ A computer-use tier (`cua`) lets the model screenshot, click, type, and keypress
 
 ### Small footprint
 
-FSAR is compact and lightweight — a single Python service plus a slim Tauri frontend. No heavy runtime or cloud dependency; it runs comfortably on modest hardware.
+FSAR is compact and lightweight — a single Python service plus a slim Tauri frontend. The repo is only ~6–7 MB to clone, and ~200 MB once deployed (dependencies + frontend build). No heavy runtime or cloud dependency; it runs comfortably on modest hardware.
 
 ## Tutorial
 

@@ -155,7 +155,7 @@ Un niveau Computer Use (`cua`) permet au modèle de capturer, cliquer, taper et 
 
 ### Empreinte légère
 
-FSAR est compact et léger — un service Python unique plus un frontend Tauri minimal. Pas de runtime lourd ni de dépendance au cloud ; il tourne sans peine sur du matériel modeste.
+FSAR est compact et léger — un service Python unique plus un frontend Tauri minimal ; le clone fait seulement ~6–7 MB, ~200 MB une fois déployé. Pas de runtime lourd ni de dépendance au cloud ; il tourne sans peine sur du matériel modeste.
 
 ## Tutoriel
 
