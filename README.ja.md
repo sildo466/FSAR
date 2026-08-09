@@ -68,6 +68,8 @@ source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> 仮想環境の作成は**任意**です——システム Python に直接インストールしても構いません。
+
 ### 起動
 
 | プラットフォーム | コマンド |

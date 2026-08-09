@@ -70,6 +70,8 @@ source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> Creating a virtual environment is optional — you may install the dependencies directly into your system Python.
+
 ### Launch
 
 | Platform | Command |

@@ -31,6 +31,8 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> 虚拟环境**可选创建**——也可以直接把依赖装进系统 Python。
+
 > 后端（Python）与前端（Tauri/React）是两个独立产物，**没有单一的 "build" 步骤**。
 
 ## 3. 启动

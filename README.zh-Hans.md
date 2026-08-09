@@ -70,6 +70,8 @@ pip install -r requirements.txt
 
 > venv 的目的:让 FSAR 的依赖(尤其是 chromadb、cua 这一坨)跟系统 Python 隔开。Linux 上 2024 年起的发行版默认拒绝系统级 `pip install`(PEP 668),不建 venv 直接 pip 会报错。macOS Homebrew Python 不强制,但同样推荐。
 
+> 虚拟环境**可选创建**——也可以直接把依赖装进系统 Python(Linux 上留意 PEP 668,或用 `pip install --user`)。
+
 ### 启动
 
 | 平台 | 命令 |

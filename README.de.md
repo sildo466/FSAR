@@ -70,6 +70,8 @@ source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> Das Erstellen einer virtuellen Umgebung ist **optional** — du kannst die Abhängigkeiten auch direkt in dein System-Python installieren.
+
 ### Starten
 
 | Plattform | Befehl |

@@ -68,6 +68,8 @@ source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> 虛擬環境**可選建立**——也可以直接把依賴裝進系統 Python。
+
 ### 啟動
 
 | 平台 | 指令 |
