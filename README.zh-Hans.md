@@ -151,6 +151,10 @@ OpenAI、Anthropic、Google、DeepSeek,或者任何兼容 OpenAI 的自定义端
 
 computer-use 套件(`cua`)让模型在桌面上截图、点击、输入、按键。风险门和普通工具分开,macOS 上还得先开辅助功能权限。
 
+### 体积小
+
+FSAR 很轻——一个 Python 服务加一个精简的 Tauri 前端。没有重型运行时、不依赖云端,普通配置的机器也能跑得很顺。
+
 ## 教程
 
 > 📖 本教程只是快速入门。完整文档（项目总览、模块介绍、配置文件详解、编译/测试/开发教程）请前往 [`docs-public/`](docs-public/)。

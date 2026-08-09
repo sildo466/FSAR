@@ -153,6 +153,10 @@ Dieselbe Engine spricht über Telegram, Feishu (Lark) und WeChat. Jede Plattform
 
 Ein Computer-Use-Tier (`cua`) erlaubt dem Modell Screenshot, Klick, Tippen und Tastendruck auf deinem Desktop. Das Risiko-Gate ist vom Standard-Tool getrennt — und unter macOS verlangt das OS selbst eine explizite Bedienungshilfen-Berechtigung.
 
+### Geringe Ressourcen
+
+FSAR ist kompakt und leichtgewichtig — ein einziger Python-Dienst plus ein schlankes Tauri-Frontend. Kein schwerer Laufzeit- oder Cloud-Bedarf; es läuft auch auf bescheidener Hardware flüssig.
+
 ## Anleitung
 
 > 📖 Diese Anleitung ist nur ein Schnellstart. Die vollständige Dokumentation (Projektübersicht, Modulreferenz, vollständige Konfigurationsanleitung, Build-/Test-/Entwicklungsleitfaden) finden Sie unter [`docs-public/`](docs-public/).

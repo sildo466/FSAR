@@ -153,6 +153,10 @@ Le même moteur dialogue via Telegram, Feishu (Lark) et WeChat. Chaque plateform
 
 Un niveau Computer Use (`cua`) permet au modèle de capturer, cliquer, taper et frapper des touches sur votre bureau. La barrière de risque est séparée des outils ordinaires — et sous macOS le système lui-même exige une autorisation d'accessibilité explicite.
 
+### Empreinte légère
+
+FSAR est compact et léger — un service Python unique plus un frontend Tauri minimal. Pas de runtime lourd ni de dépendance au cloud ; il tourne sans peine sur du matériel modeste.
+
 ## Tutoriel
 
 > 📖 Ce tutoriel est une introduction rapide. Pour la documentation complète (aperçu du projet, référence des modules, guide de configuration complet, guide de build/test/développement), voir [`docs-public/`](docs-public/).

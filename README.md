@@ -153,6 +153,10 @@ The same engine talks through Telegram, Feishu (Lark), and WeChat. Each platform
 
 A computer-use tier (`cua`) lets the model screenshot, click, type, and keypress on your desktop. The risk gate is separate from regular tools — and on macOS the OS itself requires explicit Accessibility permission.
 
+### Small footprint
+
+FSAR is compact and lightweight — a single Python service plus a slim Tauri frontend. No heavy runtime or cloud dependency; it runs comfortably on modest hardware.
+
 ## Tutorial
 
 > 📖 This tutorial is a quick overview. For the full documentation — project overview, module reference, complete configuration guide, and the build/test/development walkthrough — see [`docs-public/`](docs-public/).
