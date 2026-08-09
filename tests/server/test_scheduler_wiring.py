@@ -17,6 +17,7 @@ def offline_scheduler(monkeypatch):
     engine = ws_mod._engine
 
     async def _noop_start(self):
+        self._store.ensure_tables()
         return None
 
     monkeypatch.setattr(sched_service.SchedulerService, "start", _noop_start)
