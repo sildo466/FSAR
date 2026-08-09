@@ -47,7 +47,8 @@ def test_mcp_list_returns_servers_from_config(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "mcp.list"})
         m = ws.receive_json()
         assert m["type"] == "mcp.status"
@@ -62,7 +63,8 @@ def test_mcp_toggle_flips_enabled_flag(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "mcp.toggle", "server_name": "filesystem", "enabled": False})
         m = ws.receive_json()
         assert m["type"] == "mcp.status"
@@ -95,7 +97,8 @@ def test_mcp_reload_invokes_manager_reload(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "mcp.reload"})
         m = ws.receive_json()
         assert m["type"] == "mcp.status"

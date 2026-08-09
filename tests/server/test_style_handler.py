@@ -27,7 +27,8 @@ def test_style_patch_persists(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "style.patch", "patch": {"density": "compact", "font_scale": 1.15}})
         m = ws.receive_json()
         assert m["type"] == "style.changed"
@@ -44,7 +45,8 @@ def test_style_set_theme_validates(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "style.set_theme", "theme": "neon"})
         m = ws.receive_json()
         assert m["type"] == "error"

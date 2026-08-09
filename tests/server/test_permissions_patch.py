@@ -28,7 +28,8 @@ def test_permissions_patch_updates_yaml(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "permissions.patch", "patch": {
             "permissions.tools.run_command.mode": "trust",
         }})
@@ -47,7 +48,8 @@ def test_permissions_patch_rejects_non_dict(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "permissions.patch", "patch": "string-not-allowed"})
         m = ws.receive_json()
         assert m["type"] == "error"

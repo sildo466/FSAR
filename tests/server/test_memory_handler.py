@@ -26,7 +26,8 @@ def test_memory_remember_persists_chunk(tmp_ctx):
     _, ws_mod = tmp_ctx
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "memory.remember", "body": "user prefers tea"})
         m = ws.receive_json()
         assert m["type"] == "memory.facts_result"

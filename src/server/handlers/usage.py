@@ -32,7 +32,7 @@ def compute_cost(prompt_tokens: int, completion_tokens: int, pricing: dict | Non
     return round(
         (prompt_tokens / 1_000_000.0) * in_per_1m
         + (completion_tokens / 1_000_000.0) * out_per_1m,
-        6,
+        10,
     )
 
 

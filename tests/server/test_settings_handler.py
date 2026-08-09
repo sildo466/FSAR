@@ -34,6 +34,7 @@ def test_settings_get_returns_config_snapshot(tmp_path: Path):
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()  # initial snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "settings.get"})
         m = ws.receive_json()
         assert m["type"] == "snapshot"
@@ -61,7 +62,8 @@ def test_settings_patch_broadcasts_changed(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "settings.patch", "patch": {"ui.theme": "light"}})
         m = ws.receive_json()
         assert m["type"] == "settings.changed"
@@ -88,7 +90,8 @@ def test_llm_set_active_persists_and_broadcasts(tmp_path: Path):
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # snapshot
+        ws.receive_json()  # conversation.list
         ws.send_json({"type": "llm.set_active", "provider_id": "b"})
         m = ws.receive_json()
         assert m["type"] == "llm.provider_changed"

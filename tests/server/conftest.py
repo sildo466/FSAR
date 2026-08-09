@@ -27,6 +27,16 @@ def isolate_engine(monkeypatch):
 
     monkeypatch.setattr(TestClient, "websocket_connect", authenticated_connect)
     engine = ws_mod._engine
+    from src.memory.cards import CharacterCard
+    monkeypatch.setattr(
+        engine.card_repo,
+        "get_default_character",
+        lambda: CharacterCard(
+            id=1, name="Test Assistant", description="",
+            personality="Helpful and concise.", scenario="", is_default=1,
+            created_by="builtin",
+        ),
+    )
     monkeypatch.setattr(engine, "_mcp_started", True)
     monkeypatch.setattr(engine, "_memory_block", lambda *a, **k: "")
     monkeypatch.setattr(engine, "_strategy_block", lambda *a, **k: "")
