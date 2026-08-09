@@ -8,16 +8,18 @@ build/
 # 环境变量
 .env
 
-# 数据 — 全部忽略；只放行已知的 vendor 资产
-data/
-data/*.db
-data/**/*.db
-data/**/*.sqlite3
-data/**/*.bin
+# 数据 — 全部忽略；只放行已知的 vendor 资产与迁移包
+data/*
+data/cards/*
+data/presets/*
+data/migrations/*
 *.db
 *.sqlite3
-# Vendor presets / cards / emotion schema — 白名单（任何新文件自动忽略）
-!data/presets/llm-providers.json
+!data/__init__.py
+!data/migrations/
+!data/migrations/__init__.py
+!data/migrations/*.py
+!data/cards/
 !data/cards/_meta.json
 !data/cards/FSAR-en.json
 !data/cards/FSAR-zh.json
@@ -26,6 +28,8 @@ data/**/*.bin
 !data/cards/research-analyst-en.json
 !data/cards/research-analyst-zh.json
 !data/cards/default-user.json
+!data/presets/
+!data/presets/llm-providers.json
 !data/emotion_default.json
 
 # Config (user-specific, generated on first run)

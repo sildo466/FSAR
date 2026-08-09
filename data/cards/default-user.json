@@ -1,0 +1,8 @@
+{
+  "_meta": {"created_by": "builtin", "seed_version": 1},
+  "name": "default-user",
+  "description": "FSAR 的主人，偏好简洁中文回复。",
+  "communication_style": "concise, no emoji, prefer Chinese",
+  "preferences": {"language": "zh", "response_length": "short"},
+  "interests": ["local-first AI", "self-evolving agents"]
+}

@@ -1,0 +1,17 @@
+{
+  "schema": [
+    {"key": "affection",   "name": "好感度", "min": 0,    "max": 100, "initial": 50},
+    {"key": "trust",       "name": "信任度", "min": 0,    "max": 100, "initial": 50},
+    {"key": "mood",        "name": "心情",   "min": -100, "max": 100, "initial": 0},
+    {"key": "energy",      "name": "精力",   "min": 0,    "max": 100, "initial": 50},
+    {"key": "empathy",     "name": "共情",   "min": 0,    "max": 100, "initial": 50},
+    {"key": "playfulness", "name": "俏皮",   "min": 0,    "max": 100, "initial": 50},
+    {"key": "formality",   "name": "正式",   "min": 0,    "max": 100, "initial": 50}
+  ],
+  "formulas": {
+    "affection": "affection + 0.05",
+    "trust":     "trust * 0.99 + 0.05",
+    "mood":      "mood * 0.95",
+    "energy":    "energy - 0.5"
+  }
+}
