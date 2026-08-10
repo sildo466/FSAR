@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-10
+
+### Added
+
+- Card selectors: right-click an option to set it as the default card (character and user), persisted across restarts
+- "Set as default" button in the character and user card editors
+
+### Fixed
+
+- Chat: first message in a fresh conversation no longer loses its user bubble when the server creates the conversation
+
+## [0.1.0] - 2026-08-09
+
 ### Added
 
 - Local-first AI companion core: persona cards, adaptive memory, and three reflection modes (per-task / on-failure / idle-batch)
