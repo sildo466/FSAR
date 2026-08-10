@@ -138,6 +138,38 @@ it("keeps the picked character in selector and bubbles after draft send", () => 
   expect(document.body.textContent).not.toContain("FSAR (en)");
 });
 
+it("keeps the optimistic user message when the first send creates a conversation", () => {
+  const client = new FakeClient();
+  resetStores(client);
+
+  const { getByPlaceholderText, queryByText } = render(<Chat />);
+  useCardsStore.getState().init(client as never);
+
+  const input = getByPlaceholderText(i18n.t("chat.placeholderInput"));
+  fireEvent.change(input, { target: { value: "Hello world" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  expect(queryByText("Hello world")).toBeInTheDocument();
+
+  act(() => {
+    client.emit({
+      type: "conversation.created",
+      session: { id: "B", title: "", pinned: false, created_at: "", updated_at: "", message_count: 0 },
+    });
+  });
+  act(() => {
+    client.emit({ type: "chat.thinking", message_id: "m1", conversation_id: "B", character_id: 1, character_name: "FSAR (en)" });
+  });
+  act(() => {
+    client.emit({ type: "chat.delta", message_id: "m1", content: "Reply" });
+    client.emit({ type: "chat.done", message_id: "m1", outcome: "success" });
+  });
+
+  // The optimistic user bubble must survive the conversation-created transition.
+  expect(queryByText("Hello world")).toBeInTheDocument();
+  expect(queryByText("Reply")).toBeInTheDocument();
+});
+
 it("regenerate removes the last assistant bubble and sends chat.regenerate", () => {
   const client = new FakeClient();
   resetStores(client);

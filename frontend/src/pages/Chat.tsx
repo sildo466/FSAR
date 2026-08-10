@@ -107,7 +107,11 @@ export function Chat() {
     if (!switched && currentHistory === undefined) return;
     lastSwitchedConv.current = currentId;
     if (currentHistory !== undefined) {
-      setMessages(currentHistory.map(storedToMessage));
+      // A conversation created by our own first message arrives with an
+      // empty history while the optimistic bubbles are still in flight;
+      // that empty history is stale, so keep the on-screen messages.
+      const keepOptimistic = currentHistory.length === 0 && pendingAssistantId.current != null;
+      if (!keepOptimistic) setMessages(currentHistory.map(storedToMessage));
     } else if (loadingHistory) {
       setMessages([]);
     } else {
