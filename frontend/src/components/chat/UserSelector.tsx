@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
 import { useCardsStore } from "../../stores/cards";
-import { useWS } from "../../stores/ws";
 
 export function UserSelector() {
+  const { t } = useTranslation();
   const userCards = useCardsStore((s) => s.userCards);
-  const send = useWS((s) => s.send);
+  const setDefault = useCardsStore((s) => s.setDefault);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -25,7 +26,7 @@ export function UserSelector() {
   const current = userCards.find((u) => u.is_default === 1) ?? userCards[0]
 
   const pick = (id: number) => {
-    send({ type: "card.set_default", kind: "user", id })
+    setDefault("user", id)
     setOpen(false)
   }
 
@@ -60,7 +61,12 @@ export function UserSelector() {
                 key={u.id}
                 role="option"
                 aria-selected={u.id === current.id}
+                title={t("cards.rightClickHint")}
                 onClick={() => pick(u.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setDefault("user", u.id);
+                }}
                 className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] transition hover:bg-glass ${
                   u.id === current.id ? "bg-glass text-text" : "text-text-muted hover:text-text"
                 }`}
@@ -71,6 +77,9 @@ export function UserSelector() {
                 {u.id === current.id && <Check size={12} className="shrink-0" />}
               </button>
             ))}
+            <div className="border-t border-border/50 px-3 py-1.5 text-[10px] text-text-muted/70">
+              {t("cards.rightClickHint")}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
 import { useCardsStore } from "../../stores/cards";
 
 export function CharacterSelector({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation();
   const characters = useCardsStore((s) => s.characters);
   const refresh = useCardsStore((s) => s.refresh);
   const sessionCharacters = useCardsStore((s) => s.sessionCharacters);
@@ -12,6 +14,7 @@ export function CharacterSelector({ sessionId }: { sessionId: string }) {
   const loadSessionCharacter = useCardsStore((s) => s.loadSessionCharacter);
   const setSessionCharacter = useCardsStore((s) => s.setSessionCharacter);
   const setDraftCharacter = useCardsStore((s) => s.setDraftCharacter);
+  const setDefault = useCardsStore((s) => s.setDefault);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -75,7 +78,12 @@ export function CharacterSelector({ sessionId }: { sessionId: string }) {
                 key={c.id}
                 role="option"
                 aria-selected={c.id === currentId}
+                title={t("cards.rightClickHint")}
                 onClick={() => pick(c.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setDefault("character", c.id);
+                }}
                 className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[12px] transition hover:bg-glass ${
                   c.id === currentId ? "bg-glass text-text" : "text-text-muted hover:text-text"
                 }`}
@@ -86,6 +94,9 @@ export function CharacterSelector({ sessionId }: { sessionId: string }) {
                 {c.id === currentId && <Check size={12} className="shrink-0" />}
               </button>
             ))}
+            <div className="border-t border-border/50 px-3 py-1.5 text-[10px] text-text-muted/70">
+              {t("cards.rightClickHint")}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

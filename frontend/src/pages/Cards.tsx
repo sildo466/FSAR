@@ -257,6 +257,8 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
   const [pendingAvatar, setPendingAvatar] = useState<Blob | null>(null);
   const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(null);
 
+  const isDefault = card?.is_default === 1;
+
   const schemaError = emotionSchema.find((metric) => (
     metric.min >= metric.max || metric.initial < metric.min || metric.initial > metric.max
   ));
@@ -342,6 +344,19 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
     try {
       await requestCard(client, { type: "card.delete", kind: target.kind, id: target.id }, "card.deleted");
       onDone();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSetDefault = async () => {
+    if (target.id === "new") return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await requestCard(client, { type: "card.set_default", kind: target.kind, id: target.id }, "card.default_changed");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -609,6 +624,15 @@ function CardEditor({ target, onDone }: { target: NonNullable<EditorTarget>; onD
           {busy ? t("common.saving") : t("common.save")}
         </button>
         <button disabled={busy} onClick={onDone} className="px-4 h-9 border border-border text-[12px] disabled:opacity-40">{t("common.cancel")}</button>
+        {target.id !== "new" && (
+          <button
+            disabled={busy || isDefault}
+            onClick={onSetDefault}
+            className="px-4 h-9 border border-border text-[12px] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isDefault ? t("cards.isDefault") : t("cards.setDefault")}
+          </button>
+        )}
         {target.id !== "new" && (
           <button disabled={busy} onClick={onDelete} className="px-4 h-9 border border-red-500 text-red-500 text-[12px] disabled:opacity-40">{t("common.delete")}</button>
         )}

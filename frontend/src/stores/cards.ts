@@ -43,6 +43,7 @@ interface CardsState {
   loadSessionCharacter: (sessionId: string) => void;
   setSessionCharacter: (sessionId: string, characterId: number) => void;
   setDraftCharacter: (characterId: number) => void;
+  setDefault: (kind: "character" | "user", id: number) => void;
 }
 
 export const useCardsStore = create<CardsState>((set, get) => {
@@ -141,5 +142,8 @@ export const useCardsStore = create<CardsState>((set, get) => {
       send({ type: "card.set_session_character", session_id: sessionId, character_id: characterId });
     },
     setDraftCharacter: (characterId) => set({ draftCharacterId: characterId }),
+    setDefault: (kind, id) => {
+      send({ type: "card.set_default", kind, id });
+    },
   };
 });
