@@ -73,11 +73,14 @@ class LLMSkillJudge:
                             },
                         ],
                         temperature=0,
-                        max_tokens=120,
+                        max_tokens=100000,
                     ),
                     timeout=30,
                 )
-                verdict = _parse_verdict(_response_text(response))
+                text = _response_text(response)
+                if not (text or "").strip():
+                    continue
+                verdict = _parse_verdict(text)
                 if not verdict.safe:
                     return verdict
         return LLMReviewVerdict(True)
