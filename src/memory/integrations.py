@@ -441,6 +441,62 @@ def record_token_usage(*, provider: str, model: str, input_tokens: int, output_t
         _close_conn(conn)
 
 
+def get_token_usage_by_provider(*, from_ts: str = "", to_ts: str = "",
+                                db_path: str | Path | None = None) -> list[dict]:
+    """Aggregate real LLM token usage per provider from llm_token_usage.
+
+    Returns rows [{provider, model, prompt_tokens, completion_tokens,
+    cost_usd}] ordered by total tokens desc. `db_path` overrides the default
+    memory DB (used by the usage handler, which resolves its own DB)."""
+    path = Path(db_path) if db_path else _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    try:
+        _ensure_schema(conn)
+        where: list[str] = []
+        params: list[str] = []
+        if from_ts:
+            where.append("date(ts) >= date(?)")
+            params.append(from_ts)
+        if to_ts:
+            where.append("date(ts) <= date(?)")
+            params.append(to_ts)
+        cond = (" WHERE " + " AND ".join(where)) if where else ""
+        rows = conn.execute(
+            "SELECT provider, model, SUM(input_tokens), SUM(output_tokens),"
+            " SUM(COALESCE(cost_usd, 0)) FROM llm_token_usage"
+            + cond +
+            " GROUP BY provider, model"
+            " ORDER BY SUM(input_tokens) + SUM(output_tokens) DESC",
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+    merged: dict[str, dict] = {}
+    for provider, model, prompt, completion, cost in rows:
+        row = merged.get(provider) or {
+            "provider": provider or "unknown",
+            "model": model,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "_best": 0,
+        }
+        prompt = int(prompt or 0)
+        completion = int(completion or 0)
+        row["prompt_tokens"] += prompt
+        row["completion_tokens"] += completion
+        row["cost_usd"] += float(cost or 0)
+        if prompt + completion > row["_best"]:
+            row["model"] = model
+            row["_best"] = prompt + completion
+        merged[provider] = row
+    return [
+        {k: row[k] for k in ("provider", "model", "prompt_tokens", "completion_tokens", "cost_usd")}
+        for row in merged.values() if row["_best"] > 0
+    ]
+
+
 __all__ = [
     "CycleError", "NotFoundError", "Integration", "IntegrationSub", "ModelSpec",
     "list_integrations", "get_integration", "upsert_integration", "delete_integration",
