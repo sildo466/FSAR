@@ -89,6 +89,8 @@ export function Chat() {
   const currentHistory = currentId ? history[currentId] : undefined;
   const loadingHistory = useSessions((s) => s.loadingHistory);
   const fetchHistory = useSessions((s) => s.fetchHistory);
+  const liveHistory = useSessions((s) => s.liveHistory);
+  const syncLive = useSessions((s) => s.syncLive);
 
   // The sessions subscription is owned by App so it outlives this route.
   useEffect(() => {
@@ -106,7 +108,12 @@ export function Chat() {
     const switched = currentId !== lastSwitchedConv.current;
     if (!switched && currentHistory === undefined) return;
     lastSwitchedConv.current = currentId;
-    if (currentHistory !== undefined) {
+    const live = currentId ? liveHistory[currentId] : undefined;
+    if (live !== undefined && live.length > 0) {
+      // Restore the full live stream (agent tool calls, statuses, replies)
+      // captured before navigation instead of the older backend snapshot.
+      setMessages(live);
+    } else if (currentHistory !== undefined) {
       // A conversation created by our own first message arrives with an
       // empty history while the optimistic bubbles are still in flight;
       // that empty history is stale, so keep the on-screen messages.
@@ -123,6 +130,13 @@ export function Chat() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // Keep the store's live cache in sync so navigating away and back to this
+  // conversation restores the full stream (agent tool calls, statuses, etc.)
+  // that the backend only persists as a plain-text summary.
+  useEffect(() => {
+    if (currentId) syncLive(currentId, messages);
+  }, [messages, currentId, syncLive]);
 
   // Experiences feed the "/" popover so learned skills can be invoked.
   useEffect(() => {
