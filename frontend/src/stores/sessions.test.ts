@@ -41,6 +41,7 @@ describe("useSessions", () => {
       history: {},
       loadingHistory: false,
       listLoaded: false,
+      liveHistory: {},
     });
   });
 
@@ -105,6 +106,36 @@ describe("useSessions", () => {
       conversation_id: session.id,
       limit: 100,
     });
+    detach();
+  });
+
+  it("keeps live streamed messages per conversation for navigation restore", () => {
+    useSessions.getState().syncLive("session-1", [
+      {
+        id: "msg_1",
+        role: "assistant",
+        content: "checking…",
+        tools: [{ callId: "c1", tool: "run_command", argsPreview: "{}" }],
+      },
+    ]);
+
+    const cached = useSessions.getState().liveHistory["session-1"];
+    expect(cached).toHaveLength(1);
+    expect(cached?.[0].content).toBe("checking…");
+    expect(cached?.[0].tools).toHaveLength(1);
+    expect(useSessions.getState().liveHistory["other"]).toBeUndefined();
+  });
+
+  it("drops live history when the conversation is deleted", () => {
+    useSessions.getState().syncLive("session-1", [
+      { id: "msg_1", role: "assistant", content: "x" },
+    ]);
+    const client = new FakeClient();
+    const detach = useSessions.getState().init(client as never);
+
+    client.emit({ type: "conversation.deleted", conversation_id: "session-1" });
+
+    expect(useSessions.getState().liveHistory["session-1"]).toBeUndefined();
     detach();
   });
 });

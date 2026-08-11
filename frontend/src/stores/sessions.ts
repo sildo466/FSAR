@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
 import type { ClientMsg, ServerMsg, SessionMeta, StoredMessage } from "../lib/ws-client";
+import type { ChatMessage } from "../components/chat/MessageList";
 import { WSClient } from "../lib/ws-client";
 import { useCardsStore } from "./cards";
 
@@ -12,6 +13,10 @@ interface SessionsState {
   history: Record<string, StoredMessage[]>;
   loadingHistory: boolean;
   listLoaded: boolean;
+  // Live UI messages as they streamed in — kept so navigating away and back
+  // to the same conversation restores the full stream (the backend only
+  // persists a plain-text summary, not the agent's tool-call progress).
+  liveHistory: Record<string, ChatMessage[]>;
 
   init: (client: WSClient) => () => void;
   setCurrent: (id: string | null) => void;
@@ -22,6 +27,7 @@ interface SessionsState {
   rename: (id: string, title: string) => void;
   togglePin: (id: string) => void;
   deleteOne: (id: string) => void;
+  syncLive: (convId: string, msgs: ChatMessage[]) => void;
 
   send: (msg: ClientMsg) => void;
   applyServerMsg: (msg: ServerMsg) => void;
@@ -111,6 +117,7 @@ export const useSessions = create<SessionsState>((set, get) => {
       }));
     } else if (msg.type === "conversation.deleted") {
       const { [msg.conversation_id]: _drop, ...rest } = get().history;
+      const { [msg.conversation_id]: _dropLive, ...liveRest } = get().liveHistory;
       set((s) => {
         const nextCurrent =
           s.currentId === msg.conversation_id ? null : s.currentId;
@@ -118,6 +125,7 @@ export const useSessions = create<SessionsState>((set, get) => {
         return {
           sessions: s.sessions.filter((x) => x.id !== msg.conversation_id),
           history: rest,
+          liveHistory: liveRest,
           currentId: nextCurrent,
         };
       });
@@ -130,6 +138,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     history: {},
     loadingHistory: false,
     listLoaded: false,
+    liveHistory: {},
 
     init: (client) => {
       attached = client;
@@ -197,6 +206,11 @@ export const useSessions = create<SessionsState>((set, get) => {
 
     deleteOne: (id) =>
       attached?.send({ type: "conversation.delete", conversation_id: id }),
+
+    syncLive: (convId, msgs) => {
+      if (!convId) return;
+      set((s) => ({ liveHistory: { ...s.liveHistory, [convId]: msgs } }));
+    },
 
     send: (msg) => attached?.send(msg),
 
