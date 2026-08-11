@@ -200,6 +200,8 @@ async def provider_test_connection(
             if not model or not model.strip():
                 return {"type": "provider.test_result", "ok": False, "error": "model_required", "latency_ms": None}
             return await _test_anthropic(base_url, api_key, model, preset.get("default_headers", {}), started)
+        elif family == "google":
+            return await _test_google(base_url, api_key, started)
         else:
             return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": None}
     except Exception as e:
@@ -259,6 +261,27 @@ async def _test_anthropic(
         return {"type": "provider.test_result", "ok": False, "error": "auth_failed", "latency_ms": latency}
     if r.status_code in (404, 405):
         return {"type": "provider.test_result", "ok": False, "error": "bad_request", "latency_ms": latency}
+    return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": latency}
+
+
+async def _test_google(base_url: str, api_key: str, started: datetime) -> dict:
+    url = base_url.rstrip("/") + "/models"
+    from src.skills.egress import enforce_url
+    from src.utils.config import get_config
+    enforce_url(url, get_config())
+    if api_key:
+        url = url + f"?key={api_key}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        try:
+            r = await client.get(url)
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError):
+            return {"type": "provider.test_result", "ok": False, "error": "unreachable",
+                    "latency_ms": _elapsed_ms(started)}
+    latency = _elapsed_ms(started)
+    if r.status_code in (200,):
+        return {"type": "provider.test_result", "ok": True, "error": None, "latency_ms": latency}
+    if r.status_code in (400, 401, 403):
+        return {"type": "provider.test_result", "ok": False, "error": "auth_failed", "latency_ms": latency}
     return {"type": "provider.test_result", "ok": False, "error": "unknown", "latency_ms": latency}
 
 

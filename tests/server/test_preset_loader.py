@@ -38,10 +38,10 @@ def test_preset_anthropic_no_model_endpoint():
     assert anthropic["family"] == "anthropic"
 
 
-def test_preset_google_deferred():
+def test_preset_google_active():
     presets = load_presets(PRESETS_PATH)
     google = get_preset_by_id(presets, "google")
-    assert google["deferred"] is True
+    assert google["deferred"] is False
     assert google["family"] == "google"
 
 
