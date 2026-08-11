@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-11
+
+### Fixed
+
+- Onboarding: Google Gemini was locked out of the model-selection screen. The `google` preset carried a stale `deferred: true` flag from before the Gemini family was wired into the chat engine; it now ships unlocked, and Test Connection gained a native Gemini probe (models list via `?key=` query param) instead of reporting an unknown error.
+
 ## [0.2.1.1] - 2026-08-11
 
 ### Fixed
