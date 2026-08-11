@@ -58,6 +58,17 @@ chat:
 
 ---
 
+## workspace — 工作区与输出目录
+
+```yaml
+workspace:
+  output_dir: ""    # agent 保存生成文件（报告/网页/图片/脚本等）的目录
+```
+
+agent 生成成果文件时的保存位置。留空时默认 `~/FSAR-workspace`（当前用户主目录下的 `FSAR-workspace` 文件夹）。即使给了 agent 全盘访问权限，它也会把生成的文件存到这里的任务命名子文件夹，而不会默认存到桌面。配置成你想要的绝对路径即可。
+
+---
+
 ## security — 安全防护（重点）
 
 FSAR 的核心卖点是"纵深防御"。这一段配置各个安全层。完整的机制说明见仓库根目录的 [`SECURITY.md`](../SECURITY.md)。

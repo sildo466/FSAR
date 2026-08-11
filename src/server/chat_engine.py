@@ -2736,6 +2736,8 @@ class ChatEngine:
         workspace = self.workspace_repo.get_or_create_binding(conv_id)
         root = Path(workspace.root_path).resolve(strict=False)
         full_root = root == Path(root.anchor) if root.anchor else False
+        default_output = str(Path.home() / "FSAR-workspace")
+        output_dir = str(self.config.get("workspace.output_dir", "") or default_output)
         if bool(self.config.get("security.power_user_mode", False)) and full_root:
             return (
                 "[SANDBOX CONTEXT]\n"
@@ -2744,7 +2746,8 @@ class ChatEngine:
                 "Rules:\n"
                 "- Hardline commands (disk destruction, system lifecycle, privilege escalation, fetch+execute) are unconditionally blocked - no exception, no confirmation.\n"
                 "- Sensitive paths (SSH keys, cloud credentials, browser password databases, etc.) always require user confirmation.\n"
-                "- All other file and command operations proceed without per-call confirmation."
+                "- All other file and command operations proceed without per-call confirmation.\n"
+                f"- Save files you create (reports, webpages, images, scripts, exports) inside your output folder `{output_dir}` in a task-named subfolder. Do not default to the Desktop, Documents, or Downloads unless the user explicitly asks for a specific path. Always report the full path you saved to."
             )
         allowed = ", ".join(workspace.allowed_paths)
         return (
@@ -2756,6 +2759,7 @@ class ChatEngine:
             "- Commands (run_command) containing dangerous patterns are unconditionally blocked - no exception, no confirmation.\n"
             "- Commands referencing sensitive paths always require user confirmation.\n"
             "- If a request needs another path, explain the sandbox boundary or call the tool so the user can approve it.\n"
+            f"- Save files you create inside your output folder `{output_dir}` in a task-named subfolder; do not write output files to the Desktop, Documents, or Downloads.\n"
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."
         )
 

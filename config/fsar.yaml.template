@@ -18,6 +18,11 @@ chat:
     provider: ""
     model: ""
 
+workspace:
+  # Directory where the agent saves generated output files (reports,
+  # webpages, images, scripts, exports). Defaults to ~/FSAR-workspace.
+  output_dir: ""
+
 security:
   hardline_disabled_classes: []
   power_user_mode: false

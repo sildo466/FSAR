@@ -58,6 +58,17 @@ The chat model used by new sessions. Leave empty to let the UI choose.
 
 ---
 
+## workspace — workspace & output directory
+
+```yaml
+workspace:
+  output_dir: ""    # directory where the agent saves generated files (reports, webpages, images, scripts, exports)
+```
+
+Where the agent saves files it produces. Leave empty to default to `~/FSAR-workspace` (a `FSAR-workspace` folder in the current user's home directory). Even when the agent has full-disk ("all computer") access, it saves generated output into a task-named subfolder here instead of defaulting to the Desktop. Set it to any absolute path you prefer.
+
+---
+
 ## security — the safety layer (important)
 
 FSAR's core selling point is defense in depth. This section configures each layer. For the full mechanism, see [`SECURITY.md`](../SECURITY.md) at the repo root.
