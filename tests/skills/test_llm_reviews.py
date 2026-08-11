@@ -29,6 +29,18 @@ def test_llm_verdict_parser_is_fail_closed():
     assert not _parse_verdict("probably okay").safe
 
 
+def test_llm_verdict_parser_accepts_noisy_safe_output():
+    assert _parse_verdict("safe.").safe
+    assert _parse_verdict("safe。").safe
+    assert _parse_verdict("  safe  ").safe
+    assert _parse_verdict("```safe```").safe
+    assert not _parse_verdict("unsafe: leaked secret").safe
+    assert _parse_verdict("unsafe: leaked secret").reason == "leaked secret"
+    assert _parse_verdict("unsafe: leaked secret.").reason == "leaked secret"
+    assert not _parse_verdict("safehouse").safe
+    assert not _parse_verdict("").safe
+
+
 def test_skill_material_is_only_in_untrusted_user_message(tmp_path, monkeypatch):
     skill = tmp_path / "skill"
     skill.mkdir()
