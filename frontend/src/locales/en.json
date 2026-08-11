@@ -74,7 +74,6 @@
   "chat.greeting.default3": "What are we doing today?",
   "chat.greeting.default4": "How can I help?",
   "chat.greeting.default5": "Tell me what you need.",
-  "chat.greeting.ask": "What shall we do today?",
   "settings.subtitle": "LLM providers, MCP, permissions, and app preferences.",
   "settings.workspace": "Workspaces",
   "settings.advanced": "Advanced",

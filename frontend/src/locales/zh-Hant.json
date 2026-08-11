@@ -74,7 +74,6 @@
   "chat.greeting.default3": "今天做什麼?",
   "chat.greeting.default4": "我能幫什麼?",
   "chat.greeting.default5": "告訴我你需要什麼。",
-  "chat.greeting.ask": "今天想做什麼?",
   "settings.subtitle": "LLM 提供商、MCP、權限與應用偏好。",
   "settings.workspace": "工作區",
   "settings.advanced": "進階",

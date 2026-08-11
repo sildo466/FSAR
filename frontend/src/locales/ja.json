@@ -74,7 +74,6 @@
   "chat.greeting.default3": "今日は何をしますか?",
   "chat.greeting.default4": "何を手伝おう?",
   "chat.greeting.default5": "必要なことを教えて。",
-  "chat.greeting.ask": "今日は何をしましょうか?",
   "settings.subtitle": "LLM プロバイダー、MCP、権限、アプリ環境設定。",
   "settings.workspace": "ワークスペース",
   "settings.advanced": "詳細設定",

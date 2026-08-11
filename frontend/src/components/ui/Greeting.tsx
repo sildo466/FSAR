@@ -35,7 +35,6 @@ export function Greeting() {
       <p className="font-display text-2xl italic tracking-[-0.015em] text-text">
         {t(line.key)}
       </p>
-      <p className="mt-2 text-sm">{t("chat.greeting.ask")}</p>
     </BreathGlow>
   );
 }
