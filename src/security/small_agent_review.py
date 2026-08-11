@@ -64,7 +64,7 @@ class SmallAgentReviewer:
                 },
             ],
             temperature=0,
-            max_tokens=300,
+            max_tokens=100000,
         )
         return _response_text(response)
 
