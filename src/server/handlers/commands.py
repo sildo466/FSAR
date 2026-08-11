@@ -34,7 +34,7 @@ HELP_TEXT = """**Available commands**
 | `/stats [recent\\|tool <name>]` | Tool decision-log aggregates |
 | `/resume [id]` | Load a past session into context |
 | `/exp [view <name>\|del <name>\|stale\|archive]` | Experiences CRUD |
-| `/use <name>` | Load a learned skill/experience into context |
+| `/use <name> [task...]` | Load a learned skill/experience into context (optionally act on a task) |
 | `/learn <name> <cat> "<desc>"` + body on next lines | Persist an experience |
 | `/import <skill-folder-or-markdown>` | Import an external skill |
 | `/remember "<fact>"` | Persist a cross-session fact |
@@ -568,9 +568,10 @@ def _skills(engine, args, body) -> str:
 def _use(engine, args, body) -> str:
     from src.memory import ExperienceStore
 
-    name = args.strip()
+    parts = args.split(maxsplit=1)
+    name = parts[0].strip()
     if not name:
-        return "Usage: `/use <experience-name>`"
+        return "Usage: `/use <experience-name> [task...]`"
     store = ExperienceStore()
     exp = store.get_by_name(name)
     if exp is None:
@@ -583,6 +584,10 @@ def _use(engine, args, body) -> str:
         engine._short_cache[conv_id].append(  # noqa: SLF001
             {"role": "system", "content": f"Relevant learned skill/experience:\n\n{rendered}"}
         )
+    task = parts[1].strip() if len(parts) > 1 else ""
+    if task and conv_id:
+        engine._command_followup = {"conversation_id": conv_id, "task": task}  # noqa: SLF001
+        return f"Loaded experience `{name}` into context. Now handling: {task}"
     return f"Loaded experience `{name}` into this conversation's context."
 
 
