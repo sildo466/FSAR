@@ -1721,6 +1721,7 @@ class ChatEngine:
         await ws.send_json({
             "type": "chat.tool_call",
             "message_id": message_id,
+            "conversation_id": conv_id,
             "call_id": call_id,
             "tool": name,
             "args": args,
@@ -1768,6 +1769,7 @@ class ChatEngine:
         await ws.send_json({
             "type": "chat.tool_result",
             "call_id": call_id,
+            "conversation_id": conv_id,
             "result": output,
             "latency_ms": latency_ms,
             "agent_id": agent_id,
@@ -2116,10 +2118,12 @@ class ChatEngine:
                 result = f"[BLOCKED: MCP server '{server_name}' not reviewed ({verification.reason})]"
                 await ws.send_json({
                     "type": "chat.tool_call", "message_id": message_id,
+                    "conversation_id": conv_id,
                     "call_id": call_id, "tool": name, "args": args, "risk": "SAFE",
                 })
                 await ws.send_json({
                     "type": "chat.tool_result", "call_id": call_id,
+                    "conversation_id": conv_id,
                     "result": result, "latency_ms": 0,
                 })
                 return result
@@ -2128,9 +2132,10 @@ class ChatEngine:
         if sandbox_result is not None:
             await ws.send_json({
                 "type": "chat.tool_call", "message_id": message_id,
+                "conversation_id": conv_id,
                 "call_id": call_id, "tool": name, "args": args, "risk": "SAFE",
             })
-            await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "result": sandbox_result, "latency_ms": 0})
+            await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": sandbox_result, "latency_ms": 0})
             return sandbox_result
 
         verdict = self.risk_engine.evaluate(tool, args)
@@ -2138,6 +2143,7 @@ class ChatEngine:
         await ws.send_json({
             "type": "chat.tool_call",
             "message_id": message_id,
+            "conversation_id": conv_id,
             "call_id": call_id,
             "tool": name,
             "args": args,
@@ -2151,6 +2157,7 @@ class ChatEngine:
             await ws.send_json({
                 "type": "chat.tool_result",
                 "call_id": call_id,
+                "conversation_id": conv_id,
                 "result": result if isinstance(result, str) else str(result),
                 "latency_ms": latency_ms,
             })
@@ -2446,6 +2453,7 @@ class ChatEngine:
                 await ws.send_json({
                     "type": "chat.thinking",
                     "message_id": message_id,
+                    "conversation_id": conv_id,
                     "content": content,
                     "character_id": character.id if character else None,
                     "character_name": char_name,
@@ -2453,7 +2461,8 @@ class ChatEngine:
                 continue
             full.append(content)
             await ws.send_json({
-                "type": "chat.delta", "message_id": message_id, "content": content,
+                "type": "chat.delta", "message_id": message_id,
+                "conversation_id": conv_id, "content": content,
                 "character_id": character.id if character else None,
                 "character_name": char_name,
             })
@@ -2490,6 +2499,7 @@ class ChatEngine:
             await ws.send_json({
                 "type": "chat.delta",
                 "message_id": message_id,
+                "conversation_id": conv_id,
                 "content": text[i:i + DELTA_CHUNK],
                 "character_id": char_id,
                 "character_name": char_name,
@@ -2541,6 +2551,7 @@ class ChatEngine:
                 pass
         payload = {
             "type": "chat.done", "message_id": message_id,
+            "conversation_id": conv_id,
             "outcome": outcome, "summary": "",
         }
         if emotion_state is not None:

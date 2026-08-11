@@ -108,12 +108,17 @@ export function Chat() {
     const switched = currentId !== lastSwitchedConv.current;
     if (!switched && currentHistory === undefined) return;
     lastSwitchedConv.current = currentId;
-    const live = currentId ? liveHistory[currentId] : undefined;
-    if (live !== undefined && live.length > 0) {
-      // Restore the full live stream (agent tool calls, statuses, replies)
-      // captured before navigation instead of the older backend snapshot.
-      setMessages(live);
-    } else if (currentHistory !== undefined) {
+    if (switched) {
+      // On a genuine conversation switch, restore the full live stream
+      // (agent tool calls, statuses, replies) captured before navigation
+      // instead of the older backend snapshot.
+      const live = currentId ? liveHistory[currentId] : undefined;
+      if (live !== undefined && live.length > 0) {
+        setMessages(live);
+        return;
+      }
+    }
+    if (currentHistory !== undefined) {
       // A conversation created by our own first message arrives with an
       // empty history while the optimistic bubbles are still in flight;
       // that empty history is stale, so keep the on-screen messages.

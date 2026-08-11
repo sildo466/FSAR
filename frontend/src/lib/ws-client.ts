@@ -189,11 +189,11 @@ export type ServerMsg =
   | { type: "onboarding.step_skipped"; step: string }
   | { type: "onboarding.completed"; redirect: string }
   | { type: "onboarding.error"; step: string; code: string; message: string }
-  | { type: "chat.delta"; message_id: string; content: string; character_id?: number; character_name?: string }
+  | { type: "chat.delta"; message_id: string; conversation_id?: string; content: string; character_id?: number; character_name?: string }
   | { type: "chat.thinking"; message_id: string; conversation_id?: string; character_id?: number; character_name?: string }
-  | { type: "chat.tool_call"; message_id: string; call_id: string; tool: string; args: unknown; risk: "SAFE" | "LOW" | "MEDIUM" | "HIGH"; agent_id?: string }
-  | { type: "chat.tool_result"; call_id: string; result: unknown; latency_ms: number; agent_id?: string }
-  | { type: "chat.done"; message_id: string; outcome: "success" | "failure" | "timeout"; summary?: string; character_id?: number; character_name?: string; emotion_state?: Record<string, number> }
+  | { type: "chat.tool_call"; message_id: string; conversation_id?: string; call_id: string; tool: string; args: unknown; risk: "SAFE" | "LOW" | "MEDIUM" | "HIGH"; agent_id?: string }
+  | { type: "chat.tool_result"; call_id: string; conversation_id?: string; result: unknown; latency_ms: number; agent_id?: string }
+  | { type: "chat.done"; message_id: string; conversation_id?: string; outcome: "success" | "failure" | "timeout"; summary?: string; character_id?: number; character_name?: string; emotion_state?: Record<string, number> }
   | { type: "tts.audio"; request_id: string; mime: string; audio: string }
   | { type: "tts.voices_result"; request_id: string; voices: string[] }
   | { type: "tts.error"; request_id: string; code: string; message: string; http_status?: number }
