@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-11
+
+### Added
+
+- Workspace: configurable output directory (`workspace.output_dir`, defaults to `~/FSAR-workspace`) where the agent saves generated files — documented in the configuration guide
+- Chat: the agent's tool-call stream keeps running in the background while you navigate to other pages; returning to a conversation restores the current progress
+
+### Fixed
+
+- Chat: small-agent review no longer blocks every tool call when a reasoning model (e.g. deepseek) returns an empty verdict — reviewers get an unbounded token budget and empty responses are treated as "review unavailable"
+- Memory: semantic recall is now scoped to the current character, so switching personas no longer leaks another character's conversation history
+- Usage: the per-provider table now reports real token usage per provider instead of attributing the grand total to the active provider
+- Chat: `/use <name> [task...]` splits the experience name from a trailing task and routes the task through the agent
+- UI: chat greeting no longer shows a redundant second line
+- Sandbox: the agent saves generated output files into the configured workspace instead of the Desktop
+
 ## [0.2.0] - 2026-08-10
 
 ### Added
