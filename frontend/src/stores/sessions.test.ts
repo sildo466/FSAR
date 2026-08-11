@@ -5,12 +5,12 @@ import { useSessions } from "./sessions";
 
 class FakeClient {
   readonly sent: ClientMsg[] = [];
-  private listener: ((message: ServerMsg) => void) | null = null;
+  private listeners = new Set<(message: ServerMsg) => void>();
 
   on(listener: (message: ServerMsg) => void) {
-    this.listener = listener;
+    this.listeners.add(listener);
     return () => {
-      this.listener = null;
+      this.listeners.delete(listener);
     };
   }
 
@@ -19,7 +19,7 @@ class FakeClient {
   }
 
   emit(message: ServerMsg) {
-    this.listener?.(message);
+    this.listeners.forEach((l) => l(message));
   }
 }
 
@@ -136,6 +136,31 @@ describe("useSessions", () => {
     client.emit({ type: "conversation.deleted", conversation_id: "session-1" });
 
     expect(useSessions.getState().liveHistory["session-1"]).toBeUndefined();
+    detach();
+  });
+
+  it("accumulates the chat stream globally even while Chat is unmounted", () => {
+    const client = new FakeClient();
+    const detach = useSessions.getState().init(client as never);
+
+    client.emit({ type: "chat.thinking", message_id: "m1", conversation_id: "session-1" });
+    client.emit({
+      type: "chat.delta", message_id: "m1", conversation_id: "session-1", content: "工作进度",
+    });
+    client.emit({
+      type: "chat.tool_call", message_id: "m1", conversation_id: "session-1",
+      call_id: "c1", tool: "run_command", args: { command: "echo hi" }, risk: "SAFE",
+    });
+    client.emit({
+      type: "chat.done", message_id: "m1", conversation_id: "session-1", outcome: "success",
+    });
+
+    const live = useSessions.getState().liveHistory["session-1"];
+    expect(live).toHaveLength(1);
+    expect(live?.[0].content).toBe("工作进度");
+    expect(live?.[0].streaming).toBe(false);
+    expect(live?.[0].tools).toHaveLength(1);
+    expect(live?.[0].tools?.[0].tool).toBe("run_command");
     detach();
   });
 });

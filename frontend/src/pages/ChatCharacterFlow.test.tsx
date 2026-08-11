@@ -42,6 +42,7 @@ function resetStores(client: FakeClient) {
   useWS.setState({ client: client as never, init: () => {} });
   useSessions.setState({
     sessions: [], currentId: null, history: {}, loadingHistory: false, listLoaded: true,
+    liveHistory: {},
   });
   useCardsStore.setState({
     characters: [FSAR_EN, ORI],

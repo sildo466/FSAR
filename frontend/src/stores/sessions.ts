@@ -50,6 +50,93 @@ function saveId(id: string | null) {
   }
 }
 
+// Reduces a chat.* stream event into a conversation's live message list.
+// This mirrors Chat.tsx's per-event handling so the stream is captured even
+// while the Chat page is unmounted (task running in the background).
+function applyChatEvent(live: ChatMessage[] | undefined, msg: ServerMsg): ChatMessage[] {
+  const current = live ?? [];
+  switch (msg.type) {
+    case "chat.thinking": {
+      if (current.some((m) => m.id === msg.message_id)) {
+        return current.map((m) => (m.id === msg.message_id ? { ...m, thinking: true } : m));
+      }
+      return [
+        ...current,
+        {
+          id: msg.message_id,
+          role: "assistant",
+          content: "",
+          thinking: true,
+          character_id: msg.character_id,
+          character_name: msg.character_name,
+        },
+      ];
+    }
+    case "chat.delta":
+      return current.map((m) =>
+        m.id === msg.message_id
+          ? {
+              ...m,
+              content: m.content + msg.content,
+              thinking: false,
+              streaming: true,
+              character_id: msg.character_id ?? m.character_id,
+              character_name: msg.character_name ?? m.character_name,
+            }
+          : m
+      );
+    case "chat.done":
+      return current.map((m) =>
+        m.id === msg.message_id
+          ? {
+              ...m,
+              thinking: false,
+              streaming: false,
+              character_id: msg.character_id ?? m.character_id,
+              character_name: msg.character_name ?? m.character_name,
+            }
+          : m
+      );
+    case "chat.tool_call":
+      return current.map((m) =>
+        m.id === msg.message_id
+          ? {
+              ...m,
+              tools: [
+                ...(m.tools ?? []),
+                {
+                  callId: msg.call_id,
+                  tool: msg.tool,
+                  argsPreview:
+                    typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2),
+                },
+              ],
+            }
+          : m
+      );
+    case "chat.tool_result":
+      return current.map((m) =>
+        m.tools?.some((t) => t.callId === msg.call_id)
+          ? {
+              ...m,
+              tools: m.tools.map((t) =>
+                t.callId === msg.call_id
+                  ? {
+                      ...t,
+                      result:
+                        typeof msg.result === "string" ? msg.result : JSON.stringify(msg.result),
+                      latencyMs: msg.latency_ms,
+                    }
+                  : t
+              ),
+            }
+          : m
+      );
+    default:
+      return current;
+  }
+}
+
 export const useSessions = create<SessionsState>((set, get) => {
   let attached: WSClient | null = null;
   let detach: (() => void) | null = null;
@@ -142,7 +229,32 @@ export const useSessions = create<SessionsState>((set, get) => {
 
     init: (client) => {
       attached = client;
-      detach = client.on(applyServerMsg);
+      const detachA = client.on(applyServerMsg);
+      // Always accumulate the live chat stream so a task keeps "rendering"
+      // into the cache even while the Chat page is unmounted; on return the
+      // current progress is restored from liveHistory.
+      const detachB = client.on((msg) => {
+        if (
+          msg.type === "chat.thinking" ||
+          msg.type === "chat.delta" ||
+          msg.type === "chat.done" ||
+          msg.type === "chat.tool_call" ||
+          msg.type === "chat.tool_result"
+        ) {
+          const convId = msg.conversation_id;
+          if (!convId) return;
+          set((s) => ({
+            liveHistory: {
+              ...s.liveHistory,
+              [convId]: applyChatEvent(s.liveHistory[convId], msg),
+            },
+          }));
+        }
+      });
+      detach = () => {
+        detachA();
+        detachB();
+      };
       // The server pushes conversation.list once, at connect time. If we
       // attached after that push (app booted on a non-chat route, or the
       // socket reconnected), ask for it again — otherwise the store stays
