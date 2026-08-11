@@ -38,6 +38,8 @@ class SmallAgentReviewer:
             )
         except Exception:
             return SmallAgentVerdict(True, "review unavailable")
+        if not (text or "").strip():
+            return SmallAgentVerdict(True, "review unavailable")
         verdict = _parse_verdict(text)
         return SmallAgentVerdict(verdict.safe, verdict.reason)
 
@@ -62,7 +64,7 @@ class SmallAgentReviewer:
                 },
             ],
             temperature=0,
-            max_tokens=100,
+            max_tokens=300,
         )
         return _response_text(response)
 

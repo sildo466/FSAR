@@ -94,3 +94,13 @@ def test_small_agent_timeout_defaults_safe(tmp_path, monkeypatch):
     verdict = asyncio.run(reviewer.review("tool", {}, "result"))
 
     assert verdict.safe
+
+
+def test_small_agent_empty_response_is_review_unavailable(tmp_path, monkeypatch):
+    reviewer = SmallAgentReviewer(_config(tmp_path))
+    monkeypatch.setattr(reviewer, "_review_sync", lambda *args: "")
+
+    verdict = asyncio.run(reviewer.review("tool", {}, "result"))
+
+    assert verdict.safe
+    assert verdict.reason == "review unavailable"
