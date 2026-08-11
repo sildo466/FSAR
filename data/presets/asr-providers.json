@@ -1,0 +1,38 @@
+[
+  {
+    "id": "faster-whisper",
+    "label": "faster-whisper (local)",
+    "family": "local",
+    "api_key_required": false,
+    "deferred": false,
+    "icon": "whisper",
+    "order": 1,
+    "model_placeholder": "base",
+    "language_placeholder": "auto"
+  },
+  {
+    "id": "openai-whisper",
+    "label": "OpenAI Whisper",
+    "family": "openai_compat",
+    "default_base_url": "https://api.openai.com/v1",
+    "transcribe_path": "/audio/transcriptions",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "openai",
+    "order": 2,
+    "model_placeholder": "whisper-1",
+    "language_placeholder": "auto"
+  },
+  {
+    "id": "volcengine-asr",
+    "label": "Volcengine ASR",
+    "family": "volcengine",
+    "default_base_url": "https://openspeech.bytedance.com/api/v1/asr",
+    "api_key_required": true,
+    "deferred": true,
+    "icon": "volcengine",
+    "order": 3,
+    "model_placeholder": "",
+    "language_placeholder": "auto"
+  }
+]

@@ -1,0 +1,97 @@
+[
+  {
+    "id": "edge",
+    "label": "Microsoft Edge (free)",
+    "family": "edge",
+    "api_key_required": false,
+    "deferred": false,
+    "icon": "edge",
+    "order": 1,
+    "voice_placeholder": "zh-CN-XiaoxiaoNeural",
+    "model_placeholder": ""
+  },
+  {
+    "id": "openai",
+    "label": "OpenAI",
+    "family": "openai_compat",
+    "default_base_url": "https://api.openai.com/v1",
+    "synthesize_path": "/audio/speech",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "openai",
+    "order": 2,
+    "voice_placeholder": "alloy",
+    "model_placeholder": "tts-1"
+  },
+  {
+    "id": "elevenlabs",
+    "label": "ElevenLabs",
+    "family": "elevenlabs",
+    "default_base_url": "https://api.elevenlabs.io/v1",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "elevenlabs",
+    "order": 3,
+    "voice_placeholder": "",
+    "model_placeholder": "eleven_multilingual_v2"
+  },
+  {
+    "id": "azure",
+    "label": "Microsoft Azure Speech",
+    "family": "azure",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "azure",
+    "order": 4,
+    "voice_placeholder": "en-US-AvaMultilingualNeural",
+    "model_placeholder": ""
+  },
+  {
+    "id": "dashscope",
+    "label": "Alibaba DashScope (CosyVoice)",
+    "family": "dashscope",
+    "default_base_url": "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "alibaba",
+    "order": 5,
+    "voice_placeholder": "longxiaochun",
+    "model_placeholder": "cosyvoice-v2"
+  },
+  {
+    "id": "qwen-tts",
+    "label": "Alibaba Qwen-TTS",
+    "family": "dashscope",
+    "default_base_url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "alibaba",
+    "order": 6,
+    "voice_placeholder": "",
+    "model_placeholder": ""
+  },
+  {
+    "id": "volcengine",
+    "label": "Volcengine TTS",
+    "family": "volcengine",
+    "default_base_url": "https://openspeech.bytedance.com/api/v1/tts",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "volcengine",
+    "order": 7,
+    "voice_placeholder": "BV001_streaming",
+    "model_placeholder": ""
+  },
+  {
+    "id": "minimax-tts",
+    "label": "MiniMax TTS",
+    "family": "minimax",
+    "default_base_url": "https://api.minimaxi.com/v1",
+    "api_key_required": true,
+    "deferred": false,
+    "icon": "minimax",
+    "order": 99,
+    "voice_placeholder": "male-qn-qingse",
+    "model_placeholder": "speech-2.8-hd"
+  }
+]

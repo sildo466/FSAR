@@ -30,6 +30,8 @@ data/migrations/*
 !data/cards/default-user.json
 !data/presets/
 !data/presets/llm-providers.json
+!data/presets/asr-providers.json
+!data/presets/tts-providers.json
 !data/emotion_default.json
 
 # Config (user-specific, generated on first run)
