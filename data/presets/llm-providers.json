@@ -41,7 +41,7 @@
     "api_key_env": "GOOGLE_API_KEY",
     "model_list_url_suffix": null,
     "test_url_suffix": null,
-    "deferred": true,
+    "deferred": false,
     "icon": "google",
     "homepage": "https://ai.google.dev",
     "order": 3

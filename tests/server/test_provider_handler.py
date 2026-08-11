@@ -219,18 +219,42 @@ def test_test_connection_anthropic_401():
     assert result["error"] == "auth_failed"
 
 
-def test_test_connection_google_deferred():
+def test_test_connection_google_200():
     async def _run():
-        return await provider_handler.provider_test_connection(
-            preset_id="google",
-            base_url="https://generativelanguage.googleapis.com/v1beta",
-            api_key="x",
-            model="gemini-2.0-flash",
-        )
+        fake_response = AsyncMock(status_code=200, json=lambda: {"models": [{"name": "models/gemini-2.0-flash"}]})
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="google",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="test-key",
+                model="gemini-2.0-flash",
+            )
+
+    result = asyncio.run(_run())
+    assert result["ok"] is True
+    assert result["error"] is None
+
+
+def test_test_connection_google_bad_key():
+    async def _run():
+        fake_response = AsyncMock(status_code=400)
+        with patch("src.server.handlers.provider.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = fake_response
+            MockClient.return_value.__aenter__.return_value = mock_instance
+            return await provider_handler.provider_test_connection(
+                preset_id="google",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="bad-key",
+                model="gemini-2.0-flash",
+            )
 
     result = asyncio.run(_run())
     assert result["ok"] is False
-    assert result["error"] == "deferred"
+    assert result["error"] == "auth_failed"
 
 
 def test_fetch_models_openai_compat():
