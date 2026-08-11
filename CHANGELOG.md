@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1.1] - 2026-08-11
+
+### Fixed
+
+- Build: TTS / ASR provider presets were swallowed by the `data/presets/*` gitignore rule and never shipped with the repo, so a fresh clone failed the frontend TS build with TS2307 (`speech-presets.ts`). Both JSON catalogs are now tracked.
+
 ## [0.2.1] - 2026-08-11
 
 ### Added

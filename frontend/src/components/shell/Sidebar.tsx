@@ -49,7 +49,7 @@ export function Sidebar() {
           </li>
         ))}
       </ul>
-      <span className="font-mono text-[9px] tracking-[0.18em] text-text-faint">0.2.1</span>
+      <span className="font-mono text-[9px] tracking-[0.18em] text-text-faint">0.2.1.1</span>
     </motion.nav>
   );
 }
