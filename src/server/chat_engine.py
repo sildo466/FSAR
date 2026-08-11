@@ -380,6 +380,7 @@ class ChatEngine:
         self._active_agent_runs: dict[str, AgentRunState] = {}
         self._cancelled = False
         self._mcp_started = False
+        self._command_followup: dict[str, str] | None = None
 
     # ---------- session lifecycle ----------
 
@@ -876,45 +877,28 @@ class ChatEngine:
                         conv_id=conv_id,
                         tts_text=text,
                     )
+                    followup = self._command_followup
+                    self._command_followup = None
+                    if followup and followup.get("conversation_id") == conv_id:
+                        task = (followup.get("task") or "").strip()
+                        if task:
+                            followup_id = f"msg_{uuid.uuid4().hex[:8]}"
+                            await ws.send_json({
+                                "type": "chat.thinking",
+                                "message_id": followup_id,
+                                "conversation_id": conv_id,
+                                "character_id": character.id if character else None,
+                                "character_name": char_name,
+                            })
+                            await self._dispatch_turn(
+                                ws, followup_id, conv_id, task, character, char_name,
+                                mode, None, save_user=True, user_text=task,
+                            )
                     return
-                selection = resolve_chat_model(
-                    selected_chat_model if selected_chat_model is not None else self.config.chat_default_model,
-                    self.config,
+                await self._dispatch_turn(
+                    ws, message_id, conv_id, content, character, char_name,
+                    mode, selected_chat_model, save_user, user_text,
                 )
-                if selection.get("kind") == "integration":
-                    if save_user:
-                        self._save_user(conv_id, user_text if user_text is not None else content)
-                    await self._run_integration(
-                        ws, message_id, conv_id, content, selection["id"], character, char_name,
-                    )
-                    return
-                client, model, provider_id = self.client_and_model()
-                if client is None:
-                    await ws.send_json({
-                        "type": "error", "code": "no_provider",
-                        "message": "No active LLM provider — configure one in Settings.",
-                        "recoverable": True,
-                    })
-                    await self._done(ws, message_id, "failure", conv_id=conv_id)
-                    return
-                if save_user:
-                    self._save_user(conv_id, user_text if user_text is not None else content)
-                if mode == "companion":
-                    await self._run_companion(
-                        ws,
-                        message_id,
-                        client,
-                        model,
-                        conv_id,
-                        content,
-                        character,
-                        char_name,
-                        provider_id,
-                        model_effort=self._model_thinking_effort(),
-                        provider_family=self._active_provider_family(),
-                    )
-                else:
-                    await self._run_agent(ws, message_id, client, model, conv_id, content, character, char_name, provider_id)
             except asyncio.CancelledError:
                 self._cancelled = True
                 await self._emit_text(ws, message_id, "(Cancelled.)", save=False, conv_id=conv_id)
@@ -926,6 +910,58 @@ class ChatEngine:
                     "message": str(e), "recoverable": True,
                 })
                 await self._done(ws, message_id, "failure", conv_id=conv_id)
+
+    async def _dispatch_turn(
+        self,
+        ws: WebSocket,
+        message_id: str,
+        conv_id: str,
+        content: str,
+        character: Any,
+        char_name: str | None,
+        mode: str,
+        selected_chat_model: dict[str, Any] | None = None,
+        save_user: bool = True,
+        user_text: str | None = None,
+    ) -> None:
+        selection = resolve_chat_model(
+            selected_chat_model if selected_chat_model is not None else self.config.chat_default_model,
+            self.config,
+        )
+        if selection.get("kind") == "integration":
+            if save_user:
+                self._save_user(conv_id, user_text if user_text is not None else content)
+            await self._run_integration(
+                ws, message_id, conv_id, content, selection["id"], character, char_name,
+            )
+            return
+        client, model, provider_id = self.client_and_model()
+        if client is None:
+            await ws.send_json({
+                "type": "error", "code": "no_provider",
+                "message": "No active LLM provider — configure one in Settings.",
+                "recoverable": True,
+            })
+            await self._done(ws, message_id, "failure", conv_id=conv_id)
+            return
+        if save_user:
+            self._save_user(conv_id, user_text if user_text is not None else content)
+        if mode == "companion":
+            await self._run_companion(
+                ws,
+                message_id,
+                client,
+                model,
+                conv_id,
+                content,
+                character,
+                char_name,
+                provider_id,
+                model_effort=self._model_thinking_effort(),
+                provider_family=self._active_provider_family(),
+            )
+        else:
+            await self._run_agent(ws, message_id, client, model, conv_id, content, character, char_name, provider_id)
 
     async def _run_integration(
         self, ws: WebSocket, message_id: str, conv_id: str, user_input: str,

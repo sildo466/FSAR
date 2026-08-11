@@ -24,7 +24,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "reflect", description: "Force immediate reflection", usage: "/reflect" },
   { name: "stats", description: "Tool decision-log aggregates", usage: "/stats [tool <name>|recent]" },
   { name: "exp", description: "Experience library CRUD", usage: "/exp [view|del|stale|archive] <name>" },
-  { name: "use", description: "Load a learned skill/experience into context", usage: "/use <name>" },
+  { name: "use", description: "Load a learned skill/experience into context", usage: "/use <name> [task...]" },
   { name: "learn", description: "Persist a new experience", usage: "/learn <name> <category> \"<description>\"" },
   { name: "remember", description: "Save a cross-session fact", usage: "/remember \"<fact>\"" },
   { name: "facts", description: "List / search saved facts", usage: "/facts [keyword]" },
