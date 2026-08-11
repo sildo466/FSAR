@@ -2662,7 +2662,7 @@ class ChatEngine:
         if character is None:
             character = self.card_repo.get_default_character()
         user_card = self.card_repo.get_default_user_card()
-        memory_block = self._memory_block(user_input)
+        memory_block = self._memory_block(user_input, character=character)
         strategy_block = self._strategy_block()
         experience_block = self._experience_block()
         slim = False
@@ -2672,6 +2672,7 @@ class ChatEngine:
                 self._memory_block(
                     user_input,
                     semantic_top_k=profile.recall_top_k,
+                    character=character,
                 )
                 if profile.semantic_recall else ""
             )
@@ -2722,10 +2723,16 @@ class ChatEngine:
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."
         )
 
-    def _memory_block(self, query: str, *, semantic_top_k: int = 5) -> str:
+    def _memory_block(self, query: str, *, semantic_top_k: int = 5,
+                      character: Any = None) -> str:
         try:
+            session_ids: set[str] | None = None
+            if character is not None and getattr(character, "id", None) is not None:
+                session_ids = set(
+                    self.session_store.session_ids_for_character(character.id)
+                )
             result = self.recall.recall_for_context(
-                query, semantic_top_k=semantic_top_k,
+                query, semantic_top_k=semantic_top_k, session_ids=session_ids,
             )
             if result.is_empty:
                 return ""
