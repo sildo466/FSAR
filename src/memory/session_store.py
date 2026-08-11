@@ -133,6 +133,15 @@ class SessionStore:
             ).fetchone()
         return r[0] if r and r[0] is not None else None
 
+    def session_ids_for_character(self, character_id: int) -> list[str]:
+        """All conversation ids bound to the given character card."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM sessions WHERE character_card_id = ?",
+                (character_id,),
+            ).fetchall()
+        return [r[0] for r in rows]
+
     def _migrate_conversations(self, conn: sqlite3.Connection) -> None:
         """Idempotent: add session_fk column + backfill from session_id.
 

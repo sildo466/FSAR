@@ -96,22 +96,19 @@ def _build_snapshot(db_path: Path, cache_db: Path, from_ts: str, to_ts: str,
         ]
 
     pricing = None
-    active = {}
     if config is not None:
-        active = config.get_active_provider() or {}
-        pricing = active.get("pricing")
+        pricing = (config.get_active_provider() or {}).get("pricing")
     estimated_cost = compute_cost(
         totals["prompt_tokens"], totals["completion_tokens"], pricing,
     )
     per_provider = []
-    if active:
-        per_provider.append({
-            "provider": active.get("id", ""),
-            "model": active.get("model", ""),
-            "prompt_tokens": totals["prompt_tokens"],
-            "completion_tokens": totals["completion_tokens"],
-            "cost_usd": estimated_cost,
-        })
+    try:
+        from src.memory.integrations import get_token_usage_by_provider
+        per_provider = get_token_usage_by_provider(
+            from_ts=from_ts, to_ts=to_ts, db_path=db_path,
+        )
+    except Exception:
+        per_provider = []
 
     recent = timeline[-7:]
     forecast_monthly = 0.0

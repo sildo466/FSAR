@@ -84,22 +84,57 @@ class LLMSkillJudge:
 
 
 def _response_text(response) -> str:
+    content = None
     try:
-        return str(response.choices[0].message.content or "")
+        content = response.choices[0].message.content or ""
     except (AttributeError, IndexError, KeyError, TypeError):
         if isinstance(response, dict):
             choices = response.get("choices") or []
             if choices:
                 message = choices[0].get("message") or {}
-                return str(message.get("content") or "")
-        return ""
+                content = message.get("content") or ""
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text") or block.get("content") or "")
+            else:
+                parts.append(str(block))
+        content = "\n".join(part for part in parts if part)
+    return str(content or "")
+
+
+def _normalize_review_text(text: str) -> str:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+    text = text.strip("\"'")
+    text = text.rstrip(" \t\r\n.,;:!?。，；：！？、")
+    return text.strip()
+
+
+def _starts_word(text: str, word: str) -> bool:
+    if not text.startswith(word):
+        return False
+    tail = text[len(word):]
+    return not tail or not tail[0].isalnum()
 
 
 def _parse_verdict(text: str) -> LLMReviewVerdict:
-    normalized = text.strip()
-    if normalized.lower() == "safe":
+    normalized = _normalize_review_text(text)
+    low = normalized.lower()
+    if _starts_word(low, "unsafe") or _starts_word(low, "不安全") or _starts_word(low, "危险"):
+        return LLMReviewVerdict(False, _unsafe_reason(normalized, low))
+    if _starts_word(low, "safe") or _starts_word(low, "安全"):
         return LLMReviewVerdict(True)
-    if normalized.lower().startswith("unsafe:"):
-        return LLMReviewVerdict(False, normalized.split(":", 1)[1].strip() or "flagged")
     return LLMReviewVerdict(False, "invalid LLM reviewer response")
+
+
+def _unsafe_reason(text: str, low: str) -> str:
+    if ":" in text:
+        return text.split(":", 1)[1].strip().lstrip(":- ") or "flagged"
+    for prefix in ("unsafe", "不安全", "危险"):
+        if _starts_word(low, prefix):
+            return text[len(prefix):].strip().lstrip(":- ") or "flagged"
+    return "flagged"
 

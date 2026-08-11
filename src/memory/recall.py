@@ -79,8 +79,13 @@ class MemoryRecall:
 
     def recall_for_context(self, query: str, *,
                            include_semantic: bool = True,
-                           semantic_top_k: int = 5) -> RecallResult:
-        """Recall memories relevant to query — used for injecting into LLM context."""
+                           semantic_top_k: int = 5,
+                           session_ids: set[str] | None = None) -> RecallResult:
+        """Recall memories relevant to query — used for injecting into LLM context.
+
+        When `session_ids` is provided, semantic history is restricted to
+        those conversations (character-scoped recall); otherwise it is global.
+        """
         result = RecallResult()
 
         # Profile & preferences & patterns (cheap, always fetched)
@@ -101,9 +106,14 @@ class MemoryRecall:
                 logger.debug(f"memory_chunks recall failed: {e}")
 
         # Semantic recall
+        if include_semantic and query.strip() and session_ids is not None and not session_ids:
+            return result
         if include_semantic and query.strip():
+            where = None
+            if session_ids is not None:
+                where = {"session_id": {"$in": sorted(session_ids)}}
             try:
-                hits = self.semantic.search(query, n=semantic_top_k)
+                hits = self.semantic.search(query, n=semantic_top_k, where=where)
                 result.similar_conversations = [
                     {
                         "text": h.text,
