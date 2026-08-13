@@ -420,6 +420,11 @@ class FSAR:
 
         # P5.1: per-task reflection (skipped silently if intensity=off)
         try:
+            try:
+                self.task_reflector.set_llm(self._get_llm())
+                self.task_reflector._model = self.config.get_llm_config("primary").get("model", "")  # noqa: SLF001
+            except Exception as e:
+                logger.warning(f"Cannot init LLM for task reflection: {e}")
             decisions = self.decision_log.get_for_task(task_id)
             history = [
                 {
