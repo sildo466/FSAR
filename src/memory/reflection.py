@@ -697,7 +697,7 @@ class TaskReflector:
                     {"role": "system", "content": "You are a task post-mortem analyst. Output JSON only."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=800,
+                max_tokens=100000,
                 temperature=0.2,
             )
             text = (resp.choices[0].message.content or "").strip()

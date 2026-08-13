@@ -2672,6 +2672,13 @@ class ChatEngine:
     def _reflect(self, task_id: str, conv_id: str, user_input: str,
                 outcome: str) -> None:
         try:
+            client, model, _ = self.client_and_model()
+            if client is not None:
+                try:
+                    self.task_reflector.set_llm(client)
+                    self.task_reflector._model = model  # noqa: SLF001
+                except Exception as e:
+                    logger.debug(f"task reflector set_llm failed: {e}")
             decisions = self.decision_log.get_for_task(task_id)
             history = [
                 {
