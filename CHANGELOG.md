@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-13
+
+### Fixed
+
+- Reflection: per-task reflections (GUI and CLI) always ran the rule-based fallback because the LLM was never wired into the task reflector — every record ended up as boilerplate like "Continue using chat.llm for similar tasks". Both paths now inject the active LLM client, and the task-reflection call's `max_tokens` was raised so reasoning models don't exhaust the budget on `reasoning_content` and return empty output. Reflections now carry specific, tool-named analysis and actionable suggestions.
+
 ## [0.2.2] - 2026-08-11
 
 ### Fixed
