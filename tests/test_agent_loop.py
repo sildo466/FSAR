@@ -43,7 +43,10 @@ class LoopHarness(ChatEngine):
 
 class AgentLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_high_runs_one_successful_wrap_up_check(self) -> None:
-        engine = LoopHarness(["draft", "final answer"])
+        # The self-check turn confirms completion (no gap -> no tool calls);
+        # the final answer is the pre-check candidate, not the model's
+        # review-report echo.
+        engine = LoopHarness(["draft answer", "检查完成 ✅ 最终回答：draft answer"])
         profile = TIER_PROFILES["high"]
         runtime = AgentRunState("root", profile)
         runtime.agents["root"] = AgentRecord(
@@ -71,7 +74,7 @@ class AgentLoopTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(engine.calls, 2)
-        self.assertEqual(result.conclusion, "final answer")
+        self.assertEqual(result.conclusion, "draft answer")
         self.assertEqual(result.outcome, "success")
 
 

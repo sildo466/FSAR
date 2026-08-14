@@ -1171,6 +1171,7 @@ class ChatEngine:
         tool_steps = 0
         verify_count = 0
         awaiting_selfcheck_response = False
+        pending_candidate = ""
         adversarial_done = False
         deepseek = is_deepseek_official(
             str(getattr(client, "base_url", "") or "")
@@ -1238,12 +1239,19 @@ class ChatEngine:
                 thinking=profile.thinking,
                 model_effort=self._model_thinking_effort(),
                 provider_family=self._active_provider_family(),
-                stream_sink=(ws, message_id, conv_id) if not is_subagent else None,
+                stream_sink=(ws, message_id, conv_id)
+                if (not is_subagent and not awaiting_selfcheck_response) else None,
             )
             if not is_subagent:
                 runtime.streamed_main = True
             tool_calls = list(message.tool_calls or []) if not isinstance(message, dict) else list(message.get("tool_calls") or [])
             if not tool_calls:
+                if awaiting_selfcheck_response:
+                    # The self-check turn confirmed completion (no gap → no
+                    # tool calls). Return the original pre-check answer instead
+                    # of the model's review-report echo.
+                    awaiting_selfcheck_response = False
+                    return AgentLoopResult(pending_candidate, "success", tool_steps)
                 candidate = (message.content or "") if not isinstance(message, dict) else (message.get("content") or "")
                 should_selfcheck = profile.verify_selfcheck and (
                     not is_subagent or profile.subagent_autonomous
@@ -1253,6 +1261,7 @@ class ChatEngine:
                     and not awaiting_selfcheck_response
                     and verify_count < profile.verify_max
                 ):
+                    pending_candidate = candidate
                     self._append_assistant_message(messages, message, deepseek)
                     messages.append({
                         "role": "user",
@@ -1734,7 +1743,9 @@ class ChatEngine:
             "Perform a final task check. Verify that the user's goal is actually satisfied, "
             "the plan is complete, important outputs were tested, and no promised action is "
             "missing. If there is a gap, call tools and continue. If complete, return the final "
-            f"user-facing answer, not a review report.\n\n{self._render_todos(task_id)}\n\n"
+            "user-facing answer, not a review report. Do NOT emit any checklist or verification "
+            "summary (no '检查完成', '用户目标', '最终回答', '核对完成', or similar) — return only "
+            f"the answer text.\n\n{self._render_todos(task_id)}\n\n"
             f"Candidate answer:\n{candidate}"
         )
 
