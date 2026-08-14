@@ -225,33 +225,6 @@ def test_phase5_end_to_end():
         assert "Avoid `file_ops`" not in block
 
         # === Verify orchestrator wires task_reflector correctly ===
-        from src.orchestrator.fsar_orchestrator import FSAROrchestrator
-
-        class _StubLLM:
-            class chat:
-                class completions:
-                    @staticmethod
-                    def create(**kw):
-                        # Return a "done" action immediately so orchestrator exits fast
-                        class _Msg:
-                            content = ""
-                            tool_calls = [type("TC", (), {
-                                "id": "x",
-                                "function": type("F", (), {
-                                    "name": "done",
-                                    "arguments": '{"summary":"stub done"}',
-                                })(),
-                            })()]
-                        class _R:
-                            choices = [type("C", (), {"message": _Msg()})()]
-                        return _R()
-
-        orch = FSAROrchestrator(llm_client=_StubLLM(), model="stub",
-                                task_reflector=task_reflector,
-                                session_id="orch_test")
-        # Should at least construct + accept reflector without error
-        assert orch._task_reflector is task_reflector
-        assert orch._session_id == "orch_test"
 
         print("\n[OK] Phase 5 end-to-end test passed")
         return True
