@@ -323,6 +323,54 @@ class TestExperienceTools(unittest.TestCase):
         listing = asyncio.run(reg.get("list_experiences").execute(category="coding"))
         self.assertIn("learned-via-tool", listing)
 
+    def test_s_view_external_skill_attaches_skill_md(self):
+        import os
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from src.memory.experience_store import ExperienceStore, Experience
+        from src.tools.builtin import experience_tools as et
+        from src.tools import create_default_registry
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_skill_"))
+        skill_md = root / "skills" / "my-skill" / "SKILL.md"
+        skill_md.parent.mkdir(parents=True)
+        skill_md.write_text("# My Skill\n\nRule: always use the seed template.\n", encoding="utf-8")
+
+        et._store = lambda: ExperienceStore(db_path=self.db_path)
+        store = ExperienceStore(db_path=self.db_path)
+        store.upsert_experience(Experience(
+            name="my-skill", category="external-skill",
+            description="external", body="summary only",
+        ))
+        reg = create_default_registry()
+        view = reg.get("experience_view")
+
+        with patch("src.utils.fsar_home.get_fsar_home", return_value=root):
+            result = asyncio.run(view.execute(name="my-skill"))
+
+        self.assertIn("summary only", result)
+        self.assertIn("always use the seed template", result)
+        self.assertIn("冲突规则", result)
+
+    def test_t_view_graceful_when_skill_md_missing(self):
+        from src.memory.experience_store import ExperienceStore, Experience
+        from src.tools.builtin import experience_tools as et
+        from src.tools import create_default_registry
+
+        et._store = lambda: ExperienceStore(db_path=self.db_path)
+        store = ExperienceStore(db_path=self.db_path)
+        store.upsert_experience(Experience(
+            name="ghost-skill", category="external-skill",
+            description="external", body="summary only",
+        ))
+        reg = create_default_registry()
+        view = reg.get("experience_view")
+
+        result = asyncio.run(view.execute(name="ghost-skill"))
+        self.assertIn("summary only", result)
+        self.assertNotIn("SKILL.md", result)
+
 
 class TestExperienceImport(unittest.TestCase):
     """p6.3.5 — markdown → DB row."""

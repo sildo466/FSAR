@@ -65,6 +65,8 @@ class ExperienceViewTool(Tool):
             return f"[NOT_FOUND] Experience '{name}' does not exist. Try list_experiences()."
         store.bump_use(name)
         body = store.render_experience_body(exp)
+        if exp.category == "external-skill":
+            body = self._append_skill_source(body, name)
         try:
             from src.memory.embedder import get_embedder
             embedder = get_embedder()
@@ -77,6 +79,35 @@ class ExperienceViewTool(Tool):
             logger.debug(f"embedding on view skipped: {e}")
         logger.debug(f"experience_view: {name} use_count={exp.use_count + 1}")
         return body
+
+    @staticmethod
+    def _append_skill_source(body: str, name: str) -> str:
+        """Attach the external skill's authoritative SKILL.md + conflict rule.
+
+        The path is derived from the skills root + experience name (matching
+        skill_tool's convention), never stored in the experience row — so a
+        moved/renamed skill keeps working. Degrades to the summary alone when
+        the skill directory is missing.
+        """
+        from src.skills.gate import validate_subject_name
+        from src.utils.fsar_home import get_fsar_home
+
+        skill_md = get_fsar_home() / "skills" / validate_subject_name(name) / "SKILL.md"
+        if not skill_md.is_file():
+            return body
+        try:
+            raw = skill_md.read_text(encoding="utf-8")
+        except OSError:
+            return body
+        return (
+            f"{body}\n\n"
+            "---\n"
+            f"以下为外部 Skill 的原始 SKILL.md（{skill_md}），以此为准，完整读取——末尾的 "
+            "Non-Negotiables / 非协商清单是硬性要求：\n"
+            f"{raw}\n\n"
+            "[冲突规则] 若用户请求与本 SKILL.md 冲突：默认按规范执行，并在回复中一句话说明冲突与你的取舍；"
+            "除非用户明确表示知情且坚持，此时才按用户意愿。"
+        )
 
 
 class LearnExperienceTool(Tool):
