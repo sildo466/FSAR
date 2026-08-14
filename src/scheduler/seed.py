@@ -14,7 +14,6 @@ from __future__ import annotations
 import gzip
 import json
 import shutil
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -53,19 +52,6 @@ async def _exp_mark_archived_handler(ctx) -> dict:
     return {"ok": True, "summary": f"archived {n} experiences"}
 
 
-async def _llm_l2_sweep_handler(ctx) -> dict:
-    from src.utils.fsar_config import get_config
-    cfg = get_config()
-    db_path = Path(cfg.llm_cache_db_path)
-    if not db_path.exists():
-        return {"ok": True, "summary": "no L2 cache file"}
-    now = datetime.now(timezone.utc).isoformat()
-    with sqlite3.connect(db_path, timeout=10) as conn:
-        cur = conn.execute("DELETE FROM llm_cache WHERE expires_at < ?", (now,))
-        conn.commit()
-    return {"ok": True, "summary": f"deleted {cur.rowcount} expired entries"}
-
-
 async def _tts_cache_sweep_handler(ctx) -> dict:
     from src.providers.tts.cache import l2_compact
     before_size = 0
@@ -96,7 +82,6 @@ SYSTEM_HANDLERS = {
     "idle_reflect":      _idle_reflect_handler,
     "exp_mark_stale":    _exp_mark_stale_handler,
     "exp_mark_archived": _exp_mark_archived_handler,
-    "llm_l2_sweep":      _llm_l2_sweep_handler,
     "tts_cache_sweep":   _tts_cache_sweep_handler,
     "audit_rotate":      _audit_rotate_handler,
 }
@@ -139,8 +124,6 @@ DEFAULT_SEED_JOBS: list[ScheduledJob] = [
          "Mark experiences stale if not used in 30 days."),
     _job("exp_mark_archived", ScheduleKind.CRON,     "0 4 * * 0",
          "Archive experiences stale for 90 days."),
-    _job("llm_l2_sweep",      ScheduleKind.INTERVAL, "1h",
-         "Sweep expired entries from LLM L2 SQLite cache."),
     _job("tts_cache_sweep",   ScheduleKind.INTERVAL, "6h",
          "Compact TTS L2 cache to L2_MAX_BYTES."),
     _job("audit_rotate",      ScheduleKind.CRON,     "0 5 1 * *",

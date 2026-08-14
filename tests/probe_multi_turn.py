@@ -35,7 +35,7 @@ from src.core.prompts import AGENT_SYSTEM_PROMPT  # noqa: E402
 from src.tools import create_default_registry  # noqa: E402
 from src.tools.registry import ToolRegistry  # noqa: E402
 from src.utils.fsar_config import FsarConfig  # noqa: E402
-from src.utils.llm_factory import cached_chat_completion, make_llm_client  # noqa: E402
+from src.utils.llm_factory import chat_completion, make_llm_client  # noqa: E402
 
 
 def _short(text: str, n: int = 110) -> str:
@@ -139,7 +139,7 @@ async def run() -> int:
         print(f"  user: {user_msg}")
         try:
             resp = await asyncio.to_thread(
-                cached_chat_completion, client,
+                chat_completion, client,
                 messages=[*messages], **common_kwargs,
             )
         except Exception as e:
@@ -193,7 +193,7 @@ async def run() -> int:
     print(f"  user: {ask}")
     try:
         resp1 = await asyncio.to_thread(
-            cached_chat_completion, client,
+            chat_completion, client,
             messages=[*messages], **common_kwargs,
         )
     except Exception as e:
@@ -218,7 +218,7 @@ async def run() -> int:
         })
         try:
             resp1b = await asyncio.to_thread(
-                cached_chat_completion, client,
+                chat_completion, client,
                 messages=[*messages], **common_kwargs,
             )
         except Exception as e:
@@ -273,7 +273,7 @@ async def run() -> int:
     print(f"\n=== Turn {turn_no} (tool_result_roundtrip) ===")
     try:
         resp2 = await asyncio.to_thread(
-            cached_chat_completion, client,
+            chat_completion, client,
             messages=[*messages], **common_kwargs,
         )
     except Exception as e:

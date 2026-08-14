@@ -20,7 +20,7 @@ from src.memory.integrations import (
 )
 from src.providers.pricing import cost_usd
 from src.utils.fsar_config import get_default_config
-from src.utils.llm_factory import cached_chat_completion, make_llm_client
+from src.utils.llm_factory import chat_completion, make_llm_client
 from src.utils.logger import logger
 
 _run_id_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
@@ -96,7 +96,7 @@ def _call_provider(provider: str, model: str, messages: list[dict[str, Any]], *,
     call_kwargs: dict[str, Any] = {"provider_id": provider_id, "usage_recording": False}
     if protocol in ("chat", "responses", "anthropic"):
         call_kwargs["format_override"] = protocol
-    response = cached_chat_completion(client, **call_kwargs, **payload)
+    response = chat_completion(client, **call_kwargs, **payload)
     message = response.choices[0].message if getattr(response, "choices", None) else None
     text = str(getattr(message, "content", "") or "") if message is not None else str(response or "")
     usage = _normalise_usage(getattr(response, "usage", None))

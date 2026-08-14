@@ -149,7 +149,7 @@ def test_handle_user_message_calls_configured_model(monkeypatch):
             choices=[SimpleNamespace(message=SimpleNamespace(content="real reply"))]
         )
 
-    monkeypatch.setattr("src.server.chat_engine.cached_chat_completion", complete)
+    monkeypatch.setattr("src.server.chat_engine.chat_completion", complete)
     history = [{"role": "assistant", "content": "earlier"}]
 
     reply = handle_user_message("session-42", "hello", session_messages=history)

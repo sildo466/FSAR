@@ -7,7 +7,7 @@ from typing import Any
 
 from src.skills.llm_review import _parse_verdict, _response_text
 from src.skills.redaction import redact
-from src.utils.llm_factory import cached_chat_completion, make_llm_client
+from src.utils.llm_factory import chat_completion, make_llm_client
 
 
 SMALL_AGENT_SYSTEM_PROMPT = """You are a security classifier for one completed tool call.
@@ -49,7 +49,7 @@ class SmallAgentReviewer:
         model = str(provider.get("model", "") or "")
         if not provider_id or not model:
             return "safe"
-        response = cached_chat_completion(
+        response = chat_completion(
             make_llm_client(provider_id),
             provider_id=provider_id,
             model=model,

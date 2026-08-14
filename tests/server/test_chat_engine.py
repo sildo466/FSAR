@@ -51,7 +51,7 @@ def test_chat_send_no_provider_emits_error(monkeypatch):
 
 def test_chat_send_agent_returns_llm_text(monkeypatch):
     monkeypatch.setattr(ws_mod._engine, "client_and_model", lambda: (object(), "model-x", "prov"))
-    monkeypatch.setattr(ce, "cached_chat_completion", lambda *a, **k: _resp(content="hi there"))
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: _resp(content="hi there"))
     monkeypatch.setattr(ws_mod._engine, "_save_user", lambda *a, **k: None)
     monkeypatch.setattr(ws_mod._engine, "_save_assistant", lambda *a, **k: None)
     monkeypatch.setattr(ws_mod._engine, "_reflect", lambda *a, **k: None)
@@ -77,7 +77,7 @@ def test_chat_send_tool_call_routes_through_risk_bridge(monkeypatch):
         _resp(tool_calls=[_tool_call("c1", "file_ops", {"action": "list", "path": "."})]),
         _resp(content="all done"),
     ])
-    monkeypatch.setattr(ce, "cached_chat_completion", lambda *a, **k: next(calls))
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: next(calls))
 
     verdict = SimpleNamespace(
         needs_confirm=lambda: True,

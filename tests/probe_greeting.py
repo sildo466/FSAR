@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 from src.core.prompts import AGENT_SYSTEM_PROMPT  # noqa: E402
 from src.tools import create_default_registry  # noqa: E402
 from src.utils.fsar_config import FsarConfig  # noqa: E402
-from src.utils.llm_factory import cached_chat_completion, make_llm_client  # noqa: E402
+from src.utils.llm_factory import chat_completion, make_llm_client  # noqa: E402
 
 
 def main() -> int:
@@ -50,7 +50,7 @@ def main() -> int:
         {"role": "user", "content": "你好"},
     ]
 
-    resp = cached_chat_completion(
+    resp = chat_completion(
         client,
         model=provider["model"],
         messages=messages,

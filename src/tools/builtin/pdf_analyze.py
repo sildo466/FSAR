@@ -78,7 +78,7 @@ class PdfAnalyzeTool(Tool):
 
             # Use LLM to analyze
             from src.utils.config import get_config
-            from src.utils.llm_factory import cached_chat_completion, make_llm_client
+            from src.utils.llm_factory import chat_completion, make_llm_client
 
             config = get_config()
             llm_config = config.get_active_provider()
@@ -88,7 +88,7 @@ class PdfAnalyzeTool(Tool):
             if len(text) > max_chars:
                 text = text[:max_chars] + f"\n\n... (truncated at {max_chars} chars)"
 
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 client,
                 model=llm_config.get("model", "gpt-4o"),
                 messages=[

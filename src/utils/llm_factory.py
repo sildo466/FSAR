@@ -1,26 +1,22 @@
-"""Shared LLM client factory with cache interception + provider cache markers.
+"""Shared LLM client factory — provider family dispatch.
 
-Wraps the OpenAI Python SDK so every `chat.completions.create` call site
-benefits from the L1+L2 cache without each site having to know about it.
+Wraps the OpenAI Python SDK so every `chat.completions.create` call site goes
+through a single dispatcher that routes by provider family:
 
-Provider cache marker hooks (anthropic cache-control payload):
-- anthropic: emits `cache_control: {type: "ephemeral", ttl: "1h"}` on the last
-  system block + last user turn (only if the requesting provider family is
-  Anthropic or a compatible relay like Amazon Bedrock with anthropic model id).
-- gemini: emits a stub `cached_content` placeholder via extra_body (no real
-  Gemini SDK installed by default; a real hook would call the cachedContents
-  API directly).
-- openai: most OpenAI-compatible providers don't support prompt cache markers
-  natively, so we fall back to disk-level response cache only. A few providers
-  accept `prompt_cache_key`; we attach it when detected.
+- openai: OpenAI-compatible `client.chat.completions.create`, or the Responses
+  API when the provider's `format` is "responses".
+- gemini: routes through `google.genai.Client.models.generate_content`.
+- anthropic: routes through `anthropic.Anthropic.messages.create` and converts
+  the response back to the OpenAI shape.
 
-Current fsar uses a single OpenAI-compatible provider (MiniMax-M3). The hooks
-are no-ops for that provider today but available the moment a different
-provider is configured.
+Provider **server-side prompt cache** markers are still applied where the
+provider supports them: Anthropic `cache_control`, Gemini `cachedContents`
+(via src.utils.gemini_cache), and Responses API `prompt_cache_key`. The
+disk-level L1/L2 response cache has been removed.
 
 Public surface:
 - make_llm_client(provider_id: str) -> OpenAI-compatible client
-- cached_chat_completion(client, **kwargs) -> OpenAI-compatible response
+- chat_completion(client, **kwargs) -> OpenAI-compatible response
   (drop-in replacement for `client.chat.completions.create(**kwargs)`)
 - detect_provider_family(model, base_url) -> "anthropic" | "gemini" | "openai"
 - apply_provider_cache_markers(messages, **kwargs) -> updated messages + kwargs
@@ -30,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import ssl
 from typing import Any, Optional
 
@@ -37,7 +34,6 @@ import httpx
 from openai import OpenAI
 
 from src.utils.config import get_config
-from src.utils.llm_cache import LLMCache, get_default_cache, make_cache_key
 from src.utils.logger import logger
 
 
@@ -80,8 +76,8 @@ def _record_global_token_usage(provider: str, model: str, response: Any) -> None
 def detect_provider_family(model: str = "", base_url: str = "") -> str:
     """Best-effort provider family detection.
 
-    Inspects (in order): explicit `provider` env/settings, model id prefix,
-    base URL host substring. Defaults to "openai".
+    Inspects (in order): explicit `provider` override, model id prefix, base
+    URL host substring. Defaults to "openai".
     """
     from src.utils.config import get_config
 
@@ -103,6 +99,11 @@ def detect_provider_family(model: str = "", base_url: str = "") -> str:
     if "generativelanguage" in (base_url or "").lower():
         return "gemini"
     return "openai"
+
+
+def _stable_dumps(obj: Any) -> str:
+    """Deterministic JSON: sort_keys, ensure_ascii off, separators tight."""
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def resolve_anthropic_cache_marker(
@@ -127,8 +128,8 @@ def apply_provider_cache_markers(
     cache_retention: str = "short",
     extra_body: Optional[dict] = None,
 ) -> tuple[list[dict], dict, Optional[dict]]:
-    """Mutate (in a copy) messages + kwargs to inject provider-specific cache
-    markers. Returns (messages, kwargs, extra_body).
+    """Mutate (in a copy) messages + kwargs to inject provider-specific
+    **server-side** prompt-cache markers. Returns (messages, kwargs, extra_body).
 
     `cache_retention` ∈ {"none", "short", "long"}. "none" disables markers.
     """
@@ -149,22 +150,16 @@ def apply_provider_cache_markers(
             head["cache_control"] = marker
             if tail is not head:
                 tail["cache_control"] = marker
-    elif family == "anthropic":
-        # Anthropic chat path runs convert_messages_to_anthropic() — it injects
-        # cache_control markers into the Anthropic-shaped payload directly, so
-        # there's nothing to do here on the OpenAI-shape messages.
-        pass
     elif family == "gemini":
         # Gemini-side prompt cache reference. Returned in `body` so the
-        # caller (cached_chat_completion → chat_completion_gemini) can pull it
-        # out and inject into GenerateContentConfig.cached_content.
-        # The actual POST/PATCH against the cachedContents API lives in
-        # src/utils/gemini_cache.py — keeping marker resolution pure.
+        # caller (chat_completion → chat_completion_gemini) can pull it out
+        # and inject into GenerateContentConfig.cached_content. The actual
+        # POST/PATCH against the cachedContents API lives in
+        # src/utils/gemini_cache.py.
         body.setdefault("cached_content", "")
     else:
-        # OpenAI-compatible: a few relays accept prompt_cache_key for sticky
-        # routing — only set it when caller opted in (caller decides via
-        # cache_retention == "long").
+        # OpenAI-compatible relays that accept prompt_cache_key for sticky
+        # routing — only set it when caller opted in (cache_retention == "long").
         if cache_retention == "long":
             body.setdefault("prompt_cache_key", _derive_cache_key(model, msgs))
 
@@ -172,18 +167,15 @@ def apply_provider_cache_markers(
 
 
 def _derive_cache_key(model: str, messages: list[dict]) -> str:
-    import hashlib
-
-    from src.utils.llm_cache import stable_dumps
-
-    return hashlib.sha256(stable_dumps({"model": model, "messages": messages}).encode("utf-8")).hexdigest()[:32]
+    return hashlib.sha256(_stable_dumps({"model": model, "messages": messages}).encode("utf-8")).hexdigest()[:32]
 
 
 def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> OpenAI:
     """Return a singleton OpenAI client for the named provider.
 
     All call sites that need an LLM should use this instead of constructing
-    `OpenAI(...)` themselves, so cache wiring is uniform.
+    `OpenAI(...)` themselves, so client wiring (SSL workaround, base_url,
+    api_key) is uniform.
     """
     key_suffix = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8] if api_key else ""
     client_key = "\n".join((provider_id, base_url, key_suffix))
@@ -212,28 +204,28 @@ def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> 
         return client
 
 
-def cached_chat_completion(
+def chat_completion(
     client: OpenAI,
     *,
-    cache: Optional[LLMCache] = None,
-    cache_enabled: Optional[bool] = None,
-    cache_retention: Optional[str] = None,
     provider_id: Optional[str] = None,
     format_override: Optional[str] = None,
+    cache_retention: str = "",
     usage_recording: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Drop-in replacement for `client.chat.completions.create(**kwargs)`.
 
-    On hit, returns the cached response (re-hydrated if necessary).
-    On miss, calls the real API and writes the response into the cache.
+    Dispatches by provider family:
+    - gemini → `chat_completion_gemini` (official `google.genai` SDK).
+    - anthropic → `chat_completion_anthropic`.
+    - responses format → `chat_completion_responses` (Responses API).
+    - otherwise → plain `client.chat.completions.create`.
 
-    Streaming (`stream=True`) is passed straight through to the real call —
-    a streamed response cannot be losslessly cached.
+    Server-side prompt-cache markers are injected per family (Anthropic
+    cache_control / Gemini cachedContents / Responses prompt_cache_key);
+    `cache_retention` ("none" | "short" | "long") controls their strength.
 
-    When the configured provider is Gemini, the call is dispatched to
-    `chat_completion_gemini` instead so the official `google.genai` SDK is
-    used (which is required for cachedContent injection).
+    Streaming (`stream=True`) is passed straight through to the real call.
 
     `provider_id` is optional; when supplied, its `format` field decides
     whether to route through the Responses API (`format="responses"`).
@@ -241,16 +233,13 @@ def cached_chat_completion(
     over the provider-level format for this single call.
     """
     cfg = get_config()
-    cache = cache if cache is not None else get_default_cache()
-    if cache_enabled is None:
-        cache_enabled = cfg.llm_cache_enabled and not kwargs.get("stream", False)
-    retention = cache_retention or cfg.llm_cache_retention
-
     base_url = ""
     try:
         base_url = str(getattr(client, "base_url", "") or "")
     except Exception:
         base_url = ""
+
+    retention = cache_retention or cfg.llm_cache_retention
 
     provider_format = str(format_override or "")
     if provider_id and not provider_format:
@@ -265,7 +254,7 @@ def cached_chat_completion(
 
     payload: dict = dict(kwargs)
     if not payload.get("model"):
-        raise ValueError("model must be supplied to cached_chat_completion")
+        raise ValueError("model must be supplied to chat_completion")
 
     def _with_usage(response: Any) -> Any:
         if usage_recording and not payload.get("stream"):
@@ -275,7 +264,8 @@ def cached_chat_completion(
     msgs = payload.get("messages") or []
     family = detect_provider_family(str(payload.get("model", "")), base_url)
 
-    # Provider cache marker injection (Anthropic cache_control / Gemini cached_content stub).
+    # Server-side prompt-cache marker injection (Anthropic cache_control /
+    # Gemini cached_content stub / Responses prompt_cache_key).
     body_out: dict = {}
     if msgs:
         msgs_out, _, body = apply_provider_cache_markers(
@@ -291,12 +281,9 @@ def cached_chat_completion(
         return _with_usage(chat_completion_gemini(
             messages=payload["messages"],
             model=str(payload.get("model", "")),
-            cache=cache,
-            cache_enabled=cache_enabled,
             cache_retention=retention,
             base_url=base_url,
             extra_body=body_out,
-            payload=payload,
             tools=payload.get("tools"),
             tool_choice=payload.get("tool_choice"),
             max_tokens=payload.get("max_tokens"),
@@ -310,51 +297,28 @@ def cached_chat_completion(
         return _with_usage(chat_completion_anthropic(
             messages=payload["messages"],
             model=str(payload.get("model", "")),
-            cache=cache,
-            cache_enabled=cache_enabled,
             cache_retention=retention,
             base_url=base_url,
-            payload=payload,
             tools=payload.get("tools"),
             max_tokens=payload.get("max_tokens") or 4096,
             temperature=payload.get("temperature"),
         ))
 
     if (
-        (
-            provider_format == "responses"
-            or (family == "openai" and cfg.llm_cache_use_responses_api)
-        )
+        provider_format == "responses"
         and not payload.get("stream")
         and not kwargs.get("_skip_responses_dispatch", False)
     ):
         return _with_usage(chat_completion_responses(
             client,
-            cache=cache,
-            cache_enabled=cache_enabled,
             cache_retention=retention,
             base_url=base_url,
             **{k: v for k, v in kwargs.items() if k != "_skip_responses_dispatch"},
         ))
 
-    if cache_enabled and not payload.get("stream"):
-        try:
-            cached = cache.get(payload)
-            if cached is not None:
-                logger.debug(f"LLM cache hit (key={make_cache_key(payload)[:12]}…)")
-                return _with_usage(_rehydrate_response(cached))
-        except Exception:
-            pass
-
     chat = client.chat.completions
     create = chat.create
     response = create(**payload)
-
-    if cache_enabled and not payload.get("stream"):
-        try:
-            cache.put(payload, response, cache_enabled=True)
-        except Exception:
-            pass
     return _with_usage(response)
 
 
@@ -414,12 +378,9 @@ def chat_completion_gemini(
     *,
     messages: list[dict],
     model: str,
-    cache: Optional[LLMCache] = None,
-    cache_enabled: bool = True,
     cache_retention: str = "short",
     base_url: str = "",
     extra_body: Optional[dict] = None,
-    payload: Optional[dict] = None,
     tools: Any = None,
     tool_choice: Any = None,
     max_tokens: Any = None,
@@ -429,26 +390,10 @@ def chat_completion_gemini(
 
     Routes through `google.genai.Client.models.generate_content`. The
     stable prefix is extracted as the leading system prompt(s) and a
-    cachedContent reference is requested via GeminiPromptCache.
+    cachedContent reference is requested via GeminiPromptCache (server-side
+    prompt cache).
     """
-    from src.utils.gemini_cache import GeminiPromptCache, get_default_gemini_cache
-
-    payload = payload if payload is not None else {"model": model, "messages": messages}
-    cache_key_payload = dict(payload)
-    cache_key_payload.setdefault("provider", "google")
-    cache_key_payload.setdefault("provider_family", "gemini")
-    cache_key_payload.setdefault("cache_retention", cache_retention)
-
-    if cache_enabled and not cache_key_payload.get("stream"):
-        try:
-            cached = cache.get(cache_key_payload) if cache is not None else None
-            if cached is None:
-                cached = get_default_cache().get(cache_key_payload)
-            if cached is not None:
-                logger.debug(f"Gemini cache hit (key={make_cache_key(cache_key_payload)[:12]}…)")
-                return _rehydrate_response(cached)
-        except Exception:
-            pass
+    from src.utils.gemini_cache import get_default_gemini_cache
 
     cfg = get_config()
     active_id = cfg.get("llm.active", "")
@@ -459,7 +404,7 @@ def chat_completion_gemini(
 
     system_prompt = _extract_system_prompt(messages) or ""
     cached_content: Optional[str] = None
-    if system_prompt and cache_enabled:
+    if system_prompt and cache_retention != "none":
         try:
             cached_content = get_default_gemini_cache().ensure_cached_content(
                 model_id=model,
@@ -503,11 +448,6 @@ def chat_completion_gemini(
         return _rehydrate_response({"id": "gemini-error", "model": model, "choices": [{"index": 0, "message": {"role": "assistant", "content": f"(Gemini call failed: {e})"}, "finish_reason": "stop"}]})
 
     out = _gemini_response_to_openai_shape(response, model)
-    if cache_enabled:
-        try:
-            get_default_cache().put(cache_key_payload, out, cache_enabled=True)
-        except Exception:
-            pass
     return _rehydrate_response(out)
 
 
@@ -625,11 +565,8 @@ def chat_completion_anthropic(
     *,
     messages: list[dict],
     model: str,
-    cache: Optional[LLMCache] = None,
-    cache_enabled: bool = True,
     cache_retention: str = "short",
     base_url: str = "",
-    payload: Optional[dict] = None,
     tools: Any = None,
     max_tokens: int = 4096,
     temperature: Any = None,
@@ -637,14 +574,11 @@ def chat_completion_anthropic(
     """Drop-in for OpenAI chat.completions when provider=anthropic.
 
     Uses `anthropic.Anthropic.messages.create(...)` and converts the response
-    back to the OpenAI shape so downstream call sites and the L1/L2 caches
-    see a uniform interface.
+    back to the OpenAI shape so downstream call sites see a uniform interface.
 
-    Cache strategy: Anthropic manages server-side cache invalidation itself
-    based on `cache_control: ephemeral` markers. fsar only needs to:
-      1. attach the right markers (system block + trailing user text block),
-      2. record a timestamp per call so a downstream observability pass can
-         detect cache-hit rate drops.
+    Server-side prompt cache: attaches `cache_control: ephemeral` markers to
+    the system block + trailing user text block, and records a timestamp for
+    cache-break observability (Anthropic manages invalidation server-side).
     """
     from src.utils.anthropic_cache import (
         AnthropicCacheLog,
@@ -655,28 +589,7 @@ def chat_completion_anthropic(
         resolve_cache_control,
     )
 
-    payload = payload if payload is not None else {
-        "model": model, "messages": messages, "tools": tools,
-        "max_tokens": max_tokens, "temperature": temperature,
-    }
-
     cfg = get_config()
-    cache_key_payload = dict(payload)
-    cache_key_payload.setdefault("provider", "anthropic")
-    cache_key_payload.setdefault("provider_family", "anthropic")
-    cache_key_payload.setdefault("cache_retention", cache_retention)
-
-    if cache_enabled and not cache_key_payload.get("stream"):
-        try:
-            cached = get_default_cache().get(cache_key_payload)
-            if cached is not None:
-                logger.debug(
-                    f"Anthropic cache hit (key={make_cache_key(cache_key_payload)[:12]}…)"
-                )
-                return _rehydrate_response(cached)
-        except Exception:
-            pass
-
     provider_override = cfg.get("llm.cache.provider_override", "") or None
     cache_control = resolve_cache_control(
         cache_retention=cache_retention,
@@ -707,14 +620,11 @@ def chat_completion_anthropic(
             "usage": {},
         })
 
-    system_text = None
-    if system_blocks:
-        system_text = "\n\n".join(
-            b.get("text", "") for b in system_blocks if isinstance(b, dict)
-        )
-
-    if cache_enabled and system_text:
+    if cache_retention != "none" and system_blocks:
         try:
+            system_text = "\n\n".join(
+                b.get("text", "") for b in system_blocks if isinstance(b, dict)
+            )
             get_default_anthropic_cache_log().append(
                 provider="anthropic",
                 model_id=model,
@@ -756,11 +666,6 @@ def chat_completion_anthropic(
         })
 
     out = anthropic_response_to_openai_shape(response, model)
-    if cache_enabled:
-        try:
-            get_default_cache().put(cache_key_payload, out, cache_enabled=True)
-        except Exception:
-            pass
     return _rehydrate_response(out)
 
 
@@ -786,10 +691,8 @@ def _client_supports_responses(client: Any) -> bool:
 def chat_completion_responses(
     client: Any,
     *,
-    cache: Optional[LLMCache] = None,
-    cache_enabled: Optional[bool] = None,
-    cache_retention: Optional[str] = None,
     session_id: Optional[str] = None,
+    cache_retention: str = "",
     base_url: str = "",
     **kwargs: Any,
 ) -> Any:
@@ -797,15 +700,10 @@ def chat_completion_responses(
 
     Routes through `client.responses.create(**kwargs)` (POST /v1/responses)
     with the standard payload translation. Injects `prompt_cache_key` (the
-    fsar session id) so the server's prefix cache can be reused, and
-    `prompt_cache_retention="24h"` when retention=long AND the endpoint is
-    api.openai.com (matching the provider gating).
+    fsar session id) so the server's prefix cache can be reused.
 
-    Streaming (`stream=True`) is supported only on the Responses surface —
-    the response object differs from chat.completions and is NOT cached.
-
-    The L1/L2 cache still keys off the **content hash** of the input
-    payload; `prompt_cache_key` is server-side only.
+    Streaming (`stream=True`) is supported on the Responses surface — the
+    response object differs from chat.completions.
     """
     from src.utils.responses_compat import (
         build_responses_kwargs,
@@ -815,9 +713,6 @@ def chat_completion_responses(
     from src.utils.session_id import get_or_create_session_id
 
     cfg = get_config()
-    cache = cache if cache is not None else get_default_cache()
-    if cache_enabled is None:
-        cache_enabled = cfg.llm_cache_enabled and not bool(kwargs.get("stream"))
     retention = cache_retention or cfg.llm_cache_retention
 
     if not base_url:
@@ -838,38 +733,14 @@ def chat_completion_responses(
         override=cfg.llm_cache_session_id or None,
     )
 
-    cache_key_payload = dict(payload)
-    cache_key_payload.setdefault("provider", "openai")
-    cache_key_payload.setdefault("provider_family", "openai")
-    cache_key_payload.setdefault("api", "responses")
-    cache_key_payload.setdefault("cache_retention", retention)
-    cache_key_payload["system_prompt"] = system_prompt
-
-    if cache_enabled:
-        try:
-            cached = cache.get(cache_key_payload)
-            if cached is not None:
-                logger.debug(
-                    f"Responses cache hit (key={make_cache_key(cache_key_payload)[:12]}…)"
-                )
-                return _rehydrate_response(cached)
-        except Exception:
-            pass
-
     if not _client_supports_responses(client):
         logger.warning(
-            "use_responses_api=True but client lacks `responses` surface; "
+            "provider format=responses but client lacks `responses` surface; "
             "falling back to chat.completions"
         )
         fallback_kwargs = {k: v for k, v in kwargs.items() if k != "session_id"}
         fallback_kwargs["_skip_responses_dispatch"] = True
-        return cached_chat_completion(
-            client,
-            cache=cache,
-            cache_enabled=cache_enabled,
-            cache_retention=retention,
-            **fallback_kwargs,
-        )
+        return chat_completion(client, **fallback_kwargs)
 
     responses_kwargs = build_responses_kwargs(
         payload=payload,
@@ -927,18 +798,12 @@ def chat_completion_responses(
             "usage": {},
         }
 
-    if cache_enabled:
-        try:
-            cache.put(cache_key_payload, out, cache_enabled=True)
-        except Exception:
-            pass
-
     return _rehydrate_response(out)
 
 
 def _rehydrate_response(stored: Any) -> Any:
-    """Wrap a cached response dict into a namespace that the rest of the codebase
-    can read like the SDK's response object.
+    """Wrap a response dict into a namespace that the rest of the codebase can
+    read like the SDK's response object.
 
     Most call sites only touch `response.choices[0].message.content` and
     `response.choices[0].message.tool_calls`, so a thin namespace wrapper is
@@ -968,8 +833,7 @@ def _rehydrate_response(stored: Any) -> Any:
             self.reasoning = m.get("reasoning", "")
 
         def get(self, key, default=None):
-            """Dict-style read for callers that treat messages as mappings
-            (e.g. apply_provider_cache_markers, _record_llm_usage)."""
+            """Dict-style read for callers that treat messages as mappings."""
             return getattr(self, key, default)
 
     class _Choice:

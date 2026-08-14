@@ -3,15 +3,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWS } from "../stores/ws";
 
-interface CacheStats {
-  l1_entries: number;
-  l1_capacity: number;
-  l1_hit_rate: number;
-  l2_entries: number;
-  l2_size_bytes: number;
-  l2_hit_rate: number;
-}
-
 interface ToolRow {
   tool: string;
   calls: number;
@@ -52,7 +43,6 @@ interface UsageSnapshot {
   timeline: TimelineDay[];
   per_provider: ProviderRow[];
   per_tool: ToolRow[];
-  cache: CacheStats;
 }
 
 export function Usage() {
@@ -73,14 +63,12 @@ export function Usage() {
           timeline: msg.timeline as unknown as TimelineDay[],
           per_provider: msg.per_provider as unknown as ProviderRow[],
           per_tool: msg.per_tool as unknown as ToolRow[],
-          cache: msg.cache as unknown as CacheStats,
         });
       }
     });
   }, [client]);
 
   const k = data?.kpis;
-  const cache = data?.cache;
   const tools = data?.per_tool ?? [];
   const timeline = data?.timeline ?? [];
   const providers = data?.per_provider ?? [];
@@ -178,26 +166,6 @@ export function Usage() {
       </section>
 
       <section>
-        <SectionTitle>{t("usage.cacheBreakdown")}</SectionTitle>
-        {cache ? (
-          <div className="border border-border rounded p-4 flex flex-col gap-3">
-            <Bar
-              label={t("usage.l1Label", { entries: cache.l1_entries, capacity: cache.l1_capacity })}
-              value={cache.l1_hit_rate}
-              fmt={(v) => t("usage.hitPct", { pct: (v * 100).toFixed(1) })}
-            />
-            <Bar
-              label={t("usage.l2Label", { entries: cache.l2_entries, size: formatBytes(cache.l2_size_bytes) })}
-              value={cache.l2_hit_rate}
-              fmt={(v) => t("usage.hitPct", { pct: (v * 100).toFixed(1) })}
-            />
-          </div>
-        ) : (
-          <p className="text-text-muted text-sm">{t("usage.noCacheData")}</p>
-        )}
-      </section>
-
-      <section>
         <SectionTitle>{t("usage.perTool")}</SectionTitle>
         {tools.length === 0 ? (
           <p className="text-text-muted text-sm">{t("usage.noToolCalls")}</p>
@@ -289,11 +257,4 @@ function Bar({
       </div>
     </div>
   );
-}
-
-function formatBytes(n: number): string {
-  if (!n) return "0 B";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Callable, Awaitable
 
 from src.utils.fsar_config import FsarConfig
-from src.utils.llm_factory import cached_chat_completion
+from src.utils.llm_factory import chat_completion
 from src.utils.logger import logger
 from src.memory.session_store import SessionStore
 
@@ -90,7 +90,7 @@ class TitleGenerator:
             return ""
         try:
             resp = await asyncio.to_thread(
-                cached_chat_completion,
+                chat_completion,
                 client,
                 model=model,
                 messages=[

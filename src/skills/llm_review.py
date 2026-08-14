@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.skills.reviewer import ReviewFinding
 from src.skills.safe_marker import MARKER_NAME
-from src.utils.llm_factory import cached_chat_completion, make_llm_client
+from src.utils.llm_factory import chat_completion, make_llm_client
 
 
 SKILL_REVIEW_SYSTEM_PROMPT = """You are a security classifier for local automation skills.
@@ -60,7 +60,7 @@ class LLMSkillJudge:
                 }
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        cached_chat_completion,
+                        chat_completion,
                         client,
                         provider_id=provider_id,
                         model=model,

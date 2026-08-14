@@ -49,11 +49,10 @@ class ImageAnalyzeTool(Tool):
     async def execute(self, image: str, prompt: str = "Describe this image in detail.", **kwargs) -> str:
         """Analyze an image using vision model."""
         try:
-            from src.utils.llm_factory import cached_chat_completion, make_llm_client
+            from src.utils.llm_factory import chat_completion, make_llm_client
 
             config = get_config()
             llm_config = config.get_active_provider()
-            skip_cache = config.llm_cache_skip_vision
 
             # Build image URL
             if image.startswith(("http://", "https://")):
@@ -89,7 +88,7 @@ class ImageAnalyzeTool(Tool):
             client = make_llm_client(config.get("llm.active", ""))
             model = llm_config.get("model", "gpt-4o")
 
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 client,
                 model=model,
                 messages=[
@@ -102,7 +101,6 @@ class ImageAnalyzeTool(Tool):
                     }
                 ],
                 max_tokens=4096,
-                cache_enabled=not skip_cache,
             )
 
             result = resp.choices[0].message.content or "(no response)"

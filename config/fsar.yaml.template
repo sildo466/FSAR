@@ -115,12 +115,7 @@ memory:
     api_key: ""
     timeout: 60
 llm_cache:
-  enabled: true
-  l1_max_entries: 256
-  l1_ttl_seconds: 300
-  l2_ttl_seconds: 86400
   retention: short
-  skip_vision: true
   use_responses_api: false  # legacy override; per-provider format="responses" in llm.providers[] is preferred
 gui:
   host: 127.0.0.1

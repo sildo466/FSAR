@@ -44,7 +44,7 @@ def test_ws_risk_decline_cancels_tool(monkeypatch):
             usage=None,
         ),
     ])
-    monkeypatch.setattr(ce, "cached_chat_completion", lambda *a, **k: next(calls))
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: next(calls))
     verdict = SimpleNamespace(
         needs_confirm=lambda: True,
         is_denied=lambda: False,

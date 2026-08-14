@@ -71,7 +71,7 @@ def test_integration_call_uses_model_base_url(monkeypatch):
     )
     monkeypatch.setattr(integration_engine, "_provider_id", lambda provider: provider)
     monkeypatch.setattr(integration_engine, "make_llm_client", make_client)
-    monkeypatch.setattr(integration_engine, "cached_chat_completion", lambda *args, **kwargs: response)
+    monkeypatch.setattr(integration_engine, "chat_completion", lambda *args, **kwargs: response)
 
     text, usage = integration_engine._call_provider(
         "custom-relay",
@@ -101,7 +101,7 @@ def test_call_provider_passes_protocol_override(monkeypatch):
 
     monkeypatch.setattr(integration_engine, "_provider_id", lambda provider: provider)
     monkeypatch.setattr(integration_engine, "make_llm_client", lambda *a, **k: client)
-    monkeypatch.setattr(integration_engine, "cached_chat_completion", fake_completion)
+    monkeypatch.setattr(integration_engine, "chat_completion", fake_completion)
 
     integration_engine._call_provider(
         "relay", "responses-only-model",

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""WS dispatcher for Usage page: token rollups + cache breakdown."""
+"""WS dispatcher for Usage page: token rollups + cost."""
 
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ from fastapi import WebSocket
 
 def _default_db() -> Path:
     return Path(__file__).resolve().parents[3] / "data" / "memory.db"
-
-
-def _default_cache_db() -> Path:
-    return Path(__file__).resolve().parents[3] / "data" / "llm_cache.db"
 
 
 def compute_cost(prompt_tokens: int, completion_tokens: int, pricing: dict | None) -> float:
@@ -42,22 +38,13 @@ def _resolve_db(ctx: dict[str, Any] | None) -> Path:
     return _default_db()
 
 
-def _resolve_cache_db(ctx: dict[str, Any] | None) -> Path:
-    if ctx and ctx.get("cache_db_path"):
-        return Path(ctx["cache_db_path"])
-    return _default_cache_db()
-
-
-def _build_snapshot(db_path: Path, cache_db: Path, from_ts: str, to_ts: str,
+def _build_snapshot(db_path: Path, from_ts: str, to_ts: str,
                     config: Any = None) -> dict[str, Any]:
     from src.memory.decision_log import DecisionLog
-    from src.utils.llm_cache import LLMCache
 
     log = DecisionLog(db_path=db_path)
     totals = log.get_token_totals()
     rows_total = log.get_total()
-    cache = LLMCache(db_path=str(cache_db))
-    cache_stats = cache.get_stats()
 
     total_tokens = totals["total_tokens"]
     cached_tokens = totals["cached_tokens"]
@@ -135,17 +122,14 @@ def _build_snapshot(db_path: Path, cache_db: Path, from_ts: str, to_ts: str,
         "timeline": timeline,
         "per_provider": per_provider,
         "per_tool": per_tool,
-        "cache": cache_stats,
     }
 
 
 async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | None = None) -> bool:
     if msg.get("type") == "usage.range":
         db = _resolve_db(ctx)
-        cache_db = _resolve_cache_db(ctx)
         snap = _build_snapshot(
             db,
-            cache_db,
             from_ts=str(msg.get("from", "")),
             to_ts=str(msg.get("to", "")),
             config=(ctx or {}).get("config"),

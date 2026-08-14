@@ -28,7 +28,7 @@ from src.memory.long_term import LongTermMemory
 from src.memory.user_model import UserModel
 from src.utils.config import get_config
 from src.utils.logger import logger
-from src.utils.llm_factory import cached_chat_completion
+from src.utils.llm_factory import chat_completion
 
 
 REFLECTION_PROMPT = """You are FSAR's reflection assistant. Based on the user's conversation history and rating feedback,
@@ -427,7 +427,7 @@ class IdleReflector:
             if not model:
                 from src.utils.config import get_config
                 model = get_config().get_active_provider().get("model", "")
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 self._llm,
                 model=model,
                 messages=[
@@ -690,7 +690,7 @@ class TaskReflector:
             if not model:
                 from src.utils.config import get_config
                 model = get_config().get_active_provider().get("model", "")
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 self._llm,
                 model=model,
                 messages=[

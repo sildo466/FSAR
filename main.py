@@ -33,7 +33,7 @@ from src.memory import (
     set_task_context, clear_task_context,
 )
 from src.utils.llm_factory import (
-    cached_chat_completion, make_llm_client,
+    chat_completion, make_llm_client,
 )
 from src.security import (
     RiskEngine, ask_user, load_permissions, save_permissions,
@@ -276,7 +276,7 @@ class FSAR:
         llm_config = self.config.get_llm_config("primary")
 
         try:
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 llm,
                 model=llm_config.get("model", "gpt-4o"),
                 messages=[
@@ -373,7 +373,7 @@ class FSAR:
 
         try:
             for _ in range(MAX_TOOL_TURNS):
-                resp = cached_chat_completion(
+                resp = chat_completion(
                     llm,
                     model=llm_config.get("model", "gpt-4o"),
                     messages=messages,
@@ -492,13 +492,12 @@ class FSAR:
             # then render the body when the stream completes.
             print()  # spacer for FSAR > prefix on next line
             render.console.print("[bold cyan]FSAR[/bold cyan] [dim]›[/dim]")
-            stream = cached_chat_completion(
+            stream = chat_completion(
                 llm,
                 model=llm_config.get("model", "gpt-4o"),
                 messages=messages,
                 max_tokens=65536,
                 stream=True,
-                cache_enabled=False,
             )
             tsp = render.ThinkingStreamPrinter()
             for chunk in stream:
@@ -686,7 +685,7 @@ class FSAR:
         try:
             llm = self._get_llm()
             model = self.config.get_llm_config("primary").get("model", "")
-            resp = cached_chat_completion(
+            resp = chat_completion(
                 llm,
                 model=model,
                 messages=[

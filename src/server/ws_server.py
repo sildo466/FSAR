@@ -71,7 +71,6 @@ _ws_auth = WSAuthenticator()
 _ctx: dict[str, Any] = {
     "config": _config,
     "db_path": _config.memory_sqlite_path,
-    "cache_db_path": _config.llm_cache_db_path,
     "mcp_manager": _engine.mcp,
     "engine": _engine,
     "workspace_repo": _engine.workspace_repo,

@@ -68,10 +68,6 @@ class FsarConfig:
             cur[parts[-1]] = value
 
     @property
-    def llm_cache_enabled(self) -> bool:
-        return bool(self.get("llm_cache.enabled", True))
-
-    @property
     def llm_cache_db_path(self) -> str:
         default = str(get_fsar_home() / "data" / "llm_cache.db")
         return str(self.get("llm_cache.db_path", default))
@@ -87,22 +83,6 @@ class FsarConfig:
     @property
     def llm_cache_use_responses_api(self) -> bool:
         return bool(self.get("llm_cache.use_responses_api", False))
-
-    @property
-    def llm_cache_l1_max_entries(self) -> int:
-        return int(self.get("llm_cache.l1_max_entries", 256))
-
-    @property
-    def llm_cache_l1_ttl_seconds(self) -> int:
-        return int(self.get("llm_cache.l1_ttl_seconds", 300))
-
-    @property
-    def llm_cache_l2_ttl_seconds(self) -> int:
-        return int(self.get("llm_cache.l2_ttl_seconds", 86400))
-
-    @property
-    def llm_cache_skip_vision(self) -> bool:
-        return bool(self.get("llm_cache.skip_vision", True))
 
     @property
     def reflection_intensity(self) -> str:

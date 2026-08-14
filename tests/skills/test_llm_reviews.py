@@ -63,7 +63,7 @@ def test_skill_material_is_only_in_untrusted_user_message(tmp_path, monkeypatch)
         )
 
     monkeypatch.setattr("src.skills.llm_review.make_llm_client", lambda provider_id: object())
-    monkeypatch.setattr("src.skills.llm_review.cached_chat_completion", completion)
+    monkeypatch.setattr("src.skills.llm_review.chat_completion", completion)
 
     verdict = asyncio.run(LLMSkillJudge(FsarConfig(config_path)).review(skill, []))
 

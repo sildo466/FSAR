@@ -11,8 +11,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def tmp_ctx(tmp_path: Path, monkeypatch):
     db = tmp_path / "memory.db"
-    cache_db = tmp_path / "llm_cache.db"
-    ctx = {"db_path": str(db), "cache_db_path": str(cache_db)}
+    ctx = {"db_path": str(db)}
     import src.server.handlers.usage as usage_mod
     importlib.reload(usage_mod)
 
@@ -48,7 +47,5 @@ def test_usage_range_returns_snapshot(tmp_ctx):
                 tool_names = [t["tool"] for t in m["per_tool"]]
                 assert "file_ops" in tool_names
                 assert "web_search" in tool_names
-                assert isinstance(m["cache"], dict)
-                assert "l1_hit_rate" in m["cache"]
                 return
         pytest.fail("usage.snapshot not received")

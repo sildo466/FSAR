@@ -32,7 +32,7 @@ from src.mcp.client import MCPClient  # noqa: E402
 from src.mcp.tool import MCPTool, _format_result  # noqa: E402
 from src.tools.registry import ToolRegistry  # noqa: E402
 from src.utils.fsar_config import FsarConfig  # noqa: E402
-from src.utils.llm_factory import cached_chat_completion, make_llm_client  # noqa: E402
+from src.utils.llm_factory import chat_completion, make_llm_client  # noqa: E402
 
 
 def find_python() -> str:
@@ -151,7 +151,7 @@ async def layer2_llm_end_to_end(registry: ToolRegistry) -> int:
     print(f"[layer2] calling LLM with {len(tools_for_llm)} tool schemas...")
     try:
         resp = await asyncio.to_thread(
-            cached_chat_completion,
+            chat_completion,
             client,
             model=provider["model"],
             messages=[

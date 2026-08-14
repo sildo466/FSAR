@@ -57,7 +57,7 @@ from src.utils.fsar_config import FsarConfig, get_default_config
 from src.providers.llm.deepseek import is_deepseek_official, prepare_messages as deepseek_prepare_messages
 from src.providers.llm.google import google_chat_completion
 from src.providers.llm.thinking import resolve_thinking_payload
-from src.utils.llm_factory import cached_chat_completion, make_llm_client
+from src.utils.llm_factory import chat_completion, make_llm_client
 from src.utils.logger import logger
 
 
@@ -141,7 +141,7 @@ def handle_user_message(conversation_id: str, user_msg: str, *,
         max_tokens = int(provider.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS))
     except (TypeError, ValueError):
         max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
-    response = cached_chat_completion(
+    response = chat_completion(
         make_llm_client(provider_id),
         provider_id=provider_id,
         model=model,
@@ -1438,7 +1438,7 @@ class ChatEngine:
                 "thinking": {"type": "enabled" if thinking else "disabled"}
             }
         response = await asyncio.to_thread(
-            cached_chat_completion,
+            chat_completion,
             client,
             provider_id=provider_id,
             **call_kwargs,
@@ -2414,13 +2414,12 @@ class ChatEngine:
                     "messages": messages,
                     "max_tokens": max_output,
                     "stream": True,
-                    "cache_enabled": False,
                 }
                 if thinking_payload:
                     stream_kwargs["extra_body"] = thinking_payload
                 elif deepseek:
                     stream_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-                stream = cached_chat_completion(client, provider_id=provider_id, **stream_kwargs)
+                stream = chat_completion(client, provider_id=provider_id, **stream_kwargs)
                 for chunk in stream:
                     if self._cancelled:
                         break

@@ -9,9 +9,8 @@ Implements the provider-side prompt-cache flow:
   sha256(system_prompt)) so callers reuse the same cachedContent across
   requests without re-creating.
 
-State is persisted in the same SQLite file as `LLMCache` (`data/llm_cache.db`)
-under table `gemini_prompt_cache`. One row per match key (latest state wins),
-plus failure rows with `retry_after`.
+State is persisted in SQLite (`data/llm_cache.db`, table `gemini_prompt_cache`).
+One row per match key (latest state wins), plus failure rows with `retry_after`.
 
 API shape via `google.genai` SDK:
     client = genai.Client(api_key=...)
