@@ -19,34 +19,34 @@ def store():
     os.unlink(path)
 
 
-def test_system_handlers_has_six_entries():
-    assert len(SYSTEM_HANDLERS) == 6
+def test_system_handlers_has_five_entries():
+    assert len(SYSTEM_HANDLERS) == 5
     expected = {
         "idle_reflect", "exp_mark_stale", "exp_mark_archived",
-        "llm_l2_sweep", "tts_cache_sweep", "audit_rotate",
+        "tts_cache_sweep", "audit_rotate",
     }
     assert set(SYSTEM_HANDLERS.keys()) == expected
 
 
-def test_default_seed_jobs_has_six():
-    assert len(DEFAULT_SEED_JOBS) == 6
+def test_default_seed_jobs_has_five():
+    assert len(DEFAULT_SEED_JOBS) == 5
     names = {j.name for j in DEFAULT_SEED_JOBS}
     assert names == set(SYSTEM_HANDLERS.keys())
 
 
 def test_seed_defaults_first_call_inserts_all(store):
     inserted = seed_defaults(store)
-    assert inserted == 6
+    assert inserted == 5
     jobs = store.list_jobs()
-    assert len(jobs) == 6
+    assert len(jobs) == 5
 
 
 def test_seed_defaults_idempotent(store):
     first = seed_defaults(store)
     second = seed_defaults(store)
-    assert first == 6
+    assert first == 5
     assert second == 0
-    assert len(store.list_jobs()) == 6
+    assert len(store.list_jobs()) == 5
 
 
 def test_seed_preserves_user_disabled_state(store):
