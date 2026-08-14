@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 from src.sandbox.tool_guard import guard_command
 from src.tools.registry import Tool
 from src.utils.logger import logger
+from src.utils.process_kill import kill_process_tree
 
 
 def _default_shell() -> str:
@@ -70,6 +71,7 @@ class ProcessManager:
                 *cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
 
             bg = BackgroundProcess(
@@ -156,12 +158,11 @@ class ProcessManager:
             return f"Process {proc_id} already finished"
 
         try:
-            bg.process.terminate()
+            kill_process_tree(bg.process.pid)
             try:
-                await asyncio.wait_for(bg.process.wait(), timeout=3)
+                await asyncio.wait_for(bg.process.wait(), timeout=5.0)
             except asyncio.TimeoutError:
-                bg.process.kill()
-                await bg.process.wait()
+                pass
 
             bg.done = True
             bg.return_code = bg.process.returncode

@@ -12,6 +12,7 @@ from typing import Optional
 from src.tools.registry import Tool
 from src.sandbox.tool_guard import guard_command
 from src.utils.logger import logger
+from src.utils.process_kill import kill_process_tree
 
 
 def _default_shell() -> str:
@@ -135,13 +136,17 @@ class RunCommandTool(Tool):
                 cwd=sandbox_cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                start_new_session=True,
             )
 
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
+                kill_process_tree(proc.pid)
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
                 return f"Error: Command timed out after {timeout}s"
 
             stdout_str = _decode_output(stdout).strip()

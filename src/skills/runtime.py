@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from src.utils.process_kill import kill_process_tree
+
 
 DEFAULT_ENV_ALLOW = ["PATH", "HOME", "LANG", "TMPDIR", "SYSTEMROOT", "USERPROFILE"]
 DEFAULT_STRIP_MARKERS = ["API_KEY", "TOKEN", "SECRET", "AUTH"]
@@ -65,14 +67,20 @@ async def run_python_skill(
         env=build_subprocess_env(config, extra={"FSAR_SKILL_ARGS": serialized}),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         stdout, stderr = await asyncio.wait_for(
             process.communicate(), timeout=max(1, min(int(timeout), 120))
         )
     except asyncio.TimeoutError:
-        process.kill()
-        stdout, stderr = await process.communicate()
+        kill_process_tree(process.pid)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            stdout, stderr = b"", b""
         return SkillProcessResult(
             process.returncode or -1,
             stdout.decode("utf-8", errors="replace").strip(),
