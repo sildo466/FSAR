@@ -14,6 +14,7 @@ import { Greeting } from "../components/ui/Greeting";
 import { useWS } from "../stores/ws";
 import { fetchWSToken } from "../stores/ws";
 import { useSessions } from "../stores/sessions";
+import { useWorkspace } from "../stores/workspace";
 import { useCardsStore } from "../stores/cards";
 import { useChatUI } from "../stores/chat-ui";
 import type { StoredMessage } from "../lib/ws-client";
@@ -65,6 +66,8 @@ export function Chat() {
   const config = useWS((s) => s.config);
 
   const currentId = useSessions((s) => s.currentId);
+  const pendingWorkspaceId = useWorkspace((s) => s.pendingWorkspaceId);
+  const setPendingWorkspace = useWorkspace((s) => s.setPendingWorkspace);
   const getIdentity = (conversationId?: string | null) => {
     const {
       characters,
@@ -425,8 +428,12 @@ export function Chat() {
       content: text,
       mode,
       attached_files: attached.length ? attached.map((a) => a.path) : undefined,
+      workspace_id: currentId ? undefined : (pendingWorkspaceId ?? undefined),
       selected_chat_model: (((config?.chat ?? {}) as Record<string, unknown>).default_model as Record<string, unknown> | undefined),
     });
+    if (!currentId && pendingWorkspaceId != null) {
+      setPendingWorkspace(null);
+    }
   };
 
   const handleCancel = () => {

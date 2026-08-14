@@ -141,6 +141,41 @@ def test_chat_send_agent_streams_reasoning_chunks(monkeypatch):
     assert msgs[-1]["outcome"] == "success"
 
 
+def test_chat_send_binds_selected_workspace_on_new_conversation(monkeypatch, tmp_path):
+    import uuid
+
+    engine = ws_mod._engine
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
+    monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "model-x", "prov"))
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: _resp(content="done"))
+    monkeypatch.setattr(engine, "_save_user", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "_save_assistant", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "_reflect", lambda *a, **k: None)
+
+    ws = engine.workspace_repo.create(
+        name=f"sandbox-{uuid.uuid4().hex[:8]}", root_path=str(tmp_path / "a"),
+    )
+    try:
+        client = TestClient(ws_mod.app)
+        conv_id = None
+        with client.websocket_connect("/ws") as wsock:
+            wsock.receive_json()
+            wsock.send_json({
+                "type": "chat.send", "content": "hello", "mode": "agent",
+                "workspace_id": ws.id,
+            })
+            for _ in range(40):
+                m = wsock.receive_json()
+                if m.get("type") == "conversation.created":
+                    conv_id = m["session"]["id"]
+                if m.get("type") == "chat.done":
+                    break
+        assert conv_id is not None
+        assert engine.workspace_repo.get_binding(conv_id) == (conv_id, ws.id)
+    finally:
+        engine.workspace_repo.delete(ws.id)
+
+
 def test_slash_command_executes_server_side(monkeypatch):
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:

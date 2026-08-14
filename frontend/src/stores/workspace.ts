@@ -14,12 +14,14 @@ interface WorkspaceState {
   currentBinding: { conversation_id: string; workspace: WorkspaceInfo } | null;
   bindings: Record<string, WorkspaceInfo>;
   defaultId: number | null;
+  pendingWorkspaceId: number | null;
   hardlineClasses: HardlineClassInfo[];
   sensitiveClasses: SensitiveClassInfo[];
   customSensitive: string[];
   auditEvents: SandboxAuditEvent[];
   escapeRequest: SandboxEscapeRequest | null;
   init: (client: WSClient) => () => void;
+  setPendingWorkspace: (id: number | null) => void;
   clearEscape: () => void;
 }
 
@@ -33,6 +35,7 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
   currentBinding: null,
   bindings: {},
   defaultId: null,
+  pendingWorkspaceId: null,
   hardlineClasses: [],
   sensitiveClasses: [],
   customSensitive: [],
@@ -75,5 +78,6 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
       set({ escapeRequest: msg });
     }
   }),
+  setPendingWorkspace: (id: number | null) => set({ pendingWorkspaceId: id }),
   clearEscape: () => set({ escapeRequest: null }),
 }));

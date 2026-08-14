@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 export type ClientMsg =
-  | { type: "chat.send"; conversation_id?: string; character_id?: number; content: string; mode: "agent" | "companion"; attached_files?: string[]; selected_chat_model?: Record<string, unknown> }
+  | { type: "chat.send"; conversation_id?: string; character_id?: number; content: string; mode: "agent" | "companion"; attached_files?: string[]; selected_chat_model?: Record<string, unknown>; workspace_id?: number }
   | { type: "chat.cancel"; conversation_id?: string }
   | { type: "chat.regenerate"; conversation_id?: string; mode: "agent" | "companion"; selected_chat_model?: Record<string, unknown> }
   | { type: "chat.rate"; message_id: string; score: 1 | 2 | 3 | 4 | 5; reason?: string }

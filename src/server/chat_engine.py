@@ -727,6 +727,7 @@ class ChatEngine:
         character_id: int | None = None,
         selected_chat_model: dict[str, Any] | None = None,
         attached_files: list[str] | None = None,
+        workspace_id: int | None = None,
     ) -> None:
         if conversation_id and self.session_store.get(conversation_id):
             conv_id = conversation_id
@@ -734,7 +735,13 @@ class ChatEngine:
         else:
             created_row = self.session_store.create()
             conv_id = created_row.id
-            self.workspace_repo.get_or_create_binding(conv_id)
+            if workspace_id is not None:
+                try:
+                    self.workspace_repo.bind(conv_id, workspace_id)
+                except KeyError:
+                    self.workspace_repo.get_or_create_binding(conv_id)
+            else:
+                self.workspace_repo.get_or_create_binding(conv_id)
         self._active_conv_id = conv_id
         character, char_name = self._bind_character(conv_id, character_id)
         if created_row is not None:

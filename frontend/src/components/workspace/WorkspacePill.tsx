@@ -14,8 +14,14 @@ export function WorkspacePill() {
   const currentId = useSessions((state) => state.currentId);
   const workspaces = useWorkspace((state) => state.workspaces);
   const binding = useWorkspace((state) => state.currentBinding);
+  const pendingWorkspaceId = useWorkspace((state) => state.pendingWorkspaceId);
+  const setPendingWorkspace = useWorkspace((state) => state.setPendingWorkspace);
   const send = useWS((state) => state.send);
-  const active = binding?.conversation_id === currentId ? binding.workspace : null;
+  const active = binding?.conversation_id === currentId
+    ? binding.workspace
+    : pendingWorkspaceId != null
+      ? workspaces.find((w) => w.id === pendingWorkspaceId) ?? null
+      : null;
 
   useEffect(() => {
     if (currentId) send({ type: "workspace.get_binding", conversation_id: currentId });
@@ -28,14 +34,17 @@ export function WorkspacePill() {
   }, [open]);
 
   function select(workspaceId: number) {
-    if (!currentId) return;
-    send({ type: "workspace.switch_binding", conversation_id: currentId, workspace_id: workspaceId });
+    if (currentId) {
+      send({ type: "workspace.switch_binding", conversation_id: currentId, workspace_id: workspaceId });
+    } else {
+      setPendingWorkspace(workspaceId);
+    }
     setOpen(false);
   }
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen((value) => !value)} disabled={!currentId} title={active?.root_path ?? t("workspacePill.noActive")} className="glass flex h-8 max-w-[210px] items-center gap-2 rounded-full px-3 text-[12px] transition hover:bg-glass-strong disabled:opacity-45">
+      <button onClick={() => setOpen((value) => !value)} title={active?.root_path ?? t("workspacePill.noActive")} className="glass flex h-8 max-w-[210px] items-center gap-2 rounded-full px-3 text-[12px] transition hover:bg-glass-strong disabled:opacity-45">
         <FolderLock size={13} />
         <span className="truncate font-mono">{active?.name ?? t("workspacePill.sandbox")}</span>
         <ChevronDown size={12} />
