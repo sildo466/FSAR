@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-14
+
+### Added
+
+- Agent: the decision process now streams live to the frontend — reasoning text streams token-by-token and tool-call blocks attach in real time, instead of a black box that only dumps the final conclusion
+- Chat: the sandbox pill stays enabled before the first message; picking a workspace pre-binds the new conversation to it (previously disabled until a message was sent)
+- Experience: `experience_view` for external skills now attaches the authoritative `SKILL.md` from the skills root (path derived from the skill name, never stored) plus a conflict rule, so the agent reads the real spec instead of only a lossy summary; degrades to the summary alone when the skill directory is missing
+
+### Removed
+
+- L1/L2 LLM response cache: the exact-match disk cache never hit in agent/chat loops (messages mutate every turn, so the full-payload key always differs), making it pure per-call overhead. Provider-side prompt caching is preserved (Gemini cachedContents, Anthropic cache_control, Responses API `prompt_cache_key`).
+
+### Fixed
+
+- Agent: the stream pump could hang forever when the provider stalled — no timeout meant a blocked LLM call froze the whole loop with no error. A 120s no-output guard now aborts the turn with a visible note.
+- Agent: self-check turns returned their own "检查完成 ✅" review report as the final answer even for simple Q&A; the pre-check answer is returned instead, self-check turns no longer stream, and the verification prompt explicitly forbids checklist output.
+- Agent: non-iterable stream responses (some providers return a complete response despite `stream=True`) no longer inject a corrupt "LLM stream failed" string into the reply.
+- run_command / process / skills: killing a timed-out command only killed the direct child, leaving grandchildren holding the stdout/stderr pipe and hanging the call; process-tree kill (`taskkill /F /T` on Windows, `os.killpg` on POSIX) is now used.
+- Usage: the frontend cache-breakdown section referenced the removed L1/L2 cache; it and the orphaned `Bar` component were dropped.
+
 ## [0.2.3] - 2026-08-13
 
 ### Fixed
