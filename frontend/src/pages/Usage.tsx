@@ -235,26 +235,3 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-function Bar({
-  label,
-  value,
-  fmt,
-}: {
-  label: string;
-  value: number;
-  fmt: (v: number) => string;
-}) {
-  const pct = Math.max(0, Math.min(1, value || 0)) * 100;
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-[12px]">
-        <span className="text-text-muted">{label}</span>
-        <span className="font-mono text-text">{fmt(value || 0)}</span>
-      </div>
-      <div className="h-2 bg-bg border border-border rounded overflow-hidden">
-        <div className="h-full bg-text" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
