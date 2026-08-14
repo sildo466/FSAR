@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from src.core.agent_tiers import get_tier_profile
 import src.server.chat_engine as ce
 import src.server.ws_server as ws_mod
 
@@ -50,6 +51,8 @@ def test_chat_send_no_provider_emits_error(monkeypatch):
 
 
 def test_chat_send_agent_returns_llm_text(monkeypatch):
+    # low tier: no self-check/debate, so the agent streams a single turn
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
     monkeypatch.setattr(ws_mod._engine, "client_and_model", lambda: (object(), "model-x", "prov"))
     monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: _resp(content="hi there"))
     monkeypatch.setattr(ws_mod._engine, "_save_user", lambda *a, **k: None)
@@ -68,6 +71,8 @@ def test_chat_send_agent_returns_llm_text(monkeypatch):
 
 def test_chat_send_tool_call_routes_through_risk_bridge(monkeypatch):
     engine = ws_mod._engine
+    # low tier: no self-check, so one tool turn + one final answer turn
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
     monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "model-x", "prov"))
     monkeypatch.setattr(engine, "_save_user", lambda *a, **k: None)
     monkeypatch.setattr(engine, "_save_assistant", lambda *a, **k: None)
@@ -109,6 +114,31 @@ def test_chat_send_tool_call_routes_through_risk_bridge(monkeypatch):
     result = next(m for m in msgs if m["type"] == "chat.tool_result")
     assert result["result"] == "TOOL_OK"
     assert "".join(m["content"] for m in msgs if m["type"] == "chat.delta") == "all done"
+
+
+def test_chat_send_agent_streams_reasoning_chunks(monkeypatch):
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
+    monkeypatch.setattr(ws_mod._engine, "client_and_model", lambda: (object(), "model-x", "prov"))
+
+    def _stream(*a, **k):
+        return iter([
+            SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Hel", tool_calls=None))]),
+            SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="lo!", tool_calls=None))]),
+        ])
+
+    monkeypatch.setattr(ce, "chat_completion", _stream)
+    monkeypatch.setattr(ws_mod._engine, "_save_user", lambda *a, **k: None)
+    monkeypatch.setattr(ws_mod._engine, "_save_assistant", lambda *a, **k: None)
+    monkeypatch.setattr(ws_mod._engine, "_reflect", lambda *a, **k: None)
+
+    client = TestClient(ws_mod.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat.send", "content": "hello", "mode": "agent"})
+        msgs = _collect_until_done(ws)
+    deltas = [m["content"] for m in msgs if m["type"] == "chat.delta"]
+    assert "".join(deltas) == "Hello!"
+    assert msgs[-1]["outcome"] == "success"
 
 
 def test_slash_command_executes_server_side(monkeypatch):

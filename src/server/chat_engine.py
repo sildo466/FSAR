@@ -1119,7 +1119,12 @@ class ChatEngine:
             "task_id": task_id,
             "outcome": result.outcome,
         })
-        await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
+        if runtime.streamed_main and result.outcome == "success":
+            # Conclusion was already streamed live as the final turn's content;
+            # save it to history without re-emitting (avoid duplicate text).
+            self._save_assistant(message_id, conv_id, result.conclusion)
+        else:
+            await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
         await self._done(
             ws,
             message_id,
@@ -1226,10 +1231,13 @@ class ChatEngine:
                 thinking=profile.thinking,
                 model_effort=self._model_thinking_effort(),
                 provider_family=self._active_provider_family(),
+                stream_sink=(ws, message_id, conv_id) if not is_subagent else None,
             )
-            tool_calls = list(message.tool_calls or [])
+            if not is_subagent:
+                runtime.streamed_main = True
+            tool_calls = list(message.tool_calls or []) if not isinstance(message, dict) else list(message.get("tool_calls") or [])
             if not tool_calls:
-                candidate = message.content or ""
+                candidate = (message.content or "") if not isinstance(message, dict) else (message.get("content") or "")
                 should_selfcheck = profile.verify_selfcheck and (
                     not is_subagent or profile.subagent_autonomous
                 )
@@ -1396,6 +1404,7 @@ class ChatEngine:
         thinking: bool,
         model_effort: str = "off",
         provider_family: str = "",
+        stream_sink: tuple[Any, str, str] | None = None,
     ) -> Any:
         call_kwargs: dict[str, Any] = {
             "model": model,
@@ -1426,7 +1435,16 @@ class ChatEngine:
                     task_id, len(result["reasoning_content"]),
                 )
             self._record_llm_usage(task_id, result)
-            return self._wrap_gemini_message(result)
+            message = self._wrap_gemini_message(result)
+            if stream_sink is not None:
+                ws, message_id, conv_id = stream_sink
+                text = getattr(message, "content", "") or ""
+                if text:
+                    await ws.send_json({
+                        "type": "chat.delta", "message_id": message_id,
+                        "conversation_id": conv_id, "content": text,
+                    })
+            return message
 
         thinking_payload = resolve_thinking_payload(
             provider_family, model, model_effort, base_url,
@@ -1437,6 +1455,15 @@ class ChatEngine:
             call_kwargs["extra_body"] = {
                 "thinking": {"type": "enabled" if thinking else "disabled"}
             }
+
+        if stream_sink is not None:
+            return await self._stream_agent_completion(
+                client=client,
+                provider_id=provider_id,
+                call_kwargs=call_kwargs,
+                stream_sink=stream_sink,
+            )
+
         response = await asyncio.to_thread(
             chat_completion,
             client,
@@ -1445,6 +1472,92 @@ class ChatEngine:
         )
         self._record_llm_usage(task_id, response)
         return response.choices[0].message
+
+    async def _stream_agent_completion(
+        self,
+        *,
+        client: Any,
+        provider_id: str,
+        call_kwargs: dict[str, Any],
+        stream_sink: tuple[Any, str, str],
+    ) -> dict[str, Any]:
+        """Run one agent-loop LLM call with stream=True, emitting each content
+        chunk to the frontend as `chat.delta` while rebuilding the full message
+        (content + tool_calls) for the loop state."""
+        ws, message_id, conv_id = stream_sink
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        content_parts: list[str] = []
+        tool_map: dict[int, dict[str, str]] = {}
+
+        def _pump() -> None:
+            try:
+                result = chat_completion(
+                    client, provider_id=provider_id, stream=True, **call_kwargs,
+                )
+                # Some providers/tests return a complete response despite
+                # stream=True — normalize both shapes to a chunk list.
+                stream = result if hasattr(result, "__iter__") else [result]
+                for chunk in stream:
+                    if self._cancelled:
+                        break
+                    if not getattr(chunk, "choices", None):
+                        continue
+                    choice = chunk.choices[0]
+                    msg = getattr(choice, "delta", None) or getattr(choice, "message", None)
+                    if msg is None:
+                        continue
+                    text = getattr(msg, "content", None)
+                    if text:
+                        loop.call_soon_threadsafe(queue.put_nowait, ("delta", text))
+                    for i, tc in enumerate(getattr(msg, "tool_calls", None) or []):
+                        idx = getattr(tc, "index", i)
+                        entry = tool_map.setdefault(
+                            idx,
+                            {"id": "", "type": "function", "name": "", "arguments": ""},
+                        )
+                        if getattr(tc, "id", None):
+                            entry["id"] = tc.id
+                        fn = getattr(tc, "function", None)
+                        if fn is not None:
+                            if getattr(fn, "name", None):
+                                entry["name"] = fn.name
+                            if getattr(fn, "arguments", None):
+                                entry["arguments"] += fn.arguments
+            except Exception as e:
+                logger.warning(f"agent stream failed: {e}")
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, ("delta", f"\nLLM stream failed: {e}"),
+                )
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+
+        pump = loop.run_in_executor(None, _pump)
+        while True:
+            kind, content = await queue.get()
+            if kind == "done":
+                break
+            if not content:
+                continue
+            content_parts.append(content)
+            await ws.send_json({
+                "type": "chat.delta",
+                "message_id": message_id,
+                "conversation_id": conv_id,
+                "content": content,
+            })
+        await pump
+
+        tool_calls = [
+            {"id": e["id"], "type": e["type"],
+             "function": {"name": e["name"], "arguments": e["arguments"]}}
+            for _, e in sorted(tool_map.items())
+        ] or None
+        return {
+            "role": "assistant",
+            "content": "".join(content_parts),
+            "tool_calls": tool_calls,
+        }
 
     async def _summarize_context_chunk(
         self,
@@ -1620,13 +1733,27 @@ class ChatEngine:
     ) -> list[tuple[str, str, str, bool]]:
         parsed: list[tuple[Any, str, dict[str, Any]]] = []
         for tool_call in tool_calls:
+            if isinstance(tool_call, dict):
+                fn = tool_call.get("function") or {}
+                args_raw = fn.get("arguments", "")
+                name = fn.get("name", "")
+                norm = SimpleNamespace(
+                    id=tool_call.get("id", ""),
+                    type=tool_call.get("type", "function"),
+                    function=SimpleNamespace(name=name, arguments=args_raw),
+                )
+            else:
+                fn = tool_call.function
+                args_raw = fn.arguments
+                name = fn.name
+                norm = tool_call
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
                 if not isinstance(args, dict):
                     args = {}
             except (json.JSONDecodeError, TypeError):
                 args = {}
-            parsed.append((tool_call, tool_call.function.name, args))
+            parsed.append((norm, name, args))
 
         async def execute_one(
             item: tuple[Any, str, dict[str, Any]],

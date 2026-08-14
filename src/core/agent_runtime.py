@@ -42,6 +42,7 @@ class AgentRunState:
     state_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     force_convergence: bool = False
     debate_idle_rounds: int = 0
+    streamed_main: bool = False
     character: Any = None
 
     async def reserve_agent(
