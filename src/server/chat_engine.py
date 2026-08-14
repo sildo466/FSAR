@@ -1502,9 +1502,23 @@ class ChatEngine:
                 result = chat_completion(
                     client, provider_id=provider_id, stream=True, **call_kwargs,
                 )
+                if result is None:
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, ("delta", "\nLLM stream failed: empty response"),
+                    )
+                    return
                 # Some providers/tests return a complete response despite
-                # stream=True — normalize both shapes to a chunk list.
-                stream = result if hasattr(result, "__iter__") else [result]
+                # stream=True, and some objects expose __iter__ yet fail on
+                # iteration — a full response (has .choices) is wrapped as a
+                # single chunk; everything else probed with iter() so any
+                # non-stream falls back to the same wrapper.
+                if hasattr(result, "choices") and not hasattr(result, "__next__"):
+                    stream = iter([result])
+                else:
+                    try:
+                        stream = iter(result)
+                    except TypeError:
+                        stream = iter([result])
                 for chunk in stream:
                     if self._cancelled:
                         break
