@@ -159,6 +159,10 @@ SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
 DEFAULT_CONTEXT_WINDOW = 128000
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
+# Seconds without any streamed delta before the agent turn is aborted. Guards
+# against a stalled provider call blocking the executor thread forever (the
+# pump would never enqueue "done" and the loop would hang with no error).
+STREAM_STALL_TIMEOUT = 120.0
 
 TODO_TOOL_SCHEMA = {
     "type": "function",
@@ -1563,20 +1567,44 @@ class ChatEngine:
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
         pump = loop.run_in_executor(None, _pump)
+        stalled = False
         while True:
-            kind, content = await queue.get()
+            try:
+                kind, content = await asyncio.wait_for(
+                    queue.get(), timeout=STREAM_STALL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                # The provider produced no delta for STREAM_STALL_TIMEOUT —
+                # the executor thread is likely blocked. Abort the turn instead
+                # of hanging the whole agent loop forever.
+                logger.warning(
+                    f"agent stream stalled after {STREAM_STALL_TIMEOUT:.0f}s "
+                    "without output; aborting turn"
+                )
+                content_parts.append(
+                    "\n\n[LLM stream stalled — no output, turn aborted.]"
+                )
+                stalled = True
+                break
             if kind == "done":
                 break
             if not content:
                 continue
             content_parts.append(content)
-            await ws.send_json({
-                "type": "chat.delta",
-                "message_id": message_id,
-                "conversation_id": conv_id,
-                "content": content,
-            })
-        await pump
+            try:
+                await ws.send_json({
+                    "type": "chat.delta",
+                    "message_id": message_id,
+                    "conversation_id": conv_id,
+                    "content": content,
+                })
+            except Exception:
+                # Frontend disconnected mid-stream; keep the turn running so the
+                # backend finishes the work instead of surfacing a dead-socket
+                # error the user never sees.
+                logger.debug("agent stream send failed (socket closed?)")
+        if not stalled:
+            await pump
 
         tool_calls = [
             {"id": e["id"], "type": e["type"],
