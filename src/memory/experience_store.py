@@ -536,7 +536,7 @@ class ExperienceStore:
         by_cat: dict[str, list[Experience]] = {}
         for e in exps:
             by_cat.setdefault(e.category, []).append(e)
-        lines = ["## Experiences (call experience_view(name=\"...\") to load full body)"]
+        lines = ["## Experiences (task matches one below → experience_view(name) → FOLLOW its SKILL.md exactly)"]
         for cat in sorted(by_cat):
             show_in_compact = cat in compact
             if not show_in_compact:
@@ -548,7 +548,11 @@ class ExperienceStore:
                 prefix = "    -" if show_in_compact else "    -"
                 lines.append(f"{prefix} {e.name}: {desc}")
         lines.append("")
-        lines.append("Only call experience_view when a task matches one of these.")
+        lines.append(
+            "Only call experience_view when a task matches one of these — load the ONE "
+            "matching skill and FOLLOW its SKILL.md instructions exactly (copy the seed "
+            "template, obey Non-Negotiables). Never read multiple skills at once."
+        )
         return "\n".join(lines)
 
     # ---------- P5 → P6 auto-promote bridge ----------
