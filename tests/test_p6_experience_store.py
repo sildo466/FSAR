@@ -156,7 +156,7 @@ class TestExperienceStore(unittest.TestCase):
         self.assertIn("file-management", block)
         # both descriptions should appear (truncated to 60 chars by default)
         self.assertIn("A test experience", block)
-        self.assertIn("Only call experience_view", block)
+        self.assertIn("call experience_view", block)
 
     def test_j_render_index_truncates_long_descriptions(self):
         long_desc = "x" * 100
@@ -351,7 +351,7 @@ class TestExperienceTools(unittest.TestCase):
 
         self.assertIn("summary only", result)
         self.assertIn("always use the seed template", result)
-        self.assertIn("冲突规则", result)
+        self.assertIn("Conflict rule", result)
 
     def test_t_view_graceful_when_skill_md_missing(self):
         from src.memory.experience_store import ExperienceStore, Experience

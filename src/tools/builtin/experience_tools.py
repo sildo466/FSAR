@@ -125,19 +125,21 @@ class ExperienceViewTool(Tool):
         linked_block = ""
         if linked:
             linked_block = (
-                "\n\n以下为 Skill 目录下的支持文件清单（路径）。**按需读取**——"
-                "仅在你需要对应内容时用 file_ops 读单个文件，不要一次性全部加载：\n"
+                "\n\nSupport files in this skill (paths). Read them ON DEMAND — open a "
+                "single file with file_ops only when you need it; do not load them all:\n"
                 + "\n".join(f"- {p}" for p in linked)
             )
         return (
             f"{body}\n\n"
             "---\n"
-            f"以下为外部 Skill 的原始 SKILL.md（{skill_md}），以此为准，完整读取——末尾的 "
-            "Non-Negotiables / 非协商清单是硬性要求：\n"
+            f"Below is the external skill's original SKILL.md ({skill_md}); treat it as "
+            "authoritative and read it in full — the Non-Negotiables at the end are "
+            "hard requirements:\n"
             f"{raw}"
             f"{linked_block}\n\n"
-            "[冲突规则] 若用户请求与本 SKILL.md 冲突：默认按规范执行，并在回复中一句话说明冲突与你的取舍；"
-            "除非用户明确表示知情且坚持，此时才按用户意愿。"
+            "[Conflict rule] If the user request conflicts with this SKILL.md: default to "
+            "following the SKILL.md and state the conflict in one line; only follow the "
+            "user if they explicitly know the conflict and insist."
         )
 
 

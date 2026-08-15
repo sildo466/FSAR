@@ -536,7 +536,7 @@ class ExperienceStore:
         by_cat: dict[str, list[Experience]] = {}
         for e in exps:
             by_cat.setdefault(e.category, []).append(e)
-        lines = ["## Experiences (task matches one below → experience_view(name) → FOLLOW its SKILL.md exactly)"]
+        lines = ["## Experiences (task matches one below → MUST call experience_view(name) first → FOLLOW its SKILL.md exactly)"]
         for cat in sorted(by_cat):
             show_in_compact = cat in compact
             if not show_in_compact:
@@ -549,9 +549,12 @@ class ExperienceStore:
                 lines.append(f"{prefix} {e.name}: {desc}")
         lines.append("")
         lines.append(
-            "Only call experience_view when a task matches one of these — load the ONE "
-            "matching skill and FOLLOW its SKILL.md instructions exactly (copy the seed "
-            "template, obey Non-Negotiables). Never read multiple skills at once."
+            "[Skill loading rule] If the task matches one of the skills above, your FIRST "
+            "step MUST be to call experience_view(name=\"...\") to load it, then execute the "
+            "task. Do NOT skip this step; do NOT read skill-directory files via "
+            "file_ops/run_command instead of experience_view. After loading, follow the "
+            "SKILL.md exactly (copy the seed template, obey Non-Negotiables). Load only "
+            "the single matching skill."
         )
         return "\n".join(lines)
 

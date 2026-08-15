@@ -2017,6 +2017,24 @@ class ChatEngine:
                         runtime.active_skill = skill_name
                 except Exception:
                     pass
+        elif not runtime.active_skill:
+            # Direct skill-directory access (read the template / a reference file)
+            # also counts as using the skill, so the compliance gate still fires.
+            try:
+                from src.utils.fsar_home import get_fsar_home
+                root = str(get_fsar_home() / "skills")
+                for val in args.values():
+                    if not isinstance(val, str) or "skills" not in val:
+                        continue
+                    if not (val.startswith(root) or (root in val)):
+                        continue
+                    seg = val.split("skills", 1)[-1].lstrip("\\/")
+                    sname = seg.split("\\")[0].split("/")[0].strip()
+                    if sname:
+                        runtime.active_skill = sname
+                        break
+            except Exception:
+                pass
         if name not in {"todo_write", "dispatch_subagent", "blackboard_post"}:
             return await self._execute_guarded(
                 ws, message_id, call_id, name, args, conv_id,
