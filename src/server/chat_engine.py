@@ -1057,6 +1057,7 @@ class ChatEngine:
         ))
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
+        runtime.active_skill = self._detect_active_skill_from_context(conv_id)
         runtime.agents[task_id] = AgentRecord(
             agent_id=task_id,
             parent_id=None,
@@ -1176,6 +1177,7 @@ class ChatEngine:
         verify_count = 0
         awaiting_selfcheck_response = False
         pending_candidate = ""
+        skill_redos = 0
         adversarial_done = False
         deepseek = is_deepseek_official(
             str(getattr(client, "base_url", "") or "")
@@ -1304,6 +1306,19 @@ class ChatEngine:
                                 f"findings, use tools if needed, and produce a corrected result:\n{findings}"
                             ),
                         })
+                        continue
+                if runtime.active_skill and not is_subagent and skill_redos < 2:
+                    ok, feedback = await self._skill_compliance_check(
+                        ws=ws, runtime=runtime, skill_name=runtime.active_skill,
+                    )
+                    if not ok:
+                        skill_redos += 1
+                        self._append_assistant_message(messages, message, deepseek)
+                        messages.append({"role": "user", "content": feedback})
+                        await self._emit_agent_status(
+                            ws, runtime, agent_id, "verifying",
+                            f"Skill compliance FAILED, redoing ({skill_redos}/2)",
+                        )
                         continue
                 return AgentLoopResult(candidate, "success", tool_steps)
 
@@ -1777,6 +1792,98 @@ class ChatEngine:
             f"Candidate answer:\n{candidate}"
         )
 
+    def _detect_active_skill_from_context(self, conv_id: str) -> str:
+        """Recover the external-skill name injected by /use (its SKILL.md path
+        appears in the system message), so the compliance gate can run even when
+        the skill was pre-loaded instead of loaded via experience_view."""
+        marker = "Relevant learned skill/experience"
+        for m in self._short_cache.get(conv_id, []):
+            if m.get("role") != "system":
+                continue
+            content = str(m.get("content", ""))
+            if marker not in content:
+                continue
+            for part in content.split():
+                if "skills" not in part or "SKILL.md" not in part:
+                    continue
+                seg = part.split("skills", 1)[-1].lstrip("\\/")
+                name = seg.split("\\")[0].split("/")[0].strip()
+                if name:
+                    return name
+        return ""
+
+    async def _skill_compliance_check(
+        self,
+        *,
+        ws: WebSocket,
+        runtime: AgentRunState,
+        skill_name: str,
+    ) -> tuple[bool, str]:
+        """Mechanical check that the task's output follows the active external
+        skill. Returns (pass, feedback). Uses the skill's validator when present
+        and a seed-template marker comparison when the skill ships one."""
+        from src.memory import skill_gate as gate
+        from src.utils.fsar_home import get_fsar_home
+
+        skill_dir = gate.resolve_skill_dir(skill_name)
+        if skill_dir is None:
+            return True, ""
+        try:
+            output_root = Path(str(self.config.get("workspace.output_dir", "")) or "").expanduser()
+            if not output_root.is_absolute():
+                output_root = get_fsar_home() / output_root
+        except Exception:
+            output_root = get_fsar_home() / "FSAR-workspace"
+
+        task_html = gate.find_task_index_html(output_root)
+        if task_html is None:
+            return True, ""
+
+        issues: list[str] = []
+        template = gate.find_skill_template(skill_dir)
+        if template is not None:
+            issues.extend(gate.template_compliance(task_html, template))
+
+        validator = gate.find_skill_validator(skill_dir)
+        if validator is not None:
+            proc = await asyncio.create_subprocess_exec(
+                "node", str(validator), str(task_html.parent),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+            try:
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                from src.utils.process_kill import kill_process_tree
+                kill_process_tree(proc.pid)
+                issues.append(f"技能验证器 {validator.name} 超时（120s）。")
+            else:
+                combined = (out + err).decode("utf-8", errors="replace")
+                if proc.returncode != 0:
+                    issues.append(f"技能验证器 {validator.name} FAILED：\n{combined[:1200]}")
+
+        if not issues:
+            return True, ""
+
+        fix = []
+        if template is not None:
+            fix.append(
+                f"用 file_ops 复制 {template} 为任务目录的 index.html（或 cp 命令），"
+                "然后只修改其中的海报内容，不要从头手写 CSS"
+            )
+        if validator is not None:
+            fix.append(f"运行 `node {validator} <任务目录>` 直到 PASS")
+        if not fix:
+            fix.append("按 SKILL.md 的 Non-Negotiables 重做产物")
+        feedback = (
+            f"技能合规检查未通过（技能：{skill_name}）。你的产物不符合其 SKILL.md 要求：\n"
+            + "\n".join("- " + i for i in issues)
+            + "\n\n必须重做：\n" + "\n".join(f"{i + 1}. {f}" for i, f in enumerate(fix))
+            + "\n完成修复后再给出最终回答。"
+        )
+        return False, feedback
+
     async def _execute_tool_calls(
         self,
         *,
@@ -1900,6 +2007,16 @@ class ChatEngine:
         await self._emit_agent_status(
             ws, runtime, agent_id, "working", f"Using {name}",
         )
+        if name == "experience_view":
+            skill_name = str(args.get("name", ""))
+            if skill_name:
+                try:
+                    from src.memory.experience_store import ExperienceStore
+                    exp = ExperienceStore().get_by_name(skill_name)
+                    if exp is not None and exp.category == "external-skill":
+                        runtime.active_skill = skill_name
+                except Exception:
+                    pass
         if name not in {"todo_write", "dispatch_subagent", "blackboard_post"}:
             return await self._execute_guarded(
                 ws, message_id, call_id, name, args, conv_id,

@@ -436,6 +436,47 @@ class TestExperienceTools(unittest.TestCase):
         self.assertIn("validate-social-deck.mjs", joined)
         self.assertNotIn("bg.png", joined)
 
+    def test_x_skill_gate_flags_custom_html(self):
+        from pathlib import Path
+        from src.memory import skill_gate as gate
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_gate_"))
+        template = root / "template-editorial-card.html"
+        template.write_text(
+            "<!-- POSTERS_HERE -->\n<html data-theme=\"ink-classic\">\n"
+            "<div class=\"pipeline-v\"><div class=\"marginalia\"></div></div>\n"
+            "<span class=\"ledger-row\"></span>\n",
+            encoding="utf-8",
+        )
+        custom = root / "custom.html"
+        custom.write_text(
+            "<html><div class=\"cover-grid\"><div class=\"bar\"></div></div>\n",
+            encoding="utf-8",
+        )
+        copied = root / "copied.html"
+        copied.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+
+        self.assertTrue(gate.template_compliance(custom, template))
+        self.assertFalse(gate.template_compliance(copied, template))
+
+    def test_y_skill_gate_finds_newest_task_index(self):
+        import os
+        from pathlib import Path
+        from src.memory import skill_gate as gate
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_gate_"))
+        old = root / "task-old"
+        new = root / "task-new"
+        old.mkdir()
+        new.mkdir()
+        (old / "index.html").write_text("old", encoding="utf-8")
+        (new / "index.html").write_text("new", encoding="utf-8")
+        # backdate the old one so the newest is unambiguous
+        os.utime(old / "index.html", (1000, 1000))
+
+        found = gate.find_task_index_html(root)
+        self.assertEqual(found, new / "index.html")
+
 
 class TestExperienceImport(unittest.TestCase):
     """p6.3.5 — markdown → DB row."""

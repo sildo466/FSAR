@@ -43,6 +43,7 @@ class AgentRunState:
     force_convergence: bool = False
     debate_idle_rounds: int = 0
     streamed_main: bool = False
+    active_skill: str = ""
     character: Any = None
 
     async def reserve_agent(
