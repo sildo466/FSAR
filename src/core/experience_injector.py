@@ -56,6 +56,12 @@ class ExperienceIndexInjector:
 
         parts: list[str] = []
         try:
+            from src.memory.skill_sync import sync_skills_from_disk
+            sync_skills_from_disk(self.store)
+        except Exception as e:
+            logger.debug(f"skill disk sync skipped: {e}")
+
+        try:
             exp_block = self.store.render_index(
                 max_desc_chars=self.max_desc_chars,
                 compact_categories=self.compact_categories,

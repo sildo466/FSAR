@@ -10,6 +10,7 @@ Four tools, all SAFE risk:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Optional
 
 from src.memory.experience_store import (
@@ -22,6 +23,27 @@ from src.utils.logger import logger
 
 def _store() -> ExperienceStore:
     return ExperienceStore()
+
+
+def _list_linked_files(skill_root: Path) -> list[str]:
+    """List a skill's support files (reference docs, seed templates, helper
+    scripts, validators) as absolute paths so the agent can read them on
+    demand. Asset images are excluded — only the files that matter for
+    following the skill are surfaced."""
+    rels: list[str] = []
+    refs = skill_root / "references"
+    if refs.is_dir():
+        rels.extend(str(p) for p in sorted(refs.glob("*.md")))
+    tpl = skill_root / "assets"
+    if tpl.is_dir():
+        rels.extend(str(p) for p in sorted(tpl.glob("template-*.html")))
+    scripts = skill_root / "scripts"
+    if scripts.is_dir():
+        rels.extend(str(p) for p in sorted(scripts.iterdir()) if p.is_file())
+    for p in sorted(skill_root.iterdir()):
+        if p.is_file() and p.name.startswith("validate") and p.suffix in (".mjs", ".js", ".py", ".sh"):
+            rels.append(str(p))
+    return rels
 
 
 class ExperienceViewTool(Tool):
@@ -99,12 +121,21 @@ class ExperienceViewTool(Tool):
             raw = skill_md.read_text(encoding="utf-8")
         except OSError:
             return body
+        linked = _list_linked_files(skill_md.parent)
+        linked_block = ""
+        if linked:
+            linked_block = (
+                "\n\n以下为 Skill 目录下的支持文件清单（路径）。**按需读取**——"
+                "仅在你需要对应内容时用 file_ops 读单个文件，不要一次性全部加载：\n"
+                + "\n".join(f"- {p}" for p in linked)
+            )
         return (
             f"{body}\n\n"
             "---\n"
             f"以下为外部 Skill 的原始 SKILL.md（{skill_md}），以此为准，完整读取——末尾的 "
             "Non-Negotiables / 非协商清单是硬性要求：\n"
-            f"{raw}\n\n"
+            f"{raw}"
+            f"{linked_block}\n\n"
             "[冲突规则] 若用户请求与本 SKILL.md 冲突：默认按规范执行，并在回复中一句话说明冲突与你的取舍；"
             "除非用户明确表示知情且坚持，此时才按用户意愿。"
         )

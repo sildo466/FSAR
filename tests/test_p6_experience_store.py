@@ -371,6 +371,71 @@ class TestExperienceTools(unittest.TestCase):
         self.assertIn("summary only", result)
         self.assertNotIn("SKILL.md", result)
 
+    def test_u_sync_skills_from_disk_registers_new_skill(self):
+        from pathlib import Path
+        from src.memory.experience_store import ExperienceStore
+        from src.memory.skill_sync import sync_skills_from_disk
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_sync_"))
+        skill_md = root / "skills" / "demo-skill" / "SKILL.md"
+        skill_md.parent.mkdir(parents=True)
+        skill_md.write_text(
+            "---\nname: demo-skill\ndescription: A demo skill\n---\n\n# Demo\nSteps.\n",
+            encoding="utf-8",
+        )
+        # a non-skill dir without SKILL.md must be skipped
+        (root / "skills" / "no-skill").mkdir()
+
+        store = ExperienceStore(db_path=self.db_path)
+        n = sync_skills_from_disk(store, skills_root=root / "skills")
+        self.assertEqual(n, 1)
+        got = store.get_by_name("demo-skill")
+        self.assertIsNotNone(got)
+        self.assertEqual(got.category, "external-skill")
+        self.assertEqual(got.description, "A demo skill")
+
+    def test_v_sync_skills_from_disk_idempotent(self):
+        from pathlib import Path
+        from src.memory.experience_store import ExperienceStore
+        from src.memory.skill_sync import sync_skills_from_disk
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_sync_"))
+        skill_md = root / "skills" / "demo-skill" / "SKILL.md"
+        skill_md.parent.mkdir(parents=True)
+        skill_md.write_text(
+            "---\nname: demo-skill\ndescription: A demo skill\n---\n\n# Demo\nSteps.\n",
+            encoding="utf-8",
+        )
+        store = ExperienceStore(db_path=self.db_path)
+        self.assertEqual(sync_skills_from_disk(store, skills_root=root / "skills"), 1)
+        # second pass must not duplicate
+        self.assertEqual(sync_skills_from_disk(store, skills_root=root / "skills"), 0)
+        names = [e.name for e in store.list_for_index()]
+        self.assertEqual(names.count("demo-skill"), 1)
+
+    def test_w_list_linked_files_surfaces_support_files(self):
+        from pathlib import Path
+        from src.tools.builtin.experience_tools import _list_linked_files
+
+        root = Path(tempfile.mkdtemp(prefix="fsar_p6_links_"))
+        (root / "references").mkdir()
+        (root / "assets").mkdir()
+        (root / "scripts").mkdir()
+        (root / "references" / "layout-recipes.md").write_text("x")
+        (root / "references" / "components.md").write_text("x")
+        (root / "assets" / "template-swiss-card.html").write_text("x")
+        (root / "assets" / "bg.png").write_text("x")  # asset image: excluded
+        (root / "scripts" / "render.mjs").write_text("x")
+        (root / "validate-social-deck.mjs").write_text("x")
+
+        links = _list_linked_files(root)
+        joined = "\n".join(links)
+        self.assertIn("layout-recipes.md", joined)
+        self.assertIn("template-swiss-card.html", joined)
+        self.assertIn("render.mjs", joined)
+        self.assertIn("validate-social-deck.mjs", joined)
+        self.assertNotIn("bg.png", joined)
+
 
 class TestExperienceImport(unittest.TestCase):
     """p6.3.5 — markdown → DB row."""
