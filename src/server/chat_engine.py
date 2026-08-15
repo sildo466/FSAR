@@ -1311,6 +1311,7 @@ class ChatEngine:
                     ok, feedback = await self._skill_compliance_check(
                         ws=ws, runtime=runtime, skill_name=runtime.active_skill,
                     )
+                    logger.info(f"[skill-gate] skill={runtime.active_skill} ok={ok} redos={skill_redos}")
                     if not ok:
                         skill_redos += 1
                         self._append_assistant_message(messages, message, deepseek)
@@ -1836,6 +1837,7 @@ class ChatEngine:
             output_root = get_fsar_home() / "FSAR-workspace"
 
         task_html = gate.find_task_index_html(output_root)
+        logger.info(f"[skill-gate] output_root={output_root} task_html={task_html}")
         if task_html is None:
             return True, ""
 
@@ -2015,6 +2017,7 @@ class ChatEngine:
                     exp = ExperienceStore().get_by_name(skill_name)
                     if exp is not None and exp.category == "external-skill":
                         runtime.active_skill = skill_name
+                        logger.info(f"[skill-gate] active_skill set via experience_view: {skill_name}")
                 except Exception:
                     pass
         elif not runtime.active_skill:
