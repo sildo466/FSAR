@@ -577,6 +577,11 @@ def _use(engine, args, body) -> str:
     if exp is None:
         return f"Not found: `{name}` — list available ones with `/exp`."
     rendered = store.render_experience_body(exp)
+    if exp.category == "external-skill":
+        # Attach the full SKILL.md + linked-file list + conflict rule, same as
+        # experience_view — /use must not hand the agent a lossy summary.
+        from src.tools.builtin.experience_tools import ExperienceViewTool
+        rendered = ExperienceViewTool._append_skill_source(rendered, name)
     store.bump_use(name)
     conv_id = engine.active_conversation_id()
     if conv_id:
