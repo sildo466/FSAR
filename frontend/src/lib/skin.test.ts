@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
-import { describe, expect, it } from "vitest";
-import { applySkinToCss, clearSkinCss, resolveSkin } from "./skin";
+import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { useWS } from "../stores/ws";
+import { useSkinStore } from "../stores/skin";
+import { applySkinToCss, clearSkinCss, resolveSkin, useSkinApplication } from "./skin";
+
+afterEach(() => cleanup());
 
 describe("resolveSkin", () => {
   it("returns light defaults when skin is null", () => {
@@ -38,5 +43,40 @@ describe("applySkinToCss / clearSkinCss", () => {
     clearSkinCss(root);
     expect(root.style.getPropertyValue("--bg")).toBe("");
     expect(root.style.getPropertyValue("--accent")).toBe("");
+  });
+});
+
+describe("useSkinApplication", () => {
+  it("applies tokens for active skin and clears on default", () => {
+    useSkinStore.setState({
+      skins: [{ id: "warm", name: "暖阳", base: "light", palette: { bg: "#faf8f5", accent: "#d4a04a" } }],
+      status: "ready",
+      activeId: "default",
+    });
+    renderHook(() => useSkinApplication());
+    const root = document.documentElement;
+
+    act(() => useSkinStore.setState({ activeId: "warm" }));
+    expect(root.style.getPropertyValue("--bg")).toBe("#faf8f5");
+    expect(root.style.getPropertyValue("--accent")).toBe("#d4a04a");
+    expect(root.style.getPropertyValue("--border")).toBe("rgba(17, 17, 17, 0.1)");
+
+    act(() => useSkinStore.setState({ activeId: "default" }));
+    expect(root.style.getPropertyValue("--bg")).toBe("");
+    expect(root.style.getPropertyValue("--accent")).toBe("");
+  });
+
+  it("clears css when active skin is missing", () => {
+    useSkinStore.setState({ skins: [], status: "ready", activeId: "ghost" });
+    renderHook(() => useSkinApplication());
+    expect(document.documentElement.style.getPropertyValue("--bg")).toBe("");
+  });
+
+  it("sends skin.list once when ws client becomes available", () => {
+    const sent: Array<Record<string, unknown>> = [];
+    useWS.setState({ client: { send: (m: Record<string, unknown>) => sent.push(m) } as never });
+    renderHook(() => useSkinApplication());
+    expect(sent).toEqual([{ type: "skin.list" }]);
+    useWS.setState({ client: null });
   });
 });

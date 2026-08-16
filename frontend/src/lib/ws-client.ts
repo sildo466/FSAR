@@ -70,6 +70,8 @@ export type ClientMsg =
   | { type: "onboarding.reset" }
   | { type: "style.patch"; patch: Record<string, unknown> }
   | { type: "style.set_theme"; theme: "light" | "dark" | "system" }
+  | { type: "skin.list" }
+  | { type: "skin.set_active"; skin_id: string }
   | { type: "mcp.list" }
   | { type: "mcp.reload"; server_name?: string }
   | { type: "mcp.toggle"; server_name: string; enabled: boolean }
@@ -251,6 +253,8 @@ export type ServerMsg =
   | { type: "tool.sandbox.escape_ack"; request_id: string; ok: boolean }
   | { type: "mcp.status"; servers: Array<{ name: string; command: string; args: string[]; enabled: boolean; risk: string; running: boolean }> }
   | { type: "style.changed"; style: Record<string, unknown>; by?: string }
+  | { type: "skin.list"; skins: Array<{ id: string; name: string; base: "light" | "dark"; palette: Record<string, string> }> }
+  | { type: "skin.changed"; skin_id: string }
   | { type: "card.list_result"; kind: string; cards: Array<Record<string, unknown>> }
   | { type: "card.got"; kind: string; card: Record<string, unknown> }
   | { type: "card.upserted"; kind: string; id: number }

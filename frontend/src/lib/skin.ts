@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MIT
+import { useEffect } from "react";
+import { useWS } from "../stores/ws";
+import { useSkinStore } from "../stores/skin";
+
 export type BaseMode = "light" | "dark";
 
 export const TOKENS = [
@@ -77,4 +81,35 @@ export function applySkinToCss(root: HTMLElement, tokens: TokenMap): void {
 
 export function clearSkinCss(root: HTMLElement): void {
   for (const { cssVar } of TOKENS) root.style.removeProperty(cssVar);
+}
+
+export function useSkinApplication(): void {
+  const client = useWS((s) => s.client);
+  const config = useWS((s) => s.config);
+  const activeId = useSkinStore((s) => s.activeId);
+  const skins = useSkinStore((s) => s.skins);
+
+  useEffect(() => {
+    if (!client) return;
+    useWS.getState().send({ type: "skin.list" });
+  }, [client]);
+
+  useEffect(() => {
+    const style = (config?.style ?? {}) as { skin_id?: unknown };
+    useSkinStore.getState().hydrate(style.skin_id);
+  }, [config]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (activeId === "default") {
+      clearSkinCss(root);
+      return;
+    }
+    const skin = skins.find((s) => s.id === activeId);
+    if (!skin) {
+      clearSkinCss(root);
+      return;
+    }
+    applySkinToCss(root, resolveSkin(skin));
+  }, [activeId, skins]);
 }

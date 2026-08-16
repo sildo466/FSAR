@@ -21,6 +21,7 @@ import { Scheduler } from "./pages/Scheduler";
 import { EscapeModal } from "./components/workspace/EscapeModal";
 import { useWorkspace } from "./stores/workspace";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
+import { useSkinApplication } from "./lib/skin";
 import { useLocaleApplication } from "./hooks/useLocaleApplication";
 import { useSpeechStore } from "./stores/speech";
 
@@ -92,6 +93,7 @@ export function App() {
   useMotionApplication();
   useFontScaleApplication();
   useLocaleApplication();
+  useSkinApplication();
 
   const config = useWS((s) => s.config) as Record<string, unknown> | null;
   const syncSpeechConfig = useSpeechStore((state) => state.syncConfig);

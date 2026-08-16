@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
 import { WSClient, type ServerMsg } from "../lib/ws-client";
+import { useSkinStore } from "./skin";
 
 type Status = "connecting" | "connected" | "disconnected";
 
@@ -117,6 +118,10 @@ export const useWS = create<WSStore>((set, get) => ({
             reflection: { ...reflection, intensity: msg.intensity },
           },
         });
+      } else if (msg.type === "skin.list") {
+        useSkinStore.getState().receiveList(msg.skins);
+      } else if (msg.type === "skin.changed") {
+        useSkinStore.setState({ activeId: msg.skin_id });
       }
     });
         client.connect();
