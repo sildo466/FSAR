@@ -20,7 +20,7 @@ export function Pill({ variant = "glass", size = "md", icon, loading, children, 
       disabled={disabled || loading}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-full font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
-        variant === "primary" && "bg-text text-bg shadow-[0_0_24px_var(--glow-soft)]",
+        variant === "primary" && "bg-accent text-bg shadow-[0_0_24px_var(--glow-soft)]",
         variant === "ghost" && "text-text-muted hover:bg-glass hover:text-text",
         variant === "glass" && "glass text-text",
         size === "sm" && "h-8 px-3 text-xs",

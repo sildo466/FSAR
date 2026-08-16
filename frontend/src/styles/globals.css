@@ -15,6 +15,7 @@
   --color-text-faint: var(--text-faint);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
   --font-sans: var(--font-body);
   --font-display: var(--font-display-family);
   --font-mono: var(--font-mono-family);
@@ -68,6 +69,7 @@
   --success: #16865b;
   --warning: #ad7414;
   --danger: #b94a4a;
+  --accent: #111111;
   --font-body: "DM Sans Variable", "Inter Variable", sans-serif;
   --font-display-family: "Fraunces Variable", "Geist Sans Variable", serif;
   --font-mono-family: "JetBrains Mono Variable", "Geist Mono Variable", monospace;
@@ -91,6 +93,7 @@
     --success: #55d39c;
     --warning: #f3bb54;
     --danger: #f08080;
+    --accent: #f5f5f5;
   }
 }
 
@@ -108,6 +111,7 @@
   --glass-border: rgba(255, 255, 255, 0.12);
   --glow-soft: rgba(255, 255, 255, 0.18);
   --glow-faint: rgba(255, 255, 255, 0.07);
+  --accent: #f5f5f5;
 }
 
 :root[data-theme="light"] {
@@ -124,6 +128,7 @@
   --glass-border: rgba(17, 17, 17, 0.12);
   --glow-soft: rgba(17, 17, 17, 0.14);
   --glow-faint: rgba(17, 17, 17, 0.07);
+  --accent: #111111;
 }
 
 :root[data-font-set="A"] { --font-body: "JetBrains Mono Variable", monospace; --font-display-family: "Geist Sans Variable", sans-serif; }
