@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useWS } from "../../stores/ws";
 import { useUI, type Theme, type Density, type Motion, type FontSet } from "../../stores/ui";
+import { useSkinStore } from "../../stores/skin";
 import { Capsule, Input, Pill } from "../ui/primitives";
 import { LanguageSection } from "./LanguageSection";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,9 @@ export function StyleTab() {
   const setFontSet = useUI((s) => s.setFontSet);
   const overrides = useUI((s) => s.perPageOverrides);
   const setOverrideStore = useUI((s) => s.setOverride);
+  const skins = useSkinStore((s) => s.skins);
+  const activeId = useSkinStore((s) => s.activeId);
+  const setActive = useSkinStore((s) => s.setActive);
   const [overridePage, setOverridePage] = useState<string>(PAGES[0]);
 
   function setThemeBoth(t: Theme) {
@@ -65,12 +69,30 @@ export function StyleTab() {
       </Capsule>
       <LanguageSection />
       <Capsule className="flex flex-col gap-2">
+        <h2 className="font-display text-sm font-semibold">{t("settings.style.skin")}</h2>
+        <select
+          value={activeId}
+          onChange={(e) => setActive(send, e.target.value)}
+          className="bg-bg border border-border rounded px-2 h-7 text-[12px] font-mono"
+        >
+          <option value="default">{t("settings.style.skin.default")}</option>
+          {skins.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+        {activeId !== "default" && (
+          <p className="text-[11px] text-text-muted">{t("settings.style.skin.overridden")}</p>
+        )}
+      </Capsule>
+
+      <Capsule className="flex flex-col gap-2">
         <h2 className="font-display text-sm font-semibold">{t("settings.style.theme")}</h2>
         <div className="flex items-center gap-2">
           {(["light", "dark", "system"] as const).map((m) => (
             <Pill
               key={m}
               onClick={() => setThemeBoth(m)}
+              disabled={activeId !== "default"}
               variant={theme === m ? "primary" : "glass"}
               size="sm"
             >
