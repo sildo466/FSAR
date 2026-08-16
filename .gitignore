@@ -88,3 +88,13 @@ docs/
 # 根级调试日志（*.log 已覆盖 .log 后缀）
 /comparelog.txt
 /@AutomationLog.txt
+
+# 内置皮肤预设（随产品分发）；用户自建皮肤保持忽略
+!data/skins/
+data/skins/*
+!data/skins/warm/
+!data/skins/warm/skin.json
+!data/skins/night/
+!data/skins/night/skin.json
+!data/skins/minimal/
+!data/skins/minimal/skin.json

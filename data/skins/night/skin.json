@@ -1,0 +1,25 @@
+{
+  "id": "night",
+  "name": "暗紫",
+  "version": 1,
+  "base": "dark",
+  "palette": {
+    "bg": "#14121a",
+    "surface": "#1e1b28",
+    "surface2": "#2a2636",
+    "text": "#efe9f6",
+    "textMuted": "#a89fb9",
+    "textFaint": "#6f6582",
+    "border": "rgba(167, 139, 250, 0.18)",
+    "borderStrong": "rgba(167, 139, 250, 0.34)",
+    "glass": "rgba(40, 36, 52, 0.62)",
+    "glassStrong": "rgba(52, 47, 68, 0.92)",
+    "glassBorder": "rgba(167, 139, 250, 0.2)",
+    "glowSoft": "rgba(167, 139, 250, 0.2)",
+    "glowFaint": "rgba(167, 139, 250, 0.09)",
+    "success": "#7bc98f",
+    "warning": "#e0b357",
+    "danger": "#e07a7a",
+    "accent": "#a78bfa"
+  }
+}

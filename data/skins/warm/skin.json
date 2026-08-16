@@ -1,0 +1,25 @@
+{
+  "id": "warm",
+  "name": "暖阳",
+  "version": 1,
+  "base": "light",
+  "palette": {
+    "bg": "#faf8f5",
+    "surface": "#ffffff",
+    "surface2": "rgba(120, 90, 40, 0.04)",
+    "text": "#2a2a2a",
+    "textMuted": "#8a8172",
+    "textFaint": "#b3aa9a",
+    "border": "rgba(170, 126, 60, 0.22)",
+    "borderStrong": "rgba(170, 126, 60, 0.36)",
+    "glass": "rgba(255, 253, 250, 0.62)",
+    "glassStrong": "rgba(255, 252, 246, 0.9)",
+    "glassBorder": "rgba(180, 140, 80, 0.2)",
+    "glowSoft": "rgba(212, 160, 74, 0.18)",
+    "glowFaint": "rgba(212, 160, 74, 0.08)",
+    "success": "#3f8f5f",
+    "warning": "#c08a2d",
+    "danger": "#c0503a",
+    "accent": "#d4a04a"
+  }
+}

@@ -30,6 +30,7 @@ from src.server.handlers import provider as provider_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
 from src.server.handlers import settings as settings_handler
+from src.server.handlers import skin as skin_handler
 from src.server.handlers import tts as tts_handler
 from src.server.handlers import skill_install as skill_install_handler
 from src.server.handlers import sandbox as sandbox_handler
@@ -491,6 +492,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await ws.send_json({
         "type": "snapshot",
         "config": _config._settings,
+        "skin_id": _config.get("style.skin_id", "default"),
         "chat_models": model_items + integration_items,
         "selected_chat_model": _config.chat_default_model,
         "onboarding": {
@@ -540,6 +542,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await settings_handler.dispatch(ws, msg, _config, _engine):
         if social_before is not None and social_before != _config.get("social", {}):
             await _reload_social()
+        return
+    if await skin_handler.dispatch(ws, msg, _config):
         return
     if await tts_handler.dispatch(ws, msg, _config):
         return
