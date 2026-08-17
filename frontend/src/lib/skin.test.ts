@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useWS } from "../stores/ws";
 import { useSkinStore } from "../stores/skin";
-import { applySkinToCss, clearSkinCss, resolveSkin, useSkinApplication } from "./skin";
+import { applyBackgroundToCss, applySkinToCss, clearSkinCss, resolveBackground, resolveSkin, toRgba, useSkinApplication } from "./skin";
 
 afterEach(() => cleanup());
 
@@ -78,5 +78,45 @@ describe("useSkinApplication", () => {
     renderHook(() => useSkinApplication());
     expect(sent).toEqual([{ type: "skin.list" }]);
     useWS.setState({ client: null });
+  });
+});
+
+describe("toRgba", () => {
+  it("parses hex short / hex long / rgb / rgba", () => {
+    expect(toRgba("#fa8", 0.5)).toBe("rgba(255, 170, 136, 0.5)");
+    expect(toRgba("#faf8f5", 0.85)).toBe("rgba(250, 248, 245, 0.85)");
+    expect(toRgba("rgb(17, 17, 17)", 0.1)).toBe("rgba(17, 17, 17, 0.1)");
+    expect(toRgba("rgba(255, 255, 255, 0.72)", 0.3)).toBe("rgba(255, 255, 255, 0.3)");
+  });
+  it("returns null for unparseable input", () => {
+    expect(toRgba("bogus", 0.5)).toBeNull();
+  });
+});
+
+describe("resolveBackground", () => {
+  it("builds overlay from bg color at chatOverlay alpha", () => {
+    const r = resolveBackground("#faf8f5", { chatImage: "/skin-assets/warm/bg.png", chatOverlay: 0.88 });
+    expect(r.chatImage).toBe("/skin-assets/warm/bg.png");
+    expect(r.overlay).toBe("rgba(250, 248, 245, 0.88)");
+  });
+  it("defaults alpha to 0.85 and clamps", () => {
+    expect(resolveBackground("#000", { chatImage: "x" }).overlay).toBe("rgba(0, 0, 0, 0.85)");
+    expect(resolveBackground("#000", { chatImage: "x", chatOverlay: 2 }).overlay).toBe("rgba(0, 0, 0, 1)");
+  });
+  it("returns nulls when no image", () => {
+    expect(resolveBackground("#faf8f5", undefined)).toEqual({ chatImage: null, overlay: null });
+    expect(resolveBackground("#faf8f5", { chatImage: "", chatOverlay: 0.85 })).toEqual({ chatImage: null, overlay: null });
+  });
+});
+
+describe("applyBackgroundToCss", () => {
+  it("writes image+overlay vars and removes them when empty", () => {
+    const root = document.documentElement;
+    applyBackgroundToCss(root, { chatImage: "/skin-assets/warm/bg.png", overlay: "rgba(250, 248, 245, 0.88)" });
+    expect(root.style.getPropertyValue("--chat-bg-image")).toBe('url("/skin-assets/warm/bg.png")');
+    expect(root.style.getPropertyValue("--chat-bg-overlay")).toBe("rgba(250, 248, 245, 0.88)");
+    applyBackgroundToCss(root, { chatImage: null, overlay: null });
+    expect(root.style.getPropertyValue("--chat-bg-image")).toBe("");
+    expect(root.style.getPropertyValue("--chat-bg-overlay")).toBe("");
   });
 });

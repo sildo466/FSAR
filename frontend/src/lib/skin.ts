@@ -81,6 +81,62 @@ export function applySkinToCss(root: HTMLElement, tokens: TokenMap): void {
 
 export function clearSkinCss(root: HTMLElement): void {
   for (const { cssVar } of TOKENS) root.style.removeProperty(cssVar);
+  root.style.removeProperty("--chat-bg-image");
+  root.style.removeProperty("--chat-bg-overlay");
+}
+
+export interface SkinBackground {
+  chatImage: string;
+  chatOverlay: number;
+}
+
+export interface ResolvedBackground {
+  chatImage: string | null;
+  overlay: string | null;
+}
+
+export function toRgba(color: string, alpha: number): string | null {
+  const s = color.trim();
+  let m: RegExpMatchArray | null;
+  if ((m = s.match(/^#([0-9a-f]{3})$/i))) {
+    const [r, g, b] = [...m[1]].map((c) => parseInt(c + c, 16));
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if ((m = s.match(/^#([0-9a-f]{6})$/i))) {
+    return `rgba(${parseInt(m[1].slice(0, 2), 16)}, ${parseInt(m[1].slice(2, 4), 16)}, ${parseInt(m[1].slice(4, 6), 16)}, ${alpha})`;
+  }
+  if ((m = s.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/i))) {
+    return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`;
+  }
+  if ((m = s.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)$/i))) {
+    return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`;
+  }
+  return null;
+}
+
+export function resolveBackground(
+  bgColor: string,
+  background: Partial<SkinBackground> | undefined,
+): ResolvedBackground {
+  const img = background?.chatImage;
+  if (!img) return { chatImage: null, overlay: null };
+  const raw = background?.chatOverlay ?? 0.85;
+  const clamped = Math.min(1, Math.max(0, raw));
+  const overlay = toRgba(bgColor, clamped);
+  return { chatImage: img, overlay };
+}
+
+export function applyBackgroundToCss(root: HTMLElement, resolved: ResolvedBackground): void {
+  if (resolved.chatImage) {
+    root.style.setProperty("--chat-bg-image", `url("${resolved.chatImage}")`);
+  } else {
+    root.style.removeProperty("--chat-bg-image");
+  }
+  if (resolved.overlay) {
+    root.style.setProperty("--chat-bg-overlay", resolved.overlay);
+  } else {
+    root.style.removeProperty("--chat-bg-overlay");
+  }
 }
 
 export function useSkinApplication(): void {
@@ -110,6 +166,8 @@ export function useSkinApplication(): void {
       clearSkinCss(root);
       return;
     }
-    applySkinToCss(root, resolveSkin(skin));
+    const tokens = resolveSkin(skin);
+    applySkinToCss(root, tokens);
+    applyBackgroundToCss(root, resolveBackground(tokens.bg, skin.background));
   }, [activeId, skins]);
 }
