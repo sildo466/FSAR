@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
-import type { SkinBackground, TokenKey } from "../lib/skin";
+import type { SkinBackground, SkinElementsInput, SkinPatternInput, TokenKey } from "../lib/skin";
 
 export interface Skin {
   id: string;
@@ -8,6 +8,8 @@ export interface Skin {
   base: "light" | "dark";
   palette: Partial<Record<TokenKey, string>>;
   background?: Partial<SkinBackground>;
+  elements?: SkinElementsInput;
+  pattern?: SkinPatternInput;
 }
 
 interface SkinState {

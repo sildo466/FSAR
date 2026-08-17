@@ -28,6 +28,31 @@ export const TOKENS = [
 export type TokenKey = (typeof TOKENS)[number]["key"];
 export type TokenMap = Record<TokenKey, string>;
 
+export const ELEMENT_KEYS = {
+  input: ["bg", "border", "text"],
+  button: ["bg", "text", "hover", "image", "imageOpacity"],
+  switch: ["on", "off", "thumb"],
+  chip: ["bg", "border"],
+  card: ["bg", "border", "image", "imageOpacity"],
+} as const;
+export type ElementName = keyof typeof ELEMENT_KEYS;
+export type SkinElementsInput = Partial<Record<ElementName, Partial<Record<string, unknown>>>>;
+
+export interface ElementTokens {
+  input: { bg: string; border: string; text: string };
+  button: { bg: string; text: string; hover: string; image: string | null; imageOpacity: number };
+  switch: { on: string; off: string; thumb: string };
+  chip: { bg: string; border: string };
+  card: { bg: string; border: string; image: string | null; imageOpacity: number };
+}
+export interface PatternTokens { image: string | null; opacity: number; }
+export type SkinPatternInput = Partial<PatternTokens>;
+export interface ResolvedSkin {
+  colors: TokenMap;
+  elements: ElementTokens;
+  pattern: PatternTokens;
+}
+
 export const DEFAULT_TOKENS: Record<BaseMode, TokenMap> = {
   light: {
     bg: "#f5f5f2",
@@ -69,18 +94,107 @@ export const DEFAULT_TOKENS: Record<BaseMode, TokenMap> = {
   },
 };
 
-export function resolveSkin(skin: { base?: string; palette?: Partial<TokenMap> } | null): TokenMap {
-  if (!skin) return { ...DEFAULT_TOKENS.light };
-  const base: BaseMode = skin.base === "dark" ? "dark" : "light";
-  return { ...DEFAULT_TOKENS[base], ...(skin.palette ?? {}) };
+function clamp01(n: unknown, fallback: number): number {
+  if (typeof n !== "number" || Number.isNaN(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
+}
+function str(v: unknown): string | null {
+  return typeof v === "string" && v !== "" ? v : null;
 }
 
-export function applySkinToCss(root: HTMLElement, tokens: TokenMap): void {
-  for (const { key, cssVar } of TOKENS) root.style.setProperty(cssVar, tokens[key]);
+export function resolveSkin(skin: {
+  base?: string;
+  palette?: Partial<TokenMap>;
+  elements?: SkinElementsInput;
+  pattern?: SkinPatternInput;
+} | null): ResolvedSkin {
+  if (!skin) {
+    const colors = { ...DEFAULT_TOKENS.light };
+    return { colors, elements: deriveElements(colors, undefined), pattern: { image: null, opacity: 0.06 } };
+  }
+  const base: BaseMode = skin.base === "dark" ? "dark" : "light";
+  const colors = { ...DEFAULT_TOKENS[base], ...(skin.palette ?? {}) };
+  const elements = deriveElements(colors, skin.elements);
+  const pattern: PatternTokens = {
+    image: str(skin.pattern?.image),
+    opacity: clamp01(skin.pattern?.opacity, 0.06),
+  };
+  return { colors, elements, pattern };
+}
+
+function deriveElements(colors: TokenMap, overrides: SkinElementsInput | undefined): ElementTokens {
+  const o = overrides ?? {};
+  const inputO = o.input ?? {};
+  const buttonO = o.button ?? {};
+  const switchO = o.switch ?? {};
+  const chipO = o.chip ?? {};
+  const cardO = o.card ?? {};
+  return {
+    input: {
+      bg: str(inputO.bg) ?? colors.glass,
+      border: str(inputO.border) ?? colors.glassBorder,
+      text: str(inputO.text) ?? colors.text,
+    },
+    button: {
+      bg: str(buttonO.bg) ?? colors.accent,
+      text: str(buttonO.text) ?? colors.bg,
+      hover: str(buttonO.hover) ?? colors.accent,
+      image: str(buttonO.image),
+      imageOpacity: clamp01(buttonO.imageOpacity, 1),
+    },
+    switch: {
+      on: str(switchO.on) ?? colors.accent,
+      off: str(switchO.off) ?? colors.borderStrong,
+      thumb: str(switchO.thumb) ?? colors.surface2,
+    },
+    chip: {
+      bg: str(chipO.bg) ?? colors.glowFaint,
+      border: str(chipO.border) ?? colors.border,
+    },
+    card: {
+      bg: str(cardO.bg) ?? colors.glass,
+      border: str(cardO.border) ?? colors.glassBorder,
+      image: str(cardO.image),
+      imageOpacity: clamp01(cardO.imageOpacity, 1),
+    },
+  };
+}
+
+const ELEMENT_VAR_MAP: Array<[string, (e: ElementTokens) => string]> = [
+  ["--input-bg", (e) => e.input.bg],
+  ["--input-border", (e) => e.input.border],
+  ["--input-text", (e) => e.input.text],
+  ["--button-bg", (e) => e.button.bg],
+  ["--button-text", (e) => e.button.text],
+  ["--button-hover", (e) => e.button.hover],
+  ["--button-bg-image", (e) => e.button.image ? `url("${e.button.image}")` : "none"],
+  ["--button-bg-opacity", (e) => String(e.button.imageOpacity)],
+  ["--switch-on", (e) => e.switch.on],
+  ["--switch-off", (e) => e.switch.off],
+  ["--switch-thumb", (e) => e.switch.thumb],
+  ["--chip-bg", (e) => e.chip.bg],
+  ["--chip-border", (e) => e.chip.border],
+  ["--card-bg", (e) => e.card.bg],
+  ["--card-border", (e) => e.card.border],
+  ["--card-bg-image", (e) => e.card.image ? `url("${e.card.image}")` : "none"],
+  ["--card-bg-opacity", (e) => String(e.card.imageOpacity)],
+] as const;
+
+export function applySkinToCss(root: HTMLElement, resolved: ResolvedSkin): void {
+  for (const { key, cssVar } of TOKENS) root.style.setProperty(cssVar, resolved.colors[key]);
+  for (const [cssVar, pick] of ELEMENT_VAR_MAP) root.style.setProperty(cssVar, pick(resolved.elements));
+  if (resolved.pattern.image) {
+    const tint = toRgba(resolved.colors.bg, 1 - resolved.pattern.opacity) ?? "rgba(0,0,0,0.94)";
+    root.style.setProperty("--app-texture", `linear-gradient(${tint}, ${tint}), url("${resolved.pattern.image}")`);
+  } else {
+    root.style.removeProperty("--app-texture");
+  }
 }
 
 export function clearSkinCss(root: HTMLElement): void {
   for (const { cssVar } of TOKENS) root.style.removeProperty(cssVar);
+  for (const [cssVar] of ELEMENT_VAR_MAP) root.style.removeProperty(cssVar);
+  root.style.removeProperty("--app-texture");
   root.style.removeProperty("--chat-bg-image");
   root.style.removeProperty("--chat-bg-overlay");
 }
@@ -169,8 +283,8 @@ export function useSkinApplication(): void {
       clearSkinCss(root);
       return;
     }
-    const tokens = resolveSkin(skin);
-    applySkinToCss(root, tokens);
-    applyBackgroundToCss(root, resolveBackground(tokens.bg, skin.background));
+    const resolved = resolveSkin(skin);
+    applySkinToCss(root, resolved);
+    applyBackgroundToCss(root, resolveBackground(resolved.colors.bg, skin.background));
   }, [activeId, skins]);
 }
