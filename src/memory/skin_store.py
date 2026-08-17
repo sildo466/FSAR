@@ -52,8 +52,43 @@ def list_skins(base_dir: str | Path) -> list[dict[str, Any]]:
             overlay = background_raw.get("chatOverlay")
             if isinstance(overlay, (int, float)) and not isinstance(overlay, bool):
                 background["chatOverlay"] = max(0.0, min(1.0, float(overlay)))
+        _ELEMENT_KEYS = {
+            "input": {"bg", "border", "text"},
+            "button": {"bg", "text", "hover", "image", "imageOpacity"},
+            "switch": {"on", "off", "thumb"},
+            "chip": {"bg", "border"},
+            "card": {"bg", "border", "image", "imageOpacity"},
+        }
+        elements_raw = raw.get("elements") or {}
+        elements: dict[str, Any] = {}
+        if isinstance(elements_raw, dict):
+            for el, fields_raw in elements_raw.items():
+                if el not in _ELEMENT_KEYS or not isinstance(fields_raw, dict):
+                    continue
+                out: dict[str, Any] = {}
+                for k, v in fields_raw.items():
+                    if k not in _ELEMENT_KEYS[el]:
+                        continue
+                    if k == "imageOpacity":
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            out[k] = max(0.0, min(1.0, float(v)))
+                    elif isinstance(v, str):
+                        out[k] = v
+                if out:
+                    elements[el] = out
+
+        pattern_raw = raw.get("pattern") or {}
+        pattern: dict[str, Any] = {}
+        if isinstance(pattern_raw, dict):
+            img = pattern_raw.get("image")
+            if isinstance(img, str) and img:
+                pattern["image"] = img
+            op = pattern_raw.get("opacity")
+            if isinstance(op, (int, float)) and not isinstance(op, bool):
+                pattern["opacity"] = max(0.0, min(1.0, float(op)))
         skins.append({
             "id": entry.name, "name": raw["name"], "base": base,
             "palette": palette, "background": background,
+            "elements": elements, "pattern": pattern,
         })
     return skins
