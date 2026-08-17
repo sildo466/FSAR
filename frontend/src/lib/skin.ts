@@ -184,10 +184,11 @@ export function applySkinToCss(root: HTMLElement, resolved: ResolvedSkin): void 
   for (const { key, cssVar } of TOKENS) root.style.setProperty(cssVar, resolved.colors[key]);
   for (const [cssVar, pick] of ELEMENT_VAR_MAP) root.style.setProperty(cssVar, pick(resolved.elements));
   if (resolved.pattern.image) {
-    const tint = toRgba(resolved.colors.bg, 1 - resolved.pattern.opacity) ?? "rgba(0,0,0,0.94)";
-    root.style.setProperty("--app-texture", `linear-gradient(${tint}, ${tint}), url("${resolved.pattern.image}")`);
+    root.style.setProperty("--app-texture", `url("${resolved.pattern.image}")`);
+    root.style.setProperty("--app-texture-opacity", String(resolved.pattern.opacity));
   } else {
     root.style.removeProperty("--app-texture");
+    root.style.removeProperty("--app-texture-opacity");
   }
 }
 
@@ -195,6 +196,7 @@ export function clearSkinCss(root: HTMLElement): void {
   for (const { cssVar } of TOKENS) root.style.removeProperty(cssVar);
   for (const [cssVar] of ELEMENT_VAR_MAP) root.style.removeProperty(cssVar);
   root.style.removeProperty("--app-texture");
+  root.style.removeProperty("--app-texture-opacity");
   root.style.removeProperty("--chat-bg-image");
   root.style.removeProperty("--chat-bg-overlay");
 }

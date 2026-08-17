@@ -163,3 +163,19 @@ describe("resolveSkin elements", () => {
     clearSkinCss(root);
   });
 });
+
+describe("apply pattern tokens", () => {
+  it("writes url + opacity vars and removes them when no image", () => {
+    const root = document.documentElement;
+    const r = resolveSkin({ base: "light", pattern: { image: "/pat.png", opacity: 0.5 } });
+    applySkinToCss(root, r);
+    expect(root.style.getPropertyValue("--app-texture")).toBe('url("/pat.png")');
+    expect(root.style.getPropertyValue("--app-texture-opacity")).toBe("0.5");
+    // 空 image → 双变量整体移除（无 tint 残留）
+    applySkinToCss(root, resolveSkin({ base: "light", pattern: { image: "", opacity: 0.5 } }));
+    expect(root.style.getPropertyValue("--app-texture")).toBe("");
+    expect(root.style.getPropertyValue("--app-texture-opacity")).toBe("");
+    clearSkinCss(root);
+    expect(root.style.getPropertyValue("--app-texture-opacity")).toBe("");
+  });
+});
