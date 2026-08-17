@@ -70,6 +70,24 @@
   --warning: #ad7414;
   --danger: #b94a4a;
   --accent: #111111;
+  --input-bg: var(--glass);
+  --input-border: var(--glass-border);
+  --input-text: var(--text);
+  --button-bg: var(--accent);
+  --button-text: var(--bg);
+  --button-hover: var(--accent);
+  --button-bg-image: none;
+  --button-bg-opacity: 1;
+  --switch-on: var(--accent);
+  --switch-off: var(--border-strong);
+  --switch-thumb: var(--surface-2);
+  --chip-bg: var(--glow-faint);
+  --chip-border: var(--border);
+  --card-bg: var(--glass);
+  --card-border: var(--glass-border);
+  --card-bg-image: none;
+  --card-bg-opacity: 1;
+  --app-texture: none;
   --font-body: "DM Sans Variable", "Inter Variable", sans-serif;
   --font-display-family: "Fraunces Variable", "Geist Sans Variable", serif;
   --font-mono-family: "JetBrains Mono Variable", "Geist Mono Variable", monospace;
@@ -184,6 +202,7 @@ body::before {
   pointer-events: none;
   z-index: -1;
   background:
+    var(--app-texture, none),
     radial-gradient(circle at 12% 8%, var(--glow-faint), transparent 30%),
     radial-gradient(circle at 86% 82%, var(--glow-faint), transparent 34%);
 }
@@ -250,4 +269,22 @@ body::before {
     var(--chat-bg-image, none);
   background-size: cover;
   background-position: center;
+}
+
+/* 逐元素贴图：纹理叠底色上、文字之下（isolation 保证 z-index:-1 不出组件） */
+.button-tex { position: relative; isolation: isolate; overflow: hidden; }
+.button-tex::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background-image: var(--button-bg-image, none);
+  background-size: cover; background-position: center;
+  opacity: var(--button-bg-opacity, 1);
+  pointer-events: none;
+}
+.card-tex { position: relative; isolation: isolate; overflow: hidden; }
+.card-tex::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background-image: var(--card-bg-image, none);
+  background-size: cover; background-position: center;
+  opacity: var(--card-bg-opacity, 1);
+  pointer-events: none;
 }
