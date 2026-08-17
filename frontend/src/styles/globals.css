@@ -88,6 +88,7 @@
   --card-bg-image: none;
   --card-bg-opacity: 1;
   --app-texture: none;
+  --app-texture-opacity: 0.06;
   --font-body: "DM Sans Variable", "Inter Variable", sans-serif;
   --font-display-family: "Fraunces Variable", "Geist Sans Variable", serif;
   --font-mono-family: "JetBrains Mono Variable", "Geist Mono Variable", monospace;
@@ -202,14 +203,24 @@ body::before {
   pointer-events: none;
   z-index: -1;
   background:
-    var(--app-texture, none),
     radial-gradient(circle at 12% 8%, var(--glow-faint), transparent 30%),
     radial-gradient(circle at 86% 82%, var(--glow-faint), transparent 34%);
 }
 
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image: var(--app-texture, none);
+  background-repeat: repeat;
+  opacity: var(--app-texture-opacity, 0.06);
+}
+
 .glass {
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   backdrop-filter: blur(22px) saturate(120%);
   -webkit-backdrop-filter: blur(22px) saturate(120%);
 }
