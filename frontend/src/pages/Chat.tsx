@@ -516,8 +516,9 @@ export function Chat() {
   const isIdle = messages.length === 0 && pendingRisks.length === 0;
 
   return (
-    <div className="flex h-full">
-      <div className="flex min-w-0 flex-1 flex-col rounded-[28px] bg-[color:var(--glass)]/20">
+    <div className="relative flex h-full">
+      <div className="chat-wallpaper" aria-hidden />
+      <div className="relative flex min-w-0 flex-1 flex-col rounded-[28px] bg-[color:var(--glass)]/20">
         <AgentActivity agents={agentStatuses} />
         {isIdle ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8">

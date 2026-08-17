@@ -241,3 +241,17 @@ body::before {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Chat 壁纸层：皮肤底图 + overlay 渐变；无图时回落纯 --bg */
+.chat-wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--chat-bg-overlay, transparent), var(--chat-bg-overlay, transparent)),
+    var(--chat-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+}
