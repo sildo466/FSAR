@@ -40,7 +40,7 @@ export function IntegrationTestPanel({ integrationId }: { integrationId: number 
           <div className="flex items-center gap-2 font-display text-lg font-semibold"><FlaskConical size={17} /> {t("integration.testChamber")}</div>
           <p className="mt-1 text-[11px] text-text-muted">{t("integration.testChamberDesc")}</p>
         </div>
-        <div className="flex rounded-full bg-[var(--glow-faint)] p-1 text-[10px] font-mono uppercase tracking-[0.1em]">
+        <div className="flex rounded-full bg-[var(--chip-bg)] p-1 text-[10px] font-mono uppercase tracking-[0.1em]">
           <label className={`cursor-pointer rounded-full px-3 py-1.5 ${mode === "replay" ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}>
             <input className="sr-only" type="radio" checked={mode === "replay"} onChange={() => setMode("replay")} /> {t("integration.replayActual")}
           </label>
@@ -49,7 +49,7 @@ export function IntegrationTestPanel({ integrationId }: { integrationId: number 
           </label>
         </div>
       </div>
-      <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("integration.testMessagePlaceholder")} rows={4} className="mt-4 w-full resize-y rounded-[20px] bg-[var(--glow-faint)] px-4 py-3 text-[13px] leading-relaxed outline-none" />
+      <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder={t("integration.testMessagePlaceholder")} rows={4} className="mt-4 w-full resize-y rounded-[20px] bg-[var(--chip-bg)] px-4 py-3 text-[13px] leading-relaxed outline-none" />
       <button type="button" disabled={running} onClick={run} className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-text py-2.5 text-[11px] font-semibold text-bg transition hover:scale-[1.01] disabled:opacity-50">
         {running ? <RotateCcw size={14} className="animate-spin" /> : <Play size={14} />} {t("integration.runOnce")}
       </button>
@@ -67,7 +67,7 @@ export function IntegrationTestPanel({ integrationId }: { integrationId: number 
               </ul>
             </div>
           )}
-          {result?.final_reply && <div className="rounded-2xl bg-[var(--glow-faint)] p-3 leading-relaxed"><InlineMarkdown>{result.final_reply}</InlineMarkdown></div>}
+          {result?.final_reply && <div className="rounded-2xl bg-[var(--chip-bg)] p-3 leading-relaxed"><InlineMarkdown>{result.final_reply}</InlineMarkdown></div>}
         </div>
       )}
     </section>

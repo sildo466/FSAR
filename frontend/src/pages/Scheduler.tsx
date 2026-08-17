@@ -38,10 +38,10 @@ type Tab = "jobs" | "runs" | "system";
 
 const FIELD_LABEL = "font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted";
 const FIELD_INPUT =
-  "mt-1 w-full bg-[var(--glow-faint)] px-3 py-2 text-sm text-text outline-none placeholder:text-text-faint";
+  "mt-1 w-full bg-[var(--input-bg)] px-3 py-2 text-sm text-text outline-none placeholder:text-text-faint";
 const PANEL = "glass rounded-[24px] p-5";
 const TABLE_HEAD =
-  "border-b border-[var(--border)] bg-[var(--glow-faint)] text-left text-text-muted";
+  "border-b border-[var(--border)] bg-[var(--chip-bg)] text-left text-text-muted";
 const BTN_GHOST =
   "glass flex items-center gap-2 rounded-full px-4 py-1.5 text-sm text-text-muted transition hover:text-text";
 
@@ -493,7 +493,7 @@ export function Scheduler() {
                             ? "bg-[var(--success)]/10 text-[var(--success)]"
                             : r.status === "error"
                               ? "bg-[var(--danger)]/10 text-[var(--danger)]"
-                              : "bg-[var(--glow-faint)] text-text-muted"
+                              : "bg-[var(--chip-bg)] text-text-muted"
                         }`}
                       >
                         {r.status}
@@ -541,7 +541,7 @@ export function Scheduler() {
                         className={`rounded-full px-3 py-1 text-xs transition ${
                           j.enabled
                             ? "bg-[var(--success)]/10 text-[var(--success)]"
-                            : "bg-[var(--glow-faint)] text-text-muted"
+                            : "bg-[var(--chip-bg)] text-text-muted"
                         }`}
                       >
                         {j.enabled ? t("scheduler.toggle.on") : t("scheduler.toggle.off")}

@@ -100,7 +100,7 @@ export function IntegrationEditor({ intg, integrations = [], onSaved, onDeleted 
             [t("integration.maxSubs"), "max_subs_picked", 0, 20],
             [t("integration.maxDepth"), "max_depth", 1, 8],
           ].map(([label, key, min, max]) => (
-            <label key={String(key)} className="rounded-2xl bg-[var(--glow-faint)] px-4 py-3 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
+            <label key={String(key)} className="rounded-2xl bg-[var(--chip-bg)] px-4 py-3 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
               {label}
               <input type="number" min={Number(min)} max={Number(max)} value={Number(draft[key as keyof IntegrationDraft])} onChange={(event) => setDraft({ ...draft, [key]: Number(event.target.value) })} className="mt-1 w-full bg-transparent font-display text-xl text-text outline-none" />
             </label>
@@ -113,30 +113,30 @@ export function IntegrationEditor({ intg, integrations = [], onSaved, onDeleted 
         <div className="grid gap-3 md:grid-cols-2">
           <label className="md:col-span-2 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
             {t("integration.baseUrl")}
-            <input aria-label={t("integration.mainBaseUrl")} value={draft.main_model?.base_url ?? ""} onChange={(event) => updateMain({ base_url: event.target.value })} placeholder="https://api.example.com/v1" className="mt-1 w-full rounded-2xl bg-[var(--glow-faint)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
+            <input aria-label={t("integration.mainBaseUrl")} value={draft.main_model?.base_url ?? ""} onChange={(event) => updateMain({ base_url: event.target.value })} placeholder="https://api.example.com/v1" className="mt-1 w-full rounded-2xl bg-[var(--input-bg)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
           </label>
           <label className="text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
             {t("integration.providerName")}
-            <input aria-label={t("integration.mainProviderName")} value={draft.main_model?.provider ?? ""} onChange={(event) => updateMain({ provider: event.target.value })} placeholder="openai" className="mt-1 w-full rounded-2xl bg-[var(--glow-faint)] px-4 py-3 text-[12px] normal-case tracking-normal text-text outline-none" />
+            <input aria-label={t("integration.mainProviderName")} value={draft.main_model?.provider ?? ""} onChange={(event) => updateMain({ provider: event.target.value })} placeholder="openai" className="mt-1 w-full rounded-2xl bg-[var(--input-bg)] px-4 py-3 text-[12px] normal-case tracking-normal text-text outline-none" />
           </label>
           <label className="text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
             {t("integration.modelId")}
-            <input aria-label={t("integration.mainModelId")} value={draft.main_model?.model ?? ""} onChange={(event) => updateMain({ model: event.target.value })} placeholder="gpt-4o-mini" className="mt-1 w-full rounded-2xl bg-[var(--glow-faint)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
+            <input aria-label={t("integration.mainModelId")} value={draft.main_model?.model ?? ""} onChange={(event) => updateMain({ model: event.target.value })} placeholder="gpt-4o-mini" className="mt-1 w-full rounded-2xl bg-[var(--input-bg)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
           </label>
           <label className="md:col-span-2 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
             {t("integration.apiKey")}
-            <input aria-label={t("integration.mainApiKey")} type="password" autoComplete="off" value={draft.main_model?.api_key ?? ""} onChange={(event) => updateMain({ api_key: event.target.value })} placeholder={t("integration.apiKeyPlaceholder")} className="mt-1 w-full rounded-2xl bg-[var(--glow-faint)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
+            <input aria-label={t("integration.mainApiKey")} type="password" autoComplete="off" value={draft.main_model?.api_key ?? ""} onChange={(event) => updateMain({ api_key: event.target.value })} placeholder={t("integration.apiKeyPlaceholder")} className="mt-1 w-full rounded-2xl bg-[var(--input-bg)] px-4 py-3 font-mono text-[12px] normal-case tracking-normal text-text outline-none" />
           </label>
           <label className="md:col-span-2 text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
             {t("integration.protocol")}
-            <select aria-label={t("integration.mainProtocol")} value={draft.main_model?.protocol ?? ""} onChange={(event) => updateMain({ protocol: event.target.value })} className="mt-1 w-full rounded-2xl bg-[var(--glow-faint)] px-4 py-3 text-[12px] normal-case tracking-normal text-text outline-none">
+            <select aria-label={t("integration.mainProtocol")} value={draft.main_model?.protocol ?? ""} onChange={(event) => updateMain({ protocol: event.target.value })} className="mt-1 w-full rounded-2xl bg-[var(--input-bg)] px-4 py-3 text-[12px] normal-case tracking-normal text-text outline-none">
               <option value="">{t("integration.protocol.auto")}</option>
               <option value="chat">{t("integration.protocol.chat")}</option>
               <option value="responses">{t("integration.protocol.responses")}</option>
               <option value="anthropic">{t("integration.protocol.anthropic")}</option>
             </select>
           </label>
-          <textarea aria-label={t("integration.mainPersona")} value={draft.main_model?.persona_prompt ?? ""} onChange={(event) => updateMain({ persona_prompt: event.target.value })} rows={4} className="md:col-span-2 resize-y rounded-2xl bg-[var(--glow-faint)] px-4 py-3 text-[12px] leading-relaxed outline-none" />
+          <textarea aria-label={t("integration.mainPersona")} value={draft.main_model?.persona_prompt ?? ""} onChange={(event) => updateMain({ persona_prompt: event.target.value })} rows={4} className="md:col-span-2 resize-y rounded-2xl bg-[var(--input-bg)] px-4 py-3 text-[12px] leading-relaxed outline-none" />
         </div>
       </section>
 
@@ -144,8 +144,8 @@ export function IntegrationEditor({ intg, integrations = [], onSaved, onDeleted 
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="font-display text-lg font-semibold">{t("integration.topology")}</h2><p className="text-[11px] text-text-muted">{t("integration.topologyDesc")}</p></div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => addSub("model")} className="flex items-center gap-1 rounded-full bg-[var(--glow-faint)] px-3 py-2 text-[10px] font-mono uppercase"><Plus size={12} /> {t("integration.addModel")}</button>
-            <button type="button" onClick={() => addSub("integration")} className="flex items-center gap-1 rounded-full bg-[var(--glow-faint)] px-3 py-2 text-[10px] font-mono uppercase"><Plus size={12} /> {t("integration.addIntegration")}</button>
+            <button type="button" onClick={() => addSub("model")} className="flex items-center gap-1 rounded-full bg-[var(--chip-bg)] px-3 py-2 text-[10px] font-mono uppercase"><Plus size={12} /> {t("integration.addModel")}</button>
+            <button type="button" onClick={() => addSub("integration")} className="flex items-center gap-1 rounded-full bg-[var(--chip-bg)] px-3 py-2 text-[10px] font-mono uppercase"><Plus size={12} /> {t("integration.addIntegration")}</button>
           </div>
         </div>
         <div className="space-y-3">

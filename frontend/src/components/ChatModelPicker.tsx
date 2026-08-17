@@ -63,12 +63,12 @@ export function ChatModelPicker() {
 
   return (
     <div className="relative">
-      <button type="button" aria-label={t("chatModel.aria")} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex items-center gap-2 rounded-full px-2 py-1.5 text-[11px] text-text-muted transition hover:bg-[var(--glow-faint)] hover:text-text">
+      <button type="button" aria-label={t("chatModel.aria")} aria-expanded={open} onClick={() => setOpen((value) => !value)} className="flex items-center gap-2 rounded-full px-2 py-1.5 text-[11px] text-text-muted transition hover:bg-[var(--chip-bg)] hover:text-text">
         <span className="max-w-[150px] truncate font-mono">{current?.kind === "integration" ? `✓ ${current.label}` : current?.label ?? (!loaded && selected.kind === "integration" ? t("chatModel.loading") : t("chatModel.noModel"))}</span><ChevronDown size={12} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
       <AnimatePresence>{open && <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }} transition={{ duration: 0.16, ease: "easeOut" }} className="glass-strong absolute left-0 top-9 z-50 w-[280px] overflow-hidden rounded-[22px] border border-[var(--border)] p-2 shadow-[0_20px_60px_var(--glow-faint)]">
         <div className="px-3 py-2 font-mono text-[9px] uppercase tracking-[0.18em] text-text-faint">{t("chatModel.title")}</div>
-        {models.map((item) => <button type="button" key={keyFor(item)} onClick={() => pick(item)} className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[var(--glow-faint)]"><span><span className="block text-[12px]">{item.kind === "integration" ? `✓ ${item.label}` : item.label}</span><span className="font-mono text-[10px] text-text-muted">{item.kind === "integration" ? `~${item.est_calls} calls` : `${item.provider} · ${item.model}`}</span></span>{keyFor(item) === keyFor(selected as unknown as ModelItem) && <Check size={14} />}</button>)}
+        {models.map((item) => <button type="button" key={keyFor(item)} onClick={() => pick(item)} className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[var(--chip-bg)]"><span><span className="block text-[12px]">{item.kind === "integration" ? `✓ ${item.label}` : item.label}</span><span className="font-mono text-[10px] text-text-muted">{item.kind === "integration" ? `~${item.est_calls} calls` : `${item.provider} · ${item.model}`}</span></span>{keyFor(item) === keyFor(selected as unknown as ModelItem) && <Check size={14} />}</button>)}
       </motion.div>}</AnimatePresence>
     </div>
   );
