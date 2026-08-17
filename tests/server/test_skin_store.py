@@ -44,3 +44,19 @@ def test_skips_bad_base_and_filters_unknown_palette(tmp_path: Path):
 
 def test_missing_dir_returns_empty(tmp_path: Path):
     assert list_skins(tmp_path / "nope") == []
+
+
+def test_parses_background_and_clamps_overlay(tmp_path: Path):
+    _write(tmp_path / "s" / "skin.json", {
+        "id": "s", "name": "S", "base": "light", "palette": {},
+        "background": {"chatImage": "/skin-assets/s/bg.png", "chatOverlay": 2.5},
+    })
+    assert list_skins(tmp_path)[0]["background"] == {"chatImage": "/skin-assets/s/bg.png", "chatOverlay": 1.0}
+
+
+def test_background_invalid_fields_dropped(tmp_path: Path):
+    _write(tmp_path / "s" / "skin.json", {
+        "id": "s", "name": "S",
+        "background": {"chatImage": 5, "chatOverlay": "x"},
+    })
+    assert list_skins(tmp_path)[0]["background"] == {}

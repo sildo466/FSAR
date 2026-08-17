@@ -43,5 +43,17 @@ def list_skins(base_dir: str | Path) -> list[dict[str, Any]]:
             k: v for k, v in palette_raw.items()
             if isinstance(v, str) and k in _PALETTE_KEYS
         }
-        skins.append({"id": entry.name, "name": raw["name"], "base": base, "palette": palette})
+        background_raw = raw.get("background") or {}
+        background: dict[str, Any] = {}
+        if isinstance(background_raw, dict):
+            img = background_raw.get("chatImage")
+            if isinstance(img, str):
+                background["chatImage"] = img
+            overlay = background_raw.get("chatOverlay")
+            if isinstance(overlay, (int, float)) and not isinstance(overlay, bool):
+                background["chatOverlay"] = max(0.0, min(1.0, float(overlay)))
+        skins.append({
+            "id": entry.name, "name": raw["name"], "base": base,
+            "palette": palette, "background": background,
+        })
     return skins
