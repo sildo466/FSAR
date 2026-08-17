@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.utils.fsar_config import get_default_config
+from src.utils.fsar_home import get_fsar_home
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
 from src.server.handlers import asr as asr_handler
@@ -290,12 +291,16 @@ async def get_avatar(card_id: int):
 async def get_skin_asset(skin_id: str, file_path: str):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
-    skins_root = Path(_config.get("data.skins_dir", "data/skins"))
-    base = (skins_root / skin_id / "assets").resolve()
-    target = (base / file_path).resolve()
-    if not target.is_relative_to(base) or not target.is_file():
-        raise HTTPException(status_code=404, detail="missing_asset")
-    return FileResponse(str(target))
+    roots = [
+        get_fsar_home() / "data" / "skins",
+        Path(_config.get("data.skins_dir", "data/skins")),
+    ]
+    for root in roots:
+        base = (root / skin_id / "assets").resolve()
+        target = (base / file_path).resolve()
+        if target.is_relative_to(base) and target.is_file():
+            return FileResponse(str(target))
+    raise HTTPException(status_code=404, detail="missing_asset")
 
 
 def _allowed_origins() -> list[str]:

@@ -73,19 +73,31 @@ def _png_bytes() -> bytes:
     return out.getvalue()
 
 
-def test_skin_asset_route_serves_and_guards(tmp_path: Path):
+def test_skin_asset_route_serves_and_guards(tmp_path: Path, monkeypatch):
     ws_mod = _setup(tmp_path)
-    asset_dir = tmp_path / "skins" / "warm" / "assets"
-    asset_dir.mkdir(parents=True, exist_ok=True)
-    (asset_dir / "bg.png").write_bytes(_png_bytes())
+    home = tmp_path / "home"
+    monkeypatch.setattr(ws_mod, "get_fsar_home", lambda: home)
     client = TestClient(ws_mod.app)
 
+    repo_asset = tmp_path / "skins" / "warm" / "assets"
+    repo_asset.mkdir(parents=True, exist_ok=True)
+    (repo_asset / "bg.png").write_bytes(_png_bytes())
+    home_asset = home / "data" / "skins" / "warm" / "assets"
+    home_asset.mkdir(parents=True, exist_ok=True)
+    home_png = b"HOME-" + _png_bytes()
+    (home_asset / "bg.png").write_bytes(home_png)
+
+    # home wins when present in both
     ok = client.get("/skin-assets/warm/bg.png")
     assert ok.status_code == 200
-    assert ok.content == _png_bytes()
+    assert ok.content == home_png
 
-    missing = client.get("/skin-assets/warm/nope.png")
-    assert missing.status_code == 404
+    # repo fallback when home missing
+    (home_asset / "bg.png").unlink()
+    ok2 = client.get("/skin-assets/warm/bg.png")
+    assert ok2.status_code == 200
+    assert ok2.content == _png_bytes()
 
-    traversal = client.get("/skin-assets/warm/%2e%2e/skin.json")
-    assert traversal.status_code == 404
+    # missing + traversal blocked
+    assert client.get("/skin-assets/warm/nope.png").status_code == 404
+    assert client.get("/skin-assets/warm/%2e%2e/skin.json").status_code == 404

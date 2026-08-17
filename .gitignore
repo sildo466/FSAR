@@ -89,7 +89,7 @@ docs/
 /comparelog.txt
 /@AutomationLog.txt
 
-# 内置皮肤预设（随产品分发）；用户自建皮肤保持忽略
+# 内置皮肤预设（skin.json 随产品分发）；资产目录（个人底图等）仅本地
 !data/skins/
 data/skins/*
 !data/skins/warm/
@@ -98,3 +98,4 @@ data/skins/*
 !data/skins/night/skin.json
 !data/skins/minimal/
 !data/skins/minimal/skin.json
+data/skins/*/assets/
