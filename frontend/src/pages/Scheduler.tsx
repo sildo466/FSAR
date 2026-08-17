@@ -397,7 +397,7 @@ export function Scheduler() {
                           {j.last_status || t("scheduler.status.armed")}
                         </span>
                       ) : (
-                        <span className="rounded-full bg-[var(--glow-faint)] px-2 py-0.5 text-xs text-text-muted">
+                        <span className="rounded-full bg-[var(--chip-bg)] px-2 py-0.5 text-xs text-text-muted">
                           {t("scheduler.status.disabled")}
                         </span>
                       )}

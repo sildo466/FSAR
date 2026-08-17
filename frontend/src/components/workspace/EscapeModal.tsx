@@ -35,7 +35,7 @@ export function EscapeModal({ request, onDecision }: { request: SandboxEscapeReq
               <h2 id="sandbox-title" className="mt-1 font-display text-2xl italic">{t("escapeModal.title")}</h2>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 font-mono text-[11px] text-text-muted"><Clock3 size={12} /> {seconds}s</div>
+          <div className="flex items-center gap-1.5 rounded-full border border-[var(--chip-border)] px-3 py-1.5 font-mono text-[11px] text-text-muted"><Clock3 size={12} /> {seconds}s</div>
         </div>
         <div className="space-y-5 px-6 py-5">
           <div className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2 text-[12px]">

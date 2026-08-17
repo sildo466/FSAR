@@ -555,7 +555,7 @@ export function Chat() {
                 {attachments.map((a, i) => (
                   <span
                     key={a.path}
-                    className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-[11px] text-text-muted"
+                    className="flex items-center gap-1.5 rounded-full border border-[var(--chip-border)] px-3 py-1 text-[11px] text-text-muted"
                   >
                     📎 {a.name}
                     <button
