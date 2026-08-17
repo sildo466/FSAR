@@ -71,7 +71,7 @@ export function StepTts({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
       </div>
       <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {ttsPresets.map((preset) => (
-          <button type="button" key={preset.id} onClick={() => choose(preset)} className={`rounded-[22px] border p-4 text-left transition ${selected?.id === preset.id ? "border-text bg-text text-bg" : "border-border bg-bg/25 hover:border-text/35"}`}>
+          <button type="button" key={preset.id} onClick={() => choose(preset)} className={`rounded-[22px] border p-4 text-left transition ${selected?.id === preset.id ? "border-text bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "border-border bg-bg/25 hover:border-text/35"}`}>
             <div className="flex items-start justify-between gap-3"><span className="font-display text-sm italic">{preset.label}</span>{selected?.id === preset.id && <Check size={14} />}</div>
             <div className={`mt-3 flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider ${selected?.id === preset.id ? "text-bg/65" : "text-text-faint"}`}>{preset.api_key_required ? <><KeyRound size={10} /> {t("speech.catalog.apiKey")}</> : t("speech.catalog.noApiKey")}</div>
           </button>

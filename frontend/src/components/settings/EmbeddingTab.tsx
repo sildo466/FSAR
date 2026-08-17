@@ -103,7 +103,7 @@ export function EmbeddingTab({ initial }: { initial?: Initial | null }) {
             data-testid={`settings-embedder-provider-${p}`}
             data-active={provider === p}
             className={`h-7 px-3 text-[12px] border rounded font-mono uppercase tracking-[0.05em] ${
-              provider === p ? "bg-text text-bg border-border" : "border-border text-text-muted hover:bg-surface"
+              provider === p ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex border-border" : "border-border text-text-muted hover:bg-surface"
             }`}
           >
             {t(PROVIDER_DEFAULTS[p].labelKey)}
@@ -168,7 +168,7 @@ export function EmbeddingTab({ initial }: { initial?: Initial | null }) {
             <button
               onClick={save}
               disabled={!provider || !baseUrl || !model}
-              className="ml-auto px-3 h-7 bg-text text-bg rounded text-[12px] disabled:opacity-50"
+              className="ml-auto px-3 h-7 bg-[var(--button-bg)] text-[var(--button-text)] button-tex rounded text-[12px] disabled:opacity-50"
               data-testid="settings-embedder-save"
             >
               {t("common.save")}

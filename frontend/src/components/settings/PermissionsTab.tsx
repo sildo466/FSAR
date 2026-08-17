@@ -90,7 +90,7 @@ export function PermissionsTab() {
               key={m}
               onClick={() => setMode(m)}
               className={`h-7 px-3 text-[12px] border rounded font-mono uppercase tracking-[0.05em] ${
-                mode === m ? "bg-text text-bg border-border" : "border-border text-text-muted hover:bg-surface"
+                mode === m ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex border-border" : "border-border text-text-muted hover:bg-surface"
               }`}
             >
               {t(`settings.permissions.mode.${m}`)}
@@ -263,7 +263,7 @@ function SecurityControls({ config, send }: SecurityControlsProps) {
               key={mode}
               type="button"
               onClick={() => patch("security.egress.mode", mode)}
-              className={`rounded px-2.5 py-1 ${getAt(config, "security.egress.mode", "deny") === mode ? "bg-text text-bg" : "text-text-muted hover:text-text"}`}
+              className={`rounded px-2.5 py-1 ${getAt(config, "security.egress.mode", "deny") === mode ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted hover:text-text"}`}
             >
               {mode}
             </button>

@@ -41,10 +41,10 @@ export function IntegrationTestPanel({ integrationId }: { integrationId: number 
           <p className="mt-1 text-[11px] text-text-muted">{t("integration.testChamberDesc")}</p>
         </div>
         <div className="flex rounded-full bg-[var(--glow-faint)] p-1 text-[10px] font-mono uppercase tracking-[0.1em]">
-          <label className={`cursor-pointer rounded-full px-3 py-1.5 ${mode === "replay" ? "bg-text text-bg" : "text-text-muted"}`}>
+          <label className={`cursor-pointer rounded-full px-3 py-1.5 ${mode === "replay" ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}>
             <input className="sr-only" type="radio" checked={mode === "replay"} onChange={() => setMode("replay")} /> {t("integration.replayActual")}
           </label>
-          <label className={`cursor-pointer rounded-full px-3 py-1.5 ${mode === "estimate" ? "bg-text text-bg" : "text-text-muted"}`}>
+          <label className={`cursor-pointer rounded-full px-3 py-1.5 ${mode === "estimate" ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}>
             <input className="sr-only" type="radio" checked={mode === "estimate"} onChange={() => setMode("estimate")} /> {t("integration.estimateOnly")}
           </label>
         </div>

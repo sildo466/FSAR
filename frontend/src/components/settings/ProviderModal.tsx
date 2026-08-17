@@ -355,7 +355,7 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
           <button
             onClick={save}
             disabled={!label || !model}
-            className="px-3 h-7 bg-text text-bg rounded text-[12px] disabled:opacity-50"
+            className="px-3 h-7 bg-[var(--button-bg)] text-[var(--button-text)] button-tex rounded text-[12px] disabled:opacity-50"
           >
             {t("common.save")}
           </button>

@@ -75,7 +75,7 @@ export function AvatarCropDialog({ open, imageSrc, aspect = 1, onCancel, onConfi
           <button
             onClick={handleConfirm}
             data-testid="avatar-crop-confirm"
-            className="px-3 h-8 bg-text text-bg rounded text-[12px]"
+            className="px-3 h-8 bg-[var(--button-bg)] text-[var(--button-text)] button-tex rounded text-[12px]"
           >
             Use avatar
           </button>

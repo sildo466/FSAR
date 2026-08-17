@@ -101,7 +101,7 @@ export function MCPTab() {
                       onClick={() => toggle(s.name, !s.enabled)}
                       className={`inline-flex items-center gap-1 h-6 px-2 rounded border text-[11px] font-mono ${
                         s.enabled
-                          ? "border-border bg-text text-bg"
+                          ? "border-border bg-[var(--button-bg)] text-[var(--button-text)] button-tex"
                           : "border-border text-text-muted"
                       }`}
                     >

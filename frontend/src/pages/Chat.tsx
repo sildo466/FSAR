@@ -610,7 +610,7 @@ export function Chat() {
               ) : (
                 <button
                   onClick={handleSend}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-bg shadow-[0_0_20px_var(--glow-soft)] transition hover:scale-105"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--button-bg)] text-[var(--button-text)] button-tex shadow-[0_0_20px_var(--glow-soft)] transition hover:scale-105"
                 >
                   ↵
                 </button>

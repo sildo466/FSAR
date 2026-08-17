@@ -39,7 +39,7 @@ export function Sidebar() {
               className={({ isActive }) =>
                 cn(
                   "group relative flex h-10 w-10 items-center justify-center rounded-full text-text-muted transition-all duration-300 hover:scale-105 hover:bg-glass hover:text-text",
-                  isActive && "bg-text text-bg shadow-[0_0_22px_var(--glow-soft)]"
+                  isActive && "bg-[var(--button-bg)] text-[var(--button-text)] button-tex shadow-[0_0_22px_var(--glow-soft)]"
                 )
               }
               title={t(it.labelKey)}

@@ -70,7 +70,7 @@ export function StepAsr({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
       </div>
       <div className="mt-7 grid gap-3 sm:grid-cols-3">
         {asrPresets.map((preset) => (
-          <button type="button" key={preset.id} disabled={preset.deferred} onClick={() => choose(preset)} className={`rounded-[22px] border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${selected?.id === preset.id ? "border-text bg-text text-bg" : "border-border bg-bg/25 hover:border-text/35"}`}>
+          <button type="button" key={preset.id} disabled={preset.deferred} onClick={() => choose(preset)} className={`rounded-[22px] border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${selected?.id === preset.id ? "border-text bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "border-border bg-bg/25 hover:border-text/35"}`}>
             <div className="flex items-start justify-between gap-3"><span className="font-display text-sm italic">{preset.label}</span>{selected?.id === preset.id && <Check size={14} />}</div>
             <div className={`mt-3 font-mono text-[9px] uppercase tracking-wider ${selected?.id === preset.id ? "text-bg/65" : "text-text-faint"}`}>{preset.deferred ? t("speech.catalog.deferred") : preset.family === "local" ? t("onboarding.asr.localPrivate") : t("onboarding.asr.cloudApi")}</div>
           </button>

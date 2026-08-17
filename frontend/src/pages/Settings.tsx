@@ -208,7 +208,7 @@ export function Settings({ initialTab = "models" }: { initialTab?: Tab }) {
               className={cn(
                 "flex items-center gap-2 h-9 px-3 rounded-full text-[12px] text-left",
                 tab === tabItem.id
-                  ? "bg-text text-bg font-medium shadow-[0_0_18px_var(--glow-soft)]"
+                  ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex font-medium shadow-[0_0_18px_var(--glow-soft)]"
                   : "text-text-muted hover:bg-glass hover:text-text"
               )}
             >

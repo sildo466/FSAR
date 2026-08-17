@@ -53,7 +53,7 @@ export function IntegrationEditorSub({ sub, integrations = [], onChange, onRemov
                 model: kind === "model" ? (sub.model ?? emptyModel) : undefined,
                 child_integration_id: kind === "integration" ? (sub.child_integration_id ?? integrations[0]?.id) : undefined,
               })}
-              className={`rounded-full px-2 py-1 transition ${sub.kind === kind ? "bg-text text-bg" : "text-text-muted"}`}
+              className={`rounded-full px-2 py-1 transition ${sub.kind === kind ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}
             >
               {t(kind === "model" ? "integration.kind.model" : "integration.kind.integration")}
             </button>

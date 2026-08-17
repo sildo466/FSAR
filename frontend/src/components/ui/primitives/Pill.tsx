@@ -19,8 +19,8 @@ export function Pill({ variant = "glass", size = "md", icon, loading, children, 
       transition={springs.bouncy}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-full font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
-        variant === "primary" && "button-tex bg-[var(--button-bg)] text-[var(--button-text)] hover:bg-[var(--button-hover)] shadow-[0_0_24px_var(--glow-soft)]",
+        "button-tex inline-flex items-center justify-center gap-2 rounded-full font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+        variant === "primary" && "bg-[var(--button-bg)] text-[var(--button-text)] hover:bg-[var(--button-hover)] shadow-[0_0_24px_var(--glow-soft)]",
         variant === "ghost" && "text-text-muted hover:bg-glass hover:text-text",
         variant === "glass" && "glass text-text",
         size === "sm" && "h-8 px-3 text-xs",
