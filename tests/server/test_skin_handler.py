@@ -63,3 +63,29 @@ def test_snapshot_carries_skin_id(tmp_path: Path):
         snap = ws.receive_json()
         assert snap["type"] == "snapshot"
         assert snap["skin_id"] == "night"
+
+
+def _png_bytes() -> bytes:
+    from io import BytesIO
+    from PIL import Image
+    out = BytesIO()
+    Image.new("RGB", (32, 24), color=(12, 34, 56)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def test_skin_asset_route_serves_and_guards(tmp_path: Path):
+    ws_mod = _setup(tmp_path)
+    asset_dir = tmp_path / "skins" / "warm" / "assets"
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    (asset_dir / "bg.png").write_bytes(_png_bytes())
+    client = TestClient(ws_mod.app)
+
+    ok = client.get("/skin-assets/warm/bg.png")
+    assert ok.status_code == 200
+    assert ok.content == _png_bytes()
+
+    missing = client.get("/skin-assets/warm/nope.png")
+    assert missing.status_code == 404
+
+    traversal = client.get("/skin-assets/warm/%2e%2e/skin.json")
+    assert traversal.status_code == 404

@@ -286,6 +286,18 @@ async def get_avatar(card_id: int):
     )
 
 
+@app.get("/skin-assets/{skin_id}/{file_path:path}")
+async def get_skin_asset(skin_id: str, file_path: str):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    skins_root = Path(_config.get("data.skins_dir", "data/skins"))
+    base = (skins_root / skin_id / "assets").resolve()
+    target = (base / file_path).resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        raise HTTPException(status_code=404, detail="missing_asset")
+    return FileResponse(str(target))
+
+
 def _allowed_origins() -> list[str]:
     configured = _config.get("security.ws_auth.allowed_origins", []) or []
     return [item for item in configured if isinstance(item, str)]
