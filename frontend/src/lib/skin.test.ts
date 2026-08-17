@@ -79,6 +79,19 @@ describe("useSkinApplication", () => {
     expect(sent).toEqual([{ type: "skin.list" }]);
     useWS.setState({ client: null });
   });
+
+  it("does not revert active skin on unrelated config changes", () => {
+    useSkinStore.setState({ skins: [], status: "ready", activeId: "default" });
+    useWS.setState({ config: { style: { skin_id: "night" } } });
+    renderHook(() => useSkinApplication());
+    expect(useSkinStore.getState().activeId).toBe("night");
+
+    act(() => useSkinStore.setState({ activeId: "warm" }));
+    act(() => useWS.setState({ config: { style: { skin_id: "night" }, other: true } }));
+    expect(useSkinStore.getState().activeId).toBe("warm");
+
+    useWS.setState({ config: null });
+  });
 });
 
 describe("toRgba", () => {

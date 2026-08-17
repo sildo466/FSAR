@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useWS } from "../stores/ws";
 import { useSkinStore } from "../stores/skin";
 
@@ -150,8 +150,11 @@ export function useSkinApplication(): void {
     useWS.getState().send({ type: "skin.list" });
   }, [client]);
 
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    const style = (config?.style ?? {}) as { skin_id?: unknown };
+    if (!config || hydratedRef.current) return;
+    hydratedRef.current = true;
+    const style = (config.style ?? {}) as { skin_id?: unknown };
     useSkinStore.getState().hydrate(style.skin_id);
   }, [config]);
 
