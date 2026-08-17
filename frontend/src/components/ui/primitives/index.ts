@@ -5,3 +5,4 @@ export { IconButton } from "./IconButton";
 export { Input } from "./Input";
 export { Pill } from "./Pill";
 export { Squircle } from "./Squircle";
+export { Switch } from "./Switch";

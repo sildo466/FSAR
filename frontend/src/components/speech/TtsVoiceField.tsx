@@ -4,6 +4,7 @@ import { ttsPresets } from "../../lib/speech-presets";
 import { useSpeechStore } from "../../stores/speech";
 import { useWS } from "../../stores/ws";
 import { useTranslation } from "react-i18next";
+import { Switch } from "../ui/primitives";
 
 interface Props {
   value: string;
@@ -29,7 +30,7 @@ export function TtsVoiceField({ value, onChange, instructions, onInstructionsCha
       <label className="text-[11px] text-text-muted">{t("speech.tts.voiceId")}<div className="relative mt-1"><Volume2 size={13} className="absolute left-3 top-3 text-text-faint" /><input value={value} onChange={(event) => onChange(event.target.value)} disabled={!configured} list="tts-character-voice-options" placeholder={placeholder} className="h-10 w-full rounded-xl border border-border bg-bg/60 pl-9 pr-9 font-mono text-xs text-text disabled:cursor-not-allowed disabled:opacity-50" />{!configured && <Lock size={13} className="absolute right-3 top-3 text-text-faint" />}</div></label>
       {preset?.voices && preset.voices.length > 0 && (<datalist id="tts-character-voice-options">{preset.voices.map((voice) => <option key={voice} value={voice} />)}</datalist>)}
       <label className="mt-3 block text-[11px] text-text-muted">{t("speech.tts.characterInstructions")}<textarea value={instructions} onChange={(event) => onInstructionsChange(event.target.value)} disabled={!configured} rows={2} placeholder={t("speech.tts.instructionsPlaceholder")} className="mt-1 w-full rounded-xl border border-border bg-bg/60 px-3 py-2 font-mono text-xs text-text disabled:cursor-not-allowed disabled:opacity-50" /></label>
-      <label className="mt-3 flex items-center gap-2 text-xs text-text-muted"><input type="checkbox" checked={autoplay} onChange={(event) => onAutoplayChange(event.target.checked)} disabled={!configured} /> {t("speech.tts.autoplay")}</label>
+      <label className="mt-3 flex items-center gap-2 text-xs text-text-muted"><Switch checked={autoplay} onChange={onAutoplayChange} disabled={!configured} label={t("speech.tts.autoplay")} /> {t("speech.tts.autoplay")}</label>
       {!configured && <p className="mt-3 text-[11px] text-text-muted">{t("speech.tts.notConfigured")} <a href="/settings/speech" className="text-text underline underline-offset-2">{t("speech.tts.configureNow")}</a></p>}
     </fieldset>
   );
