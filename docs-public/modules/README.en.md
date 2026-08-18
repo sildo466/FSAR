@@ -26,6 +26,7 @@ FSAR's backend lives under `src/`, the frontend under `frontend/`. This director
 ## Frontend and data directories
 
 - [frontend](frontend.en.md) — the Vite + React frontend app (Tauri desktop shell)
+- [skin](skin.en.md) — the skin system: a hand-written `skin.json` recolors the site, adds a wallpaper, and customizes individual components
 - [layout](layout.en.md) — shipped contents of `data/` and `config/`, plus the runtime databases
 
 ## What to read next

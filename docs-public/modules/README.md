@@ -26,6 +26,7 @@ FSAR 后端代码位于 `src/`，前端位于 `frontend/`。本目录按模块�
 ## 前端与数据目录
 
 - [frontend](frontend.md) — Vite + React 前端应用（Tauri 桌面壳）
+- [skin](skin.md) — 皮肤系统：手写 `skin.json`，整站换色 + 壁纸 + 逐元素自定义
 - [layout](layout.md) — `data/` 与 `config/` 的随库内容与运行时数据库
 
 ## 延伸阅读
