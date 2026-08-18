@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-18
+
+### Added
+
+- **Skin system** — the headline of this release: a skin is a single `skin.json` that drives the whole appearance.
+  - Data layer: skins live under `data/skins/<id>/` (built-in presets) or `~/.fsar/data/skins/<id>/` (personal, never committed); `skin.list` / `skin.set_active` WS handlers + `style.skin_id` persistence; a read-only `/skin-assets/<id>/<file>` route (with path-traversal protection) serves wallpapers and textures.
+  - Resolve pipeline: `resolveSkin` layers `elements` → `palette` → built-in defaults for `base: "light" | "dark"`, so a skin can override any subset.
+  - Global palette: 17 color tokens (`bg/surface/text/border/glass/glow/success/warning/danger/accent` …).
+  - Per-element customisation: `elements` for `input/button/switch/chip/card` — each component class can be recolored independently, plus per-element image textures (`image` + `imageOpacity`).
+  - Chat wallpaper: `background.chatImage` + `chatOverlay` (overlay = the skin's resolved `bg`, so text stays readable on any image).
+  - Global texture: `pattern` lays a faint `background-image` over the app, visible through glass panels.
+  - Full component coverage: buttons (Pill + IconButton + all inline solid buttons), inputs/selects/textareas, switches (new `Switch` primitive + migrated toggles), tag pills, and glass cards all consume element tokens.
+  - New `--accent` token adopted by primary buttons and the send button; a `Settings → Appearance → Skin` selector with three built-in presets (warm / night / minimal).
+  - Public authoring guide: `docs-public/modules/skin.md` + `skin.en.md`.
+- **Experience / skill-compliance** — auto-sync skills from disk (`skill_sync`), a mechanical skill-compliance gate with forced redo (`skill_gate`), `/use` now attaches the full `SKILL.md`, and `experience_view` is forced via prompt with skill-directory access detection.
+- **Chat**: a floating jump-to-bottom button appears when scrolled more than 300px from the latest message; it smooth-scrolls back to the newest content.
+
+### Fixed
+
+- Skin: the globally-shared `.glass` utility no longer injects positioning or a `::before` texture layer — previously this shifted top-bar/nav layout and dropped the history panel. Textures now live only on explicit card surfaces.
+- Skin: patch-tint was dropped from the app texture so a missing pattern image leaves no residual overlay mask.
+- Skin: active skin hydrates only on boot, not on every `config` change — unrelated settings changes no longer revert the selected skin.
+- Skin: personal assets are served from `~/.fsar` home first, so user wallpapers never enter the remote repository.
+
 ## [0.2.4] - 2026-08-14
 
 ### Added
