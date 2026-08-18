@@ -21,9 +21,5 @@
     "warning": "#e0b357",
     "danger": "#e07a7a",
     "accent": "#a78bfa"
-  },
-  "background": {
-    "chatImage": "/skin-assets/night/bg.png",
-    "chatOverlay": 0.85
   }
 }
