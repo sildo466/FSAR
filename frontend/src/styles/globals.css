@@ -219,23 +219,10 @@ body::after {
 }
 
 .glass {
-  position: relative;
-  isolation: isolate;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   backdrop-filter: blur(22px) saturate(120%);
   -webkit-backdrop-filter: blur(22px) saturate(120%);
-}
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background-image: var(--card-bg-image, none);
-  background-repeat: repeat;
-  opacity: var(--card-bg-opacity, 1);
-  pointer-events: none;
 }
 
 .glass-strong {
