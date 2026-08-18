@@ -58,6 +58,7 @@ export function Chat() {
   const pendingAssistantId = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevCountRef = useRef(0);
 
@@ -173,6 +174,20 @@ export function Chat() {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (replaced || nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToBottom = () => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  };
 
   const MAX_INPUT_LINES = 4;
   const resizeInput = () => {
@@ -534,6 +549,17 @@ export function Chat() {
               onRegenerate={handleRegenerate}
             />
           </div>
+        )}
+        {showScrollBtn && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Scroll to latest message"
+            title="Scroll to latest message"
+            className="button-tex bg-[var(--button-bg)] text-[var(--button-text)] absolute bottom-[4.5rem] right-6 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow-[0_8px_24px_var(--glow-faint)] transition hover:scale-105"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+          </button>
         )}
         <div className="px-4 pb-4 pt-3 sm:px-8">
           <div className="relative mx-auto max-w-[900px]">
