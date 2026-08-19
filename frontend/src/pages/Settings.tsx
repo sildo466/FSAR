@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Plus, Cpu, Plug, Shield, Palette, Wrench, Database, FolderLock, AudioLines, MessagesSquare } from "lucide-react";
 import { useWS } from "../stores/ws";
 import { ProviderModal } from "../components/settings/ProviderModal";
+import { VisionModelSection } from "../components/settings/VisionModelSection";
 import { MCPTab } from "../components/settings/MCPTab";
 import { PermissionsTab } from "../components/settings/PermissionsTab";
 import { StyleTab } from "../components/settings/StyleTab";
@@ -43,14 +44,14 @@ const TABS: { id: Tab; labelKey: string; icon: typeof Cpu }[] = [
   { id: "advanced", labelKey: "settings.advanced", icon: Wrench },
 ];
 
-function readProviders(config: Record<string, unknown> | null): Provider[] {
+export function readProviders(config: Record<string, unknown> | null): Provider[] {
   const llm = (config?.llm ?? {}) as Record<string, unknown>;
   const raw = llm.providers;
   if (!Array.isArray(raw)) return [];
   return raw.filter((p): p is Provider => typeof p === "object" && p !== null);
 }
 
-function readActiveId(config: Record<string, unknown> | null): string {
+export function readActiveId(config: Record<string, unknown> | null): string {
   const llm = (config?.llm ?? {}) as Record<string, unknown>;
   return String(llm.active ?? "");
 }
@@ -221,14 +222,17 @@ export function Settings({ initialTab = "models" }: { initialTab?: Tab }) {
 
         <section className="glass-strong flex flex-col gap-4 rounded-[28px] p-6 shadow-[0_18px_54px_var(--glow-faint)]">
           {tab === "models" && (
-            <ModelsTab
-              providers={providers}
-              activeId={activeId}
-              onAdd={openAdd}
-              onEdit={openEdit}
-              onRemove={removeProvider}
-              onSetActive={setActive}
-            />
+            <>
+              <ModelsTab
+                providers={providers}
+                activeId={activeId}
+                onAdd={openAdd}
+                onEdit={openEdit}
+                onRemove={removeProvider}
+                onSetActive={setActive}
+              />
+              <VisionModelSection />
+            </>
           )}
           {tab === "embedding" && (
             <EmbeddingTab
