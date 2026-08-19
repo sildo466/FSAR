@@ -154,6 +154,51 @@ def handle_user_message(conversation_id: str, user_msg: str, *,
         raise RuntimeError("Chat model returned no response")
     return str(getattr(choices[0].message, "content", "") or "")
 
+
+async def handle_user_agent_message(
+    conversation_id: str,
+    user_msg: str,
+    *,
+    character_card_id: int | None = None,
+    user_card_id: int | None = None,
+) -> str:
+    """Run one full agent turn for a headless caller (the social bridge) and
+    return the final conclusion. Drives the wired engine's agent loop with a
+    no-op websocket so tools, memory, and risk gating behave exactly like GUI
+    agent mode. Persistence (user + assistant turns) is owned by the engine,
+    so callers must not also write to the conversation store."""
+    engine = get_default_chat_engine()
+    client, model, provider_id = engine.client_and_model()
+    if client is None:
+        raise RuntimeError("No active LLM provider is configured")
+
+    char_id = engine.session_store.get_character(conversation_id)
+    character = engine.card_repo.get_character(char_id) if char_id else None
+    if character is None:
+        character = engine.card_repo.get_default_character()
+    if character is None:
+        candidates = engine.card_repo.list_characters()
+        character = candidates[0] if candidates else None
+    if character_card_id is not None:
+        overridden = engine.card_repo.get_character(character_card_id)
+        if overridden is not None:
+            character = overridden
+
+    message_id = f"social_{uuid.uuid4().hex[:8]}"
+    engine._save_user(conversation_id, user_msg)
+    result = await engine._run_agent(
+        ws=None,
+        message_id=message_id,
+        client=client,
+        model=model,
+        conv_id=conversation_id,
+        user_input=user_msg,
+        character=character,
+        char_name=character.name if character else "Assistant",
+        provider_id=provider_id,
+    )
+    return result.conclusion
+
 DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50

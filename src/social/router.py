@@ -6,14 +6,12 @@ import asyncio
 import logging
 from contextlib import suppress
 
-from src.server.chat_engine import handle_user_message
+from src.server.chat_engine import handle_user_agent_message
 from src.social.channels import ChannelAdapter, ChannelEvent, ReplyTarget
 from src.social.outbox import Outbox
 from src.social.state import (
-    append_session_message,
     is_muted,
     load_or_create_session,
-    load_session_messages,
     touch_binding,
     upsert_binding,
 )
@@ -69,18 +67,13 @@ class ChannelRouter:
             upsert_binding(event.platform, event.peer_id, display_name=None)
             touch_binding(event.platform, event.peer_id)
             session_id = load_or_create_session(event.platform, event.peer_id)
-            session_messages = load_session_messages(session_id)
-            append_session_message(session_id, "user", event.text)
-            reply_text = await asyncio.to_thread(
-                handle_user_message,
+            reply_text = await handle_user_agent_message(
                 session_id,
                 event.text,
-                session_messages=session_messages,
                 character_card_id=event.character_card_id,
                 user_card_id=event.user_card_id,
             )
             if reply_text:
-                append_session_message(session_id, "assistant", reply_text)
                 await self.outbox_send(event.reply_target, reply_text)
         except Exception:
             log.exception("social: router handle error for %s", event.platform)

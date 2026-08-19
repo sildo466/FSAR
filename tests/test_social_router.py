@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.server.chat_engine import handle_user_message
+from src.server.chat_engine import handle_user_agent_message, handle_user_message
 from src.social.channels import ChannelEvent, ReplyTarget
 from src.social.router import ChannelRouter
 
@@ -12,7 +12,6 @@ from src.social.router import ChannelRouter
 @pytest.mark.asyncio
 async def test_router_handle_routes_through_outbox(tmp_path, monkeypatch):
     captured = []
-    persisted = []
     handled = []
 
     class _FakeAdapter:
@@ -38,21 +37,13 @@ async def test_router_handle_routes_through_outbox(tmp_path, monkeypatch):
         "src.social.router.load_or_create_session",
         lambda platform, peer: "session-42",
     )
-    monkeypatch.setattr(
-        "src.social.router.load_session_messages",
-        lambda session_id: [{"role": "assistant", "content": "before"}],
-    )
-    monkeypatch.setattr(
-        "src.social.router.append_session_message",
-        lambda session_id, role, content: persisted.append((session_id, role, content)),
-    )
 
-    def reply(session_id, text, *, session_messages, **overrides):
-        handled.append((session_id, text, session_messages))
+    async def reply(session_id, text, **overrides):
+        handled.append((session_id, text))
         return f"echo:{text}"
 
     monkeypatch.setattr(
-        "src.social.router.handle_user_message",
+        "src.social.router.handle_user_agent_message",
         reply,
     )
 
@@ -74,13 +65,7 @@ async def test_router_handle_routes_through_outbox(tmp_path, monkeypatch):
     await router.stop_outbox()
 
     assert captured == [("42", "echo:hi")]
-    assert handled == [
-        ("session-42", "hi", [{"role": "assistant", "content": "before"}])
-    ]
-    assert persisted == [
-        ("session-42", "user", "hi"),
-        ("session-42", "assistant", "echo:hi"),
-    ]
+    assert handled == [("session-42", "hi")]
 
 
 @pytest.mark.asyncio
@@ -92,12 +77,12 @@ async def test_router_drops_muted_peer(tmp_path, monkeypatch):
     monkeypatch.setattr("src.social.router.is_muted", lambda platform, peer: True)
     called = False
 
-    def handle_message(session_id, text):
+    async def handle_message(session_id, text):
         nonlocal called
         called = True
         return text
 
-    monkeypatch.setattr("src.social.router.handle_user_message", handle_message)
+    monkeypatch.setattr("src.social.router.handle_user_agent_message", handle_message)
 
     router = ChannelRouter()
     event = ChannelEvent(
@@ -162,3 +147,44 @@ def test_handle_user_message_calls_configured_model(monkeypatch):
         {"role": "assistant", "content": "earlier"},
         {"role": "user", "content": "hello"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_handle_user_agent_message_drives_engine_agent_loop(monkeypatch):
+    import src.server.chat_engine as ce
+
+    saved = []
+    captured = {}
+
+    class _Engine:
+        def client_and_model(self):
+            return (object(), "model-x", "provider-1")
+
+        card_repo = SimpleNamespace(
+            get_character=lambda cid: None,
+            get_default_character=lambda: None,
+            list_characters=lambda: [],
+            get_user_card=lambda cid: None,
+        )
+        session_store = SimpleNamespace(get_character=lambda conv: None)
+
+        def _save_user(self, conv, content):
+            saved.append((conv, content))
+
+        async def _run_agent(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(conclusion="final answer")
+
+    engine = _Engine()
+    monkeypatch.setattr(ce, "get_default_chat_engine", lambda: engine)
+
+    reply = await ce.handle_user_agent_message(
+        "session-42", "search the web", character_card_id=None, user_card_id=None
+    )
+
+    assert reply == "final answer"
+    assert saved == [("session-42", "search the web")]
+    assert captured["conv_id"] == "session-42"
+    assert captured["user_input"] == "search the web"
+    assert captured["ws"] is None
+    assert captured["model"] == "model-x"
