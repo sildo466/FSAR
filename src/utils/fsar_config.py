@@ -159,6 +159,26 @@ class FsarConfig:
     def set_active_provider(self, provider_id: str) -> None:
         self.patch("llm.active", provider_id)
 
+    def get_vision_model(self) -> dict:
+        value = self.get("llm.vision_model", {}) or {}
+        return {
+            "base_url": str(value.get("base_url", "") or ""),
+            "api_key": str(value.get("api_key", "") or ""),
+            "model": str(value.get("model", "") or ""),
+        }
+
+    def set_vision_model(self, cfg: dict | None) -> None:
+        if not cfg or all(
+            not str(cfg.get(k, "") or "").strip() for k in ("base_url", "api_key", "model")
+        ):
+            self.patch("llm.vision_model", {"base_url": "", "api_key": "", "model": ""})
+        else:
+            self.patch("llm.vision_model", {
+                "base_url": str(cfg.get("base_url", "") or ""),
+                "api_key": str(cfg.get("api_key", "") or ""),
+                "model": str(cfg.get("model", "") or ""),
+            })
+
     def add_provider(self, provider: dict) -> None:
         providers = self.list_providers()
         providers.append(provider)
