@@ -181,9 +181,10 @@ export function Chat() {
     const onScroll = () => {
       setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
     };
+    onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [messages.length > 0 || pendingRisks.length > 0]);
 
   const scrollToBottom = () => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -556,7 +557,7 @@ export function Chat() {
             onClick={scrollToBottom}
             aria-label="Scroll to latest message"
             title="Scroll to latest message"
-            className="button-tex bg-[var(--button-bg)] text-[var(--button-text)] absolute bottom-[4.5rem] right-6 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow-[0_8px_24px_var(--glow-faint)] transition hover:scale-105"
+            className="bg-[var(--button-bg)] text-[var(--button-text)] absolute bottom-[4.5rem] right-6 z-20 flex h-9 w-9 items-center justify-center rounded-full shadow-[0_8px_24px_var(--glow-faint)] transition hover:scale-105"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
           </button>
