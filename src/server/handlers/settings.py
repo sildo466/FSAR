@@ -201,6 +201,23 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
         except Exception:
             pass
         return True
+    if t == "llm.get_vision":
+        vm = config.get_vision_model()
+        await ws.send_json({"type": "llm.vision_config", "vision_model": vm})
+        return True
+    if t == "llm.set_vision":
+        cfg = {
+            "base_url": str(msg.get("base_url", "") or ""),
+            "api_key": str(msg.get("api_key", "") or ""),
+            "model": str(msg.get("model", "") or ""),
+        }
+        config.set_vision_model(cfg)
+        try:
+            config.save()
+        except Exception:
+            pass
+        await ws.send_json({"type": "llm.vision_changed", "vision_model": config.get_vision_model()})
+        return True
     return False
 
 
