@@ -177,7 +177,10 @@ export function Chat() {
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el) {
+      setShowScrollBtn(false);
+      return;
+    }
     const onScroll = () => {
       setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
     };
