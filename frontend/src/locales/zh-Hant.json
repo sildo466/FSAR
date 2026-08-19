@@ -804,5 +804,7 @@
   "integration.protocol.auto": "自動（跟隨服務商設定）",
   "integration.protocol.chat": "Chat Completions",
   "integration.protocol.responses": "Responses API",
-  "integration.protocol.anthropic": "Anthropic Messages"
+  "integration.protocol.anthropic": "Anthropic Messages",
+  "settings.vision.incomplete": "自訂視覺模型需填寫介面位址和模型 ID。",
+  "settings.vision.saveFailed": "儲存視覺模型失敗，請檢查設定。"
 }

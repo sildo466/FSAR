@@ -804,5 +804,7 @@
   "integration.protocol.auto": "Auto (follow provider setting)",
   "integration.protocol.chat": "Chat Completions",
   "integration.protocol.responses": "Responses API",
-  "integration.protocol.anthropic": "Anthropic Messages"
+  "integration.protocol.anthropic": "Anthropic Messages",
+  "settings.vision.incomplete": "Custom vision model requires both a base URL and a model id.",
+  "settings.vision.saveFailed": "Failed to save vision model. Check the configuration."
 }

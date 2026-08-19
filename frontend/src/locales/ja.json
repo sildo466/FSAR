@@ -804,5 +804,7 @@
   "integration.protocol.auto": "自動（プロバイダー設定に従う）",
   "integration.protocol.chat": "Chat Completions",
   "integration.protocol.responses": "Responses API",
-  "integration.protocol.anthropic": "Anthropic Messages"
+  "integration.protocol.anthropic": "Anthropic Messages",
+  "settings.vision.incomplete": "カスタムビジョンモデルにはベースURLとモデルIDが必要です。",
+  "settings.vision.saveFailed": "ビジョンモデルの保存に失敗しました。設定を確認してください。"
 }

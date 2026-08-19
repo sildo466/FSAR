@@ -32,3 +32,18 @@ def test_vision_model_reset(tmp_path, monkeypatch):
     cfg.set_vision_model({"base_url": "https://v.example.com", "api_key": "k", "model": "vl-1"})
     cfg.set_vision_model(None)
     assert cfg.get_vision_model() == _empty()
+
+
+def test_vision_model_expands_env(monkeypatch):
+    monkeypatch.setenv("VKEY", "secret")
+    cfg = FsarConfig()
+    cfg.patch("llm.vision_model", {
+        "base_url": "https://v.example.com",
+        "api_key": "${VKEY}",
+        "model": "vl-1",
+    })
+    assert cfg.get_vision_model() == {
+        "base_url": "https://v.example.com",
+        "api_key": "secret",
+        "model": "vl-1",
+    }

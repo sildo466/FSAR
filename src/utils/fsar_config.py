@@ -160,7 +160,7 @@ class FsarConfig:
         self.patch("llm.active", provider_id)
 
     def get_vision_model(self) -> dict:
-        value = self.get("llm.vision_model", {}) or {}
+        value = _expand_env(self.get("llm.vision_model", {}) or {})
         return {
             "base_url": str(value.get("base_url", "") or ""),
             "api_key": str(value.get("api_key", "") or ""),

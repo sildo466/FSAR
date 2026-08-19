@@ -64,3 +64,20 @@ async def test_image_analyze_falls_back_to_main_model(monkeypatch):
     assert result == "analyzed"
     assert clients == [("main-provider", "", "")]
     assert captured["model"] == "main-model"
+
+
+@pytest.mark.asyncio
+async def test_image_analyze_incomplete_vision_falls_back(monkeypatch):
+    """A vision config with a model but no base URL is incomplete and must
+    not be treated as configured (broken creds would fail anyway)."""
+    def cfg_side():
+        return SimpleNamespace(
+            get_vision_model=lambda: {"base_url": "", "api_key": "", "model": "vl-1"},
+            get_active_provider=lambda: {"model": "main-model"},
+            get=lambda k, d=None: "main-provider",
+        )
+
+    result, clients, captured = await _run(monkeypatch, cfg_side)
+    assert result == "analyzed"
+    assert clients == [("main-provider", "", "")]
+    assert captured["model"] == "main-model"

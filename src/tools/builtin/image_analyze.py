@@ -85,7 +85,7 @@ class ImageAnalyzeTool(Tool):
                 image_url = f"data:{mime};base64,{b64}"
 
             vm = config.get_vision_model()
-            if vm and vm.get("model"):
+            if vm and vm.get("model") and vm.get("base_url"):
                 client = make_llm_client(
                     "vision",
                     base_url=vm.get("base_url", ""),

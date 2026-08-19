@@ -72,6 +72,13 @@ security:
 llm:
   active: ""
   providers: []
+  # Optional dedicated vision model for image_analyze (computer use, image
+  # understanding). Leave empty to use the active chat model. base_url and
+  # api_key may reference ${ENV_VAR}.
+  vision_model:
+    base_url: ""
+    api_key: ""
+    model: ""
   # provider rows may include `format: responses` to route calls through
   # the OpenAI Responses API (/v1/responses) instead of chat completions.
   # When the GUI sets "OpenAI Responses" as the family for an openai preset,

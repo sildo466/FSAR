@@ -211,11 +211,28 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             "api_key": str(msg.get("api_key", "") or ""),
             "model": str(msg.get("model", "") or ""),
         }
+        # A custom vision model needs both a model id and a base URL; a
+        # half-filled config would silently enable vision with broken creds.
+        if cfg["model"] or cfg["base_url"]:
+            if not cfg["model"] or not cfg["base_url"]:
+                await ws.send_json({
+                    "type": "error",
+                    "code": "incomplete_vision_model",
+                    "message": "Custom vision model requires both a base URL and a model id.",
+                    "recoverable": True,
+                })
+                return True
         config.set_vision_model(cfg)
         try:
             config.save()
-        except Exception:
-            pass
+        except Exception as e:
+            await ws.send_json({
+                "type": "error",
+                "code": "save_failed",
+                "message": f"Failed to save vision model config: {e}",
+                "recoverable": True,
+            })
+            return True
         await ws.send_json({"type": "llm.vision_changed", "vision_model": config.get_vision_model()})
         return True
     return False
