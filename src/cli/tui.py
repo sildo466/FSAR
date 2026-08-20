@@ -232,6 +232,7 @@ class ChatApp(App):
         self.sink = TerminalSink(self, self.bridge)
         self._conv_id: str | None = None
         self._live: Static | None = None
+        self._suggestion_popup: Any | None = None
 
     def compose(self) -> ComposeResult:
         self.history = VerticalScroll(id="history")
@@ -259,10 +260,48 @@ class ChatApp(App):
         except Exception as e:
             logger.error(f"MCP stop failed: {e}")
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Show command suggestions when user types /"""
+        from src.cli.tui_commands import CommandPredictor
+        from src.cli.tui_widgets import CommandSuggestionPopup
+
+        text = event.value
+        if not text.startswith("/"):
+            self._hide_suggestions()
+            return
+
+        predictor = CommandPredictor()
+        suggestions = predictor.predict(text)
+
+        if suggestions:
+            self._show_suggestions(suggestions)
+        else:
+            self._hide_suggestions()
+
+    def _show_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
+        """Display command suggestion popup."""
+        from src.cli.tui_widgets import CommandSuggestionPopup
+
+        if self._suggestion_popup:
+            self._suggestion_popup.remove()
+
+        self._suggestion_popup = CommandSuggestionPopup(suggestions, id="cmd-suggestions")
+        self.mount(self._suggestion_popup)
+
+    def _hide_suggestions(self) -> None:
+        """Remove command suggestion popup."""
+        if self._suggestion_popup:
+            try:
+                self._suggestion_popup.remove()
+            except Exception:
+                pass
+            self._suggestion_popup = None
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         input_widget = self.query_one("#input", Input)
         input_widget.value = ""
+        self._hide_suggestions()
         if not text:
             return
 
@@ -302,6 +341,12 @@ class ChatApp(App):
                 return
             if base == "/reset":
                 self._handle_reset_command()
+                return
+            if base == "/resume":
+                self._handle_resume_command()
+                return
+            if base == "/permissions":
+                self._handle_permissions_command()
                 return
 
         # A pending risk confirmation wants a y/n/all/never reply.
@@ -462,6 +507,49 @@ class ChatApp(App):
     def _handle_reset_command(self) -> None:
         self.engine.reset_conversation()
         self._add_status("Conversation reset. All history cleared.")
+
+    def _handle_resume_command(self) -> None:
+        """Show historical conversation list for resumption."""
+        from src.cli.tui_screens import ResumeScreen
+        from src.database.conversation_manager import ConversationManager
+
+        db_path = os.path.join(os.getcwd(), "data", "fsar.db")
+        conv_mgr = ConversationManager(db_path)
+
+        convs = conv_mgr.list_conversations()
+        if not convs:
+            self._add_status("No historical conversations found.")
+            return
+
+        sessions = [
+            (f"{c['started_at'][:19]} - {c['title'] or 'Untitled'}", str(c["conversation_id"]))
+            for c in convs
+        ]
+
+        def on_selected(conv_id_str: str | None) -> None:
+            if conv_id_str:
+                self._conv_id = conv_id_str
+                self.engine._current_conversation_id = conv_id_str
+                self._add_status(f"Resumed conversation: {conv_id_str}")
+
+        self.push_screen(ResumeScreen(sessions), on_selected)
+
+    def _handle_permissions_command(self) -> None:
+        """Configure sandbox permissions."""
+        from src.cli.tui_screens import PermissionsScreen
+
+        permissions = [
+            ("Allow file read", "read"),
+            ("Allow file write", "write"),
+            ("Allow bash execution", "bash"),
+            ("Allow network access", "network"),
+        ]
+
+        def on_selected(perm_key: str | None) -> None:
+            if perm_key:
+                self._add_status(f"Permission toggled: {perm_key}")
+
+        self.push_screen(PermissionsScreen(permissions), on_selected)
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
