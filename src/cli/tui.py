@@ -465,24 +465,21 @@ class ChatApp(App):
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
-        providers = self.engine.config.get("llm.providers", {})
-        if not isinstance(providers, dict):
-            return []
+        from src.utils.fsar_config import get_default_config
+
+        config = get_default_config()
+        providers = config.list_providers(enabled_only=True)
 
         models = []
-        for provider_id, provider_config in providers.items():
-            if not isinstance(provider_config, dict):
-                continue
-            model_list = provider_config.get("models", [])
-            if isinstance(model_list, list):
-                for model in model_list:
-                    if isinstance(model, str):
-                        full_name = f"{provider_id}:{model}"
-                        models.append((full_name, full_name))
-            elif provider_config.get("model"):
-                model = provider_config["model"]
-                full_name = f"{provider_id}:{model}"
-                models.append((full_name, full_name))
+        for provider in providers:
+            provider_id = provider.get("id", "")
+            label = provider.get("label", provider_id)
+            model = provider.get("model", "")
+
+            if provider_id and model:
+                display = f"{label} ({model})"
+                value = f"{provider_id}:{model}"
+                models.append((display, value))
 
         return models
 
