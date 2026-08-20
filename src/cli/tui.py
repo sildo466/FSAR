@@ -25,6 +25,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import Footer, Input, Markdown, Static
 
 from src.security.confirmation import ConfirmResponse
@@ -282,8 +283,12 @@ class ChatApp(App):
         """Display command suggestion popup."""
         from src.cli.tui_widgets import CommandSuggestionPopup
 
-        if self._suggestion_popup:
-            self._suggestion_popup.remove()
+        # Remove existing popup by querying DOM, not instance reference
+        try:
+            old = self.query_one("#cmd-suggestions")
+            old.remove()
+        except NoMatches:
+            pass
 
         self._suggestion_popup = CommandSuggestionPopup(suggestions, id="cmd-suggestions")
         self.mount(self._suggestion_popup)
