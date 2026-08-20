@@ -24,8 +24,8 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Footer, Input, Markdown, Static
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Input, Markdown, Static
 
 from src.security.confirmation import ConfirmResponse
 from src.server.chat_engine import ChatEngine
@@ -212,27 +212,26 @@ class ChatApp(App):
         padding: 0 1;
     }
     #input {
-        dock: bottom;
         height: 3;
         border: heavy white;
-        margin: 0 1 1 1;
+        margin: 0 1;
     }
     #input:focus {
         border: heavy cyan;
     }
-    #statusbar {
+    #composer {
         dock: bottom;
-        height: 1;
-        background: $panel;
-        color: $text-muted;
+        height: 5;
     }
     #mode-status {
+        height: 1;
         padding: 0 1;
         color: $accent;
         text-style: bold;
     }
     #ctx-tokens {
-        padding: 0 1;
+        height: 1;
+        margin: 0 1;
     }
     """
 
@@ -255,13 +254,12 @@ class ChatApp(App):
         with self.history:
             yield Static("\n".join(_banner_lines()), id="banner")
         self.compose_suggestions()
-        yield Horizontal(
-            Static("", id="mode-status"),
+        yield Vertical(
             Static("", id="ctx-tokens"),
-            id="statusbar",
+            Input(placeholder="Message FSAR… (/help, /exit)", id="input"),
+            Static("", id="mode-status"),
+            id="composer",
         )
-        yield Input(placeholder="Message FSAR… (/help, /exit)", id="input")
-        yield Footer()
 
     def compose_suggestions(self) -> None:
         """Mount the suggestion popup once; content updated in-place."""
@@ -707,6 +705,30 @@ def _banner_lines() -> list[str]:
     ]
 
 
+def _configure_tui_runtime(
+    engine: ChatEngine,
+    cwd: str | os.PathLike[str] | None = None,
+) -> str:
+    config = engine.config
+    current_cwd = os.path.abspath(os.fspath(cwd or os.getcwd()))
+    config.patch("security.sandbox.path", current_cwd)
+    workspace = engine.workspace_repo.get_default_for_new()
+    if (
+        workspace is not None
+        and os.path.normcase(os.path.abspath(workspace.root_path))
+        != os.path.normcase(current_cwd)
+    ):
+        engine.workspace_repo.update(workspace.id, root_path=current_cwd)
+    engine.permissions.no_trust_mode = bool(
+        config.get("security.session.no_trust_mode", False)
+    )
+    engine._session_cwd_hint = (
+        f"[TUI context] You are currently working in: {current_cwd}."
+    )
+    config.save()
+    return current_cwd
+
+
 def main() -> None:
     """CLI/TUI entry point — build the shared ChatEngine and run the Textual app."""
     from src.utils.migrate import run_migration
@@ -746,18 +768,7 @@ def main() -> None:
     bridge = RiskBridge()
     engine = ChatEngine(config, bridge)
 
-    # Sandbox = the terminal's current directory at launch. Print it and tell
-    # the model where it is working (TUI-only prompt hint).
-    _cwd = os.getcwd()
-    config.patch("security.sandbox.path", _cwd)
-    config.save()
-    engine.permissions.no_trust_mode = bool(
-        config.get("security.session.no_trust_mode", False)
-    )
-    engine._session_cwd_hint = (
-        f"[TUI context] You are currently working in: {_cwd}.\n"
-        f"自己当前的工作目录为: {_cwd}。"
-    )
+    _cwd = _configure_tui_runtime(engine)
     print(f"Sandbox: {_cwd}  |  mode: "
           + ("manual" if engine.permissions.no_trust_mode else "auto"))
 

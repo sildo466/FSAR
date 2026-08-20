@@ -8,6 +8,7 @@ Input event flow is exercised without needing an LLM.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -301,9 +302,19 @@ async def test_status_bar_mode_and_toggle() -> None:
             s.text for s in app.query_one("#mode-status").render_line(0)
         )
         assert "mode" in mode_text, f"expected mode indicator, got {mode_text!r}"
+        context = app.query_one("#ctx-tokens")
+        input_widget = app.query_one("#input")
+        context_text = "".join(s.text for s in context.render_line(0))
+        assert context_text.endswith(" tokens")
+        assert context.region.y + context.region.height == input_widget.region.y
+        assert app.query_one("#mode-status").region.x == 0
+        assert (
+            app.query_one("#mode-status").region.y
+            + app.query_one("#mode-status").region.height
+            == app.size.height
+        )
         initial = "manual" if engine.permissions.no_trust_mode else "auto"
         # Press shift+tab to toggle
-        from textual.events import Key
         await pilot.press("shift+tab")
         await pilot.pause(0.1)
         toggled = "manual" if engine.permissions.no_trust_mode else "auto"
@@ -329,20 +340,76 @@ async def test_tier_ultra_accepted() -> None:
         assert engine._session_tier_override == "ultra"
 
 
-@pytest.mark.asyncio
-async def test_startup_cwd_sandbox_and_hint() -> None:
-    """At startup the sandbox path is the terminal cwd and a working-dir hint is
-    set for the prompt."""
-    import os
-    from src.server.chat_engine import ChatEngine
-    from src.utils.fsar_config import get_default_config
+def test_tui_startup_binds_workspace_to_cwd(tmp_path) -> None:
+    """TUI startup must configure both sandbox settings and the real workspace."""
+    from src.cli.tui import _configure_tui_runtime
+    from src.utils.fsar_config import FsarConfig
 
-    config = get_default_config()
-    config.patch("security.sandbox.path", os.getcwd())
+    config_path = tmp_path / "fsar.yaml"
+    config = FsarConfig(config_path)
+    workspace = SimpleNamespace(id=7, root_path="C:/old-sandbox")
+
+    class WorkspaceRepo:
+        def __init__(self) -> None:
+            self.updated: tuple[int, str] | None = None
+
+        def get_default_for_new(self):
+            return workspace
+
+        def update(self, workspace_id: int, **fields: Any):
+            self.updated = (workspace_id, fields["root_path"])
+            workspace.root_path = fields["root_path"]
+            return workspace
+
+    engine = SimpleNamespace(
+        config=config,
+        permissions=SimpleNamespace(no_trust_mode=False),
+        workspace_repo=WorkspaceRepo(),
+    )
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+
+    _configure_tui_runtime(engine, cwd)
+
+    expected = str(cwd.resolve())
+    assert config.get("security.sandbox.path") == expected
+    assert engine.workspace_repo.updated == (7, expected)
+    assert expected in engine._session_cwd_hint
+
+
+@pytest.mark.asyncio
+async def test_tui_cwd_hint_reaches_real_system_prompt(tmp_path, monkeypatch) -> None:
+    """The TUI cwd hint must be present in the prompt sent by ChatEngine."""
+    from src.cli.tui import _configure_tui_runtime
+    from src.memory.cards import CharacterCard
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
     config.save()
     engine = ChatEngine(config, RiskBridge())
-    engine._session_cwd_hint = f"[TUI context] working in: {os.getcwd()}."
+    _configure_tui_runtime(engine, tmp_path)
+    monkeypatch.setattr(engine, "_memory_block", lambda *args, **kwargs: "")
+    monkeypatch.setattr(engine, "_strategy_block", lambda *args, **kwargs: "")
+    monkeypatch.setattr(engine, "_experience_block", lambda *args, **kwargs: "")
+    character = CharacterCard(
+        id=1,
+        name="Test",
+        description="test",
+        personality="test",
+        scenario="",
+        example_dialogues=[],
+        tags=[],
+        is_default=1,
+        created_by="test",
+        created_at="",
+        updated_at="",
+        emotion_state={},
+    )
 
-    assert config.get("security.sandbox.path") == os.getcwd()
-    assert "working in" in engine._session_cwd_hint
-    assert os.getcwd() in engine._session_cwd_hint
+    prompt = await engine._build_prompt(
+        engine.new_conversation(), "agent", "audit", character=character
+    )
+
+    assert str(tmp_path.resolve()) in prompt
