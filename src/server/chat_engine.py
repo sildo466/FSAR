@@ -2989,8 +2989,10 @@ class ChatEngine:
             self.session_store.append_message(
                 conv_id, "user", content, tags="query",
             )
-            self.semantic.add(content, session_id=conv_id,
-                              role="user", tags=["query"])
+            asyncio.create_task(asyncio.to_thread(
+                self.semantic.add, content, session_id=conv_id,
+                role="user", tags=["query"]
+            ))
         except Exception as e:
             logger.warning(f"save user message failed: {e}")
 
@@ -3003,8 +3005,10 @@ class ChatEngine:
             )
             if msg_id is not None:
                 self._msg_ids[message_id] = msg_id
-            self.semantic.add(content, session_id=conv_id,
-                              role="assistant", tags=["reply"])
+            asyncio.create_task(asyncio.to_thread(
+                self.semantic.add, content, session_id=conv_id,
+                role="assistant", tags=["reply"]
+            ))
         except Exception as e:
             logger.warning(f"save assistant message failed: {e}")
 
