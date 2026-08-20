@@ -510,7 +510,7 @@ class ChatApp(App):
 
     def _handle_resume_command(self) -> None:
         """Show historical conversation list for resumption."""
-        from src.cli.tui_screens import ResumeScreen
+        from src.cli.tui_screens import ResumeSelectScreen
         from src.database.conversation_manager import ConversationManager
 
         db_path = os.path.join(os.getcwd(), "data", "fsar.db")
@@ -532,24 +532,27 @@ class ChatApp(App):
                 self.engine._current_conversation_id = conv_id_str
                 self._add_status(f"Resumed conversation: {conv_id_str}")
 
-        self.push_screen(ResumeScreen(sessions), on_selected)
+        self.push_screen(ResumeSelectScreen(sessions), on_selected)
 
     def _handle_permissions_command(self) -> None:
         """Configure sandbox permissions."""
         from src.cli.tui_screens import PermissionsScreen
 
-        permissions = [
-            ("Allow file read", "read"),
-            ("Allow file write", "write"),
-            ("Allow bash execution", "bash"),
-            ("Allow network access", "network"),
-        ]
+        current_path = self.engine.sandbox_path or os.getcwd()
+        current_mode = self.engine.approval_mode or "auto"
 
-        def on_selected(perm_key: str | None) -> None:
-            if perm_key:
-                self._add_status(f"Permission toggled: {perm_key}")
+        def on_result(result: dict[str, str] | None) -> None:
+            if result:
+                new_path = result.get("path", current_path)
+                new_mode = result.get("mode", current_mode)
+                self.engine.sandbox_path = new_path
+                self.engine.approval_mode = new_mode
+                self._add_status(f"Sandbox updated: {new_path} [{new_mode}]")
 
-        self.push_screen(PermissionsScreen(permissions), on_selected)
+        self.push_screen(
+            PermissionsScreen(current_path, current_mode, confirm_on_exit=True),
+            on_result
+        )
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
