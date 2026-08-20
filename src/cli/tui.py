@@ -219,6 +219,11 @@ class ChatApp(App):
     #input:focus {
         border: heavy cyan;
     }
+    .confirm-block {
+        border: round $warning;
+        padding: 0 1;
+        margin: 0 0 1 0;
+    }
     """
 
     def __init__(self, engine: ChatEngine, mode: str, bridge: RiskBridge) -> None:
@@ -386,7 +391,9 @@ class ChatApp(App):
         self.history.mount(Static(f"[{MUTED}]{text}[/{MUTED}]"))
 
     def _add_confirm(self, text: str) -> None:
-        self.history.mount(Markdown(text))
+        # Confirm prompt is Rich markup ([bold yellow]...[/bold yellow]); Markdown
+        # escapes it and shows the raw tags. Render as a Static so it reads cleanly.
+        self.history.mount(Static(text, classes="confirm-block"))
 
     def _add_tool_result(self, text: str) -> None:
         self.history.mount(
@@ -401,8 +408,10 @@ class ChatApp(App):
         # final Markdown replaces it on chat.done. Avoids mounting a new Static
         # per delta (which flooded the history).
         if self._live is None:
+            # No fixed id: on a rapid resend the old widget's remove() may not
+            # have flushed, and a duplicate id would raise DuplicateIds and
+            # swallow the new turn. Mount without an id.
             self._live = Static("")
-            self._live.id = "live"
             self.history.mount(self._live)
         self._live.update(text)
         self.history.scroll_end(animate=False)
