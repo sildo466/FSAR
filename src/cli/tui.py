@@ -235,7 +235,13 @@ class ChatApp(App):
     }
     """
 
-    def __init__(self, engine: ChatEngine, mode: str, bridge: RiskBridge) -> None:
+    def __init__(
+        self,
+        engine: ChatEngine,
+        mode: str,
+        bridge: RiskBridge,
+        startup_summary: str = "",
+    ) -> None:
         super().__init__()
         self.engine = engine
         self.mode = mode
@@ -244,6 +250,7 @@ class ChatApp(App):
         # deadlocks. main() hands in the same instance it gave ChatEngine.
         self.bridge = bridge
         self.sink = TerminalSink(self, self.bridge)
+        self._startup_summary = startup_summary
         self._conv_id: str | None = None
         self._live: Static | None = None
         self._suggestion_popup: Any | None = None
@@ -252,7 +259,12 @@ class ChatApp(App):
         self.history = VerticalScroll(id="history")
         self.history.auto_scroll = True
         with self.history:
-            yield Static("\n".join(_banner_lines()), id="banner")
+            # stdout prints before run() are invisible while Textual owns the
+            # screen, so the startup summary must render inside the banner widget.
+            banner = _banner_lines()
+            if self._startup_summary:
+                banner += [f"  {line}" for line in self._startup_summary.splitlines()]
+            yield Static("\n".join(banner), id="banner")
         self.compose_suggestions()
         yield Vertical(
             Static("", id="ctx-tokens"),
@@ -811,13 +823,11 @@ def main() -> None:
             )
             conn.commit()
 
-    print(_startup_summary(engine, _cwd))
-    print(f"Sandbox: {_cwd}  |  mode: "
-          + ("manual" if engine.permissions.no_trust_mode else "auto"))
-
     # MCP start/stop run inside the App's own event loop (on_mount/on_unmount),
     # so main() only owns the blocking Textual run.
-    app = ChatApp(engine, mode, bridge)
+    app = ChatApp(
+        engine, mode, bridge, startup_summary=_startup_summary(engine, _cwd)
+    )
     app.run()
 
 

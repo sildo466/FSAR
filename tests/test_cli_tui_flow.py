@@ -406,6 +406,27 @@ def test_startup_summary_reports_runtime_selection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_startup_summary_renders_below_banner() -> None:
+    """The runtime summary must render inside the TUI banner widget.
+
+    stdout prints made before App.run() are invisible while Textual owns the
+    terminal, so the summary has to be part of the banner Static.
+    """
+    from textual.widgets import Static
+
+    engine = StubEngine()
+    summary = "Character card: Saffari (id=9)\nAgent tier: ultra"
+    app = ChatApp(engine, "agent", RiskBridge(), startup_summary=summary)
+    async with app.run_test():
+        banner = str(app.query_one("#banner", Static).content)
+
+    assert "Fully Self-evolving AI Companion" in banner
+    assert banner.index("Fully Self-evolving AI Companion") < banner.index(
+        "Agent tier: ultra"
+    )
+
+
+@pytest.mark.asyncio
 async def test_tui_cwd_hint_reaches_real_system_prompt(tmp_path, monkeypatch) -> None:
     """The TUI cwd hint must be present in the prompt sent by ChatEngine."""
     from src.cli.tui import _configure_tui_runtime
