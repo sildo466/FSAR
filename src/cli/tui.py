@@ -341,8 +341,8 @@ class ChatApp(App):
             if base == "/compact":
                 self.run_worker(self._handle_compact_command(), exclusive=False)
                 return
-            if base == "/reset":
-                self._handle_reset_command()
+            if base == "/new":
+                self._handle_new_command()
                 return
             if base == "/resume":
                 self._handle_resume_command()
@@ -506,9 +506,14 @@ class ChatApp(App):
         except Exception as e:
             self._add_status(f"Compact failed: {e}")
 
-    def _handle_reset_command(self) -> None:
-        self.engine.reset_conversation()
-        self._add_status("Conversation reset. All history cleared.")
+    def _handle_new_command(self) -> None:
+        """Start a fresh conversation (new session id, clear displayed history)."""
+        banner = self.history.query_one("#banner", Static)
+        for child in list(self.history.children):
+            if child is not banner:
+                child.remove()
+        self._conv_id = self.engine.new_conversation()
+        self._add_status("New conversation started.")
 
     def _handle_resume_command(self) -> None:
         """Show historical conversation list for resumption."""

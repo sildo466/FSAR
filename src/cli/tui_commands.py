@@ -13,7 +13,7 @@ COMMANDS = {
     "/tier": "Set agent tier (low|medium|high|xhigh|max)",
     "/effort": "Set reasoning effort (low|medium|high|xhigh|max)",
     "/compact": "Compact conversation history",
-    "/reset": "Clear conversation history",
+    "/new": "Start a new conversation",
     "/resume": "Resume historical conversation",
     "/permissions": "Configure sandbox permissions",
 }
