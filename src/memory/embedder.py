@@ -40,7 +40,7 @@ def build_embedder(provider: str | None = None,
     if p not in PROVIDERS:
         raise ValueError(f"未知 embedder provider: {p!r}（可选: {PROVIDERS}）")
 
-    timeout = timeout or float(emb_cfg.get("timeout", 60.0))
+    timeout = timeout or float(emb_cfg.get("timeout", 10.0))
     api_key = api_key or emb_cfg.get("api_key", "")
     base_url = base_url or emb_cfg.get("base_url")
     model = model or emb_cfg.get("model")

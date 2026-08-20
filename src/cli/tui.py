@@ -61,12 +61,14 @@ class TerminalSink:
         """Raw-string path is unused by the engine."""
 
     def _post(self, fn, *args) -> None:
-        """Safely run a UI update from the worker thread."""
+        """Run a UI update. send_json runs inside a Textual worker, i.e. the app's
+        own event loop on the UI thread, so we call directly (call_from_thread is
+        only for cross-thread sends) and surface any render error instead of
+        swallowing it — a silent failure here made replies invisible."""
         try:
-            self.app.call_from_thread(fn, *args)
+            fn(*args)
         except Exception:
-            # App may be shutting down; drops are fine.
-            pass
+            logger.exception("UI update failed")
 
     async def send_json(self, payload: dict[str, Any]) -> None:
         _type = payload.get("type", "")

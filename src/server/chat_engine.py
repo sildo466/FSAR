@@ -1028,7 +1028,7 @@ class ChatEngine:
 
         self._ensure_short(conv_id)
         history = list(self._short_cache.get(conv_id, []))[:-1]
-        system_prompt = self._build_prompt(conv_id, "agent", user_input)
+        system_prompt = await self._build_prompt(conv_id, "agent", user_input)
         run_id = create_run(integration_id, user_input)
         try:
             text, trace = await asyncio.to_thread(
@@ -1091,7 +1091,7 @@ class ChatEngine:
         if ws is None:
             ws = _NoOpWebSocket()
         profile = get_tier_profile(self.config.get("agent.tier", "medium"))
-        system_prompt = self._build_prompt(
+        system_prompt = await self._build_prompt(
             conv_id, "agent", user_input, profile=profile, character=character,
         )
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
@@ -2217,7 +2217,7 @@ class ChatEngine:
             f"{autonomy}\n\nAssigned responsibility:\n{record.assignment}"
         )
         base_prompt = (
-            f"{self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character)}"
+            f"{await self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character)}"
             f"\n\n{boundary}"
         )
         messages: list[Any] = [
@@ -2737,7 +2737,7 @@ class ChatEngine:
                              character: Any = None, char_name: str | None = None,
                              provider_id: str = "", model_effort: str = "off",
                              provider_family: str = "") -> None:
-        system_prompt = self._build_prompt(conv_id, "companion", user_input)
+        system_prompt = await self._build_prompt(conv_id, "companion", user_input)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         self._ensure_short(conv_id)
         context_window, max_output = self._model_limits()
@@ -3069,7 +3069,7 @@ class ChatEngine:
         except Exception as e:
             logger.debug(f"Task reflection skipped: {e}")
 
-    def _build_prompt(
+    async def _build_prompt(
         self,
         conv_id: str,
         mode: str,
@@ -3085,14 +3085,17 @@ class ChatEngine:
         if character is None:
             character = self.card_repo.get_default_character()
         user_card = self.card_repo.get_default_user_card()
-        memory_block = self._memory_block(user_input, character=character)
+        memory_block = await asyncio.to_thread(
+            self._memory_block, user_input, character=character
+        )
         strategy_block = self._strategy_block()
         experience_block = self._experience_block()
         slim = False
         if profile is not None:
             slim = profile.slim_system_prompt
             memory_block = (
-                self._memory_block(
+                await asyncio.to_thread(
+                    self._memory_block,
                     user_input,
                     semantic_top_k=profile.recall_top_k,
                     character=character,

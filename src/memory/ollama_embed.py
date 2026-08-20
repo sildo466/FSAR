@@ -32,7 +32,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
     def __init__(self,
                  base_url: str | None = None,
                  model: str | None = None,
-                 timeout: float = 60.0):
+                 timeout: float = 10.0):
         self.base_url = (
             base_url
             or os.environ.get("OLLAMA_BASE_URL")
@@ -86,7 +86,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         return OllamaEmbeddingFunction(
             base_url=config.get("base_url"),
             model=config.get("model"),
-            timeout=float(config.get("timeout", 60.0)),
+            timeout=float(config.get("timeout", 10.0)),
         )
 
     def get_config(self) -> dict:
