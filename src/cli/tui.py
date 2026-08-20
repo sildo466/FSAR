@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from typing import Any
 
@@ -288,7 +289,17 @@ def main() -> None:
     from src.utils.migrate import run_migration
     from pathlib import Path
 
-    run_migration(Path(__file__).resolve().parent.parent.parent)
+    # Ensure the project root is importable regardless of the launch directory.
+    # The engine imports migration modules under the ``data`` package at runtime
+    # (e.g. SessionStore -> data.migrations.*), which only resolves when the
+    # FSAR root is on sys.path. A console script can start from any cwd, so pin
+    # both the project root and the cwd up front, before ChatEngine constructs.
+    _root = Path(__file__).resolve().parent.parent.parent
+    for _p in (str(_root), os.getcwd()):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
+    run_migration(_root)
 
     mode = "agent"
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
