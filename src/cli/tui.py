@@ -406,7 +406,7 @@ class ChatApp(App):
     def _handle_user_command(self) -> None:
         from src.cli.tui_screens import UserSelectScreen
 
-        users = [(u.name, u.id) for u in self.engine.card_repo.list_users()]
+        users = [(u.name, u.id) for u in self.engine.card_repo.list_user_cards()]
         if not users:
             self._add_status("No user cards available")
             return
