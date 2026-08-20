@@ -21,10 +21,11 @@ class StubEngine:
     delta -> done assistant turn with a short delay, like a real LLM reply."""
 
     def __init__(self, delay: float = 0.05, bridge: RiskBridge | None = None,
-                 confirm_every_call: bool = False) -> None:
+                 confirm_every_call: bool = False, emit_safe_tool: bool = False) -> None:
         self.delay = delay
         self.bridge = bridge
         self.confirm_every_call = confirm_every_call
+        self.emit_safe_tool = emit_safe_tool
         self.turns: list[str] = []
         self.confirmed: list[str] = []
         self.done_after_confirm = 0
@@ -70,11 +71,20 @@ class StubEngine:
                 "args": {"path": "a.py", "old": "1", "new": "2"},
                 "risk": "HIGH",
             })
-            # Block until the UI replies y/n/all/never.
+            # Block until the UI resolves via the ConfirmBar.
             response = await self.bridge.submit(
                 call_id, "apply_edit", '{"path": "a.py"}', "high risk", timeout=30.0
             )
             self.confirmed.append(response.value)
+
+        if self.emit_safe_tool:
+            await sink.send_json({
+                "type": "chat.tool_call",
+                "call_id": f"call-{len(self.turns)}",
+                "tool": "run_command",
+                "args": {"command": "ls"},
+                "risk": "SAFE",
+            })
 
         self.done_after_confirm += 1
         await sink.send_json({"type": "chat.tool_result", "call_id": "x-1",
@@ -122,8 +132,9 @@ async def test_message_during_stream_not_swallowed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_approval_unblocks_and_runs() -> None:
-    """Approving a tool call must unlock the awaiting turn and run the tool."""
+async def test_tool_approval_confirm_bar_unblocks() -> None:
+    """Approving a risky tool via the ConfirmBar must unlock the awaiting turn
+    and run the tool. The bar covers the input (blocks typing) until a choice."""
     bridge = RiskBridge()
     engine = StubEngine(bridge=bridge, confirm_every_call=True)
     app = ChatApp(engine, "agent", bridge)
@@ -131,26 +142,51 @@ async def test_tool_approval_unblocks_and_runs() -> None:
         inp = app.screen.query_one("#input")
         inp.value = "edit the file"
         await pilot.press("enter")
-        # Let the turn reach the bridge.submit await.
+        # Let the turn reach the bridge.submit await and the bar mount.
         await pilot.pause(0.3)
         assert bridge.pending(), "engine should be blocked awaiting approval"
 
-        # The confirm prompt must render as clean text, not raw [bold yellow] tags.
-        confirm_texts = [
-            str(c.render()) for c in app.history.query(".confirm-block")
-        ]
-        joined = "\n".join(confirm_texts)
-        assert "FSAR wants to run" in joined, "confirm prompt not rendered"
-        assert "[bold yellow]" not in joined, "confirm prompt leaked raw Rich markup"
+        # The ConfirmBar covered the input and is focused.
+        bar = app.query_one("#confirm-bar")
+        assert bar is not None, "ConfirmBar should be mounted"
+        assert inp.display is False, "input should be hidden while approving"
 
-        # user types approve
-        inp.value = "y"
+        # Approve button is focused by default; Move right to 'Deny' then back to
+        # 'Approve' to exercise arrow-key navigation, then activate via Enter.
+        await pilot.press("right")
+        await pilot.pause(0.05)
+        assert app.focused.id == "cf-deny", "arrow right should move focus to Deny"
+        await pilot.press("left")
+        await pilot.pause(0.05)
+        assert app.focused.id == "cf-approve", "arrow left should move focus back to Approve"
         await pilot.press("enter")
         await pilot.pause(0.4)
 
         assert engine.confirmed, f"expected approval recorded, got {engine.confirmed}"
         assert not bridge.pending(), "approval should have been consumed"
         assert engine.done_after_confirm >= 1, "turn should have completed after approval"
+        # Bar dismissed, input restored.
+        assert inp.display is True, "input should be restored after approval"
+
+
+@pytest.mark.asyncio
+async def test_safe_tool_does_not_block() -> None:
+    """A risk=SAFE tool call must NOT raise an approval bar — the engine already
+    ran it (this was the bug: every tool triggered an approval prompt but the
+    Agent ran ahead of the user choosing)."""
+    engine = StubEngine(emit_safe_tool=True)
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "do a thing"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+
+        # No approval was requested: no pending confirm, input stayed usable,
+        # and the turn completed on its own.
+        assert app.sink._pending_confirm_meta is None, "SAFE tool must not set pending confirm"
+        assert inp.display is True, "input should stay visible for SAFE tool"
+        assert engine.done_after_confirm >= 1, "turn completed without approval"
 
 
 @pytest.mark.asyncio

@@ -154,9 +154,11 @@ class TerminalSink:
             return
 
     async def _confirm_tool(self, payload: dict[str, Any]) -> None:
-        """Blocking risk confirmation. In the TUI we cannot call input(), so we
-        append the prompt to history and wait for the next Input submission to
-        resolve bridge.submit(call_id, ...)."""
+        """Risk confirmation. The engine sends a chat.tool_call for EVERY tool
+        (even ones that don't need confirmation, marked risk=SAFE) — those must
+        NOT raise an approval, or the Agent appears to run ahead of the user
+        picking. Only genuinely risky tools (risk != SAFE) show the ConfirmBar
+        and block, because only they await bridge.submit()."""
         call_id = payload.get("call_id")
         if not call_id:
             return
@@ -168,36 +170,35 @@ class TerminalSink:
         except TypeError:
             args_preview = str(args)[:400]
 
+        # SAFE tools never block — the engine already ran them. Show status only.
+        if risk == "SAFE":
+            self._post(self.app._add_tool_status, f"{tool} — running…")
+            return
+
         self._pending_confirm_meta = {
             "call_id": call_id,
             "tool": tool,
             "args": args_preview,
             "risk": risk,
         }
-        prompt = (
-            f"[bold yellow]FSAR wants to run:[/bold yellow] {tool} (risk={risk})\n"
-            f"[dim]  args: {args_preview}[/dim]\n"
-            "  [dim][y] approve  [n] deny  [all] trust tool this session  "
-            "[never] permanently deny[/dim]"
-        )
-        self._post(self.app._add_confirm, prompt)
+        self._post(self.app._show_confirm_bar, self._pending_confirm_meta)
 
-    def resolve_confirm(self, raw: str) -> None:
-        """Called from the UI when the user submits y/n/all/never while a risk
-        confirmation is pending."""
+    def resolve_confirm(self, choice: str) -> None:
+        """Called from the ConfirmBar when the user picks an action."""
         if not self._pending_confirm_meta:
             return
         call_id = self._pending_confirm_meta["call_id"]
-        raw = raw.strip().lower()
-        if raw in ("all", "a"):
-            response = ConfirmResponse.ALL
-        elif raw in ("never", "v"):
-            response = ConfirmResponse.NEVER
-        elif raw in ("y", "yes"):
-            response = ConfirmResponse.YES
-        else:
-            response = ConfirmResponse.NO
+        mapping = {
+            "approve": ConfirmResponse.YES,
+            "deny": ConfirmResponse.NO,
+            "trust": ConfirmResponse.ALL,
+            "never": ConfirmResponse.NEVER,
+        }
+        response = mapping.get(choice)
+        if response is None:
+            return
         self._pending_confirm_meta = None
+        self._post(self.app._hide_confirm_bar)
         self.bridge.respond(call_id, response)
 
 
@@ -218,11 +219,6 @@ class ChatApp(App):
     }
     #input:focus {
         border: heavy cyan;
-    }
-    .confirm-block {
-        border: round $warning;
-        padding: 0 1;
-        margin: 0 0 1 0;
     }
     """
 
@@ -356,9 +352,9 @@ class ChatApp(App):
                 self._handle_permissions_command()
                 return
 
-        # A pending risk confirmation wants a y/n/all/never reply.
+        # Risk confirmation is handled exclusively by the ConfirmBar (it takes
+        # focus, so the Input is not typable while an approval is pending).
         if self.sink._pending_confirm_meta:
-            self.sink.resolve_confirm(text)
             return
 
         self._add_user(text)
@@ -390,10 +386,34 @@ class ChatApp(App):
     def _add_status(self, text: str) -> None:
         self.history.mount(Static(f"[{MUTED}]{text}[/{MUTED}]"))
 
-    def _add_confirm(self, text: str) -> None:
-        # Confirm prompt is Rich markup ([bold yellow]...[/bold yellow]); Markdown
-        # escapes it and shows the raw tags. Render as a Static so it reads cleanly.
-        self.history.mount(Static(text, classes="confirm-block"))
+    def _add_tool_status(self, text: str) -> None:
+        self.history.mount(Static(f"[{ACCENT}]⚙ {text}[/{ACCENT}]"))
+
+    def _show_confirm_bar(self, meta: dict[str, Any]) -> None:
+        """Mount the approval bar over the input while a risky tool awaits a
+        decision. The bar takes focus, so the Input is covered and untypable —
+        this blocks until the user picks an action."""
+        from src.cli.tui_widgets import ConfirmBar
+
+        try:
+            self.query_one("#confirm-bar").remove()
+        except Exception:
+            pass
+        self.query_one("#input", Input).display = False
+        bar = ConfirmBar(
+            meta["tool"], meta["args"], meta["risk"],
+            on_select=self.sink.resolve_confirm, id="confirm-bar",
+        )
+        self.mount(bar)
+
+    def _hide_confirm_bar(self) -> None:
+        try:
+            bar = self.query_one("#confirm-bar")
+            bar.remove()
+        except Exception:
+            pass
+        self.query_one("#input", Input).display = True
+        self.query_one("#input", Input).focus()
 
     def _add_tool_result(self, text: str) -> None:
         self.history.mount(
