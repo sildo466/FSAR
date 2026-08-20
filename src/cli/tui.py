@@ -294,6 +294,9 @@ class ChatApp(App):
             if base == "/tier":
                 self._handle_tier_command(text)
                 return
+            if base == "/effort":
+                self._handle_effort_command(text)
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -426,6 +429,21 @@ class ChatApp(App):
 
         self.engine._session_tier_override = tier
         self._add_status(f"Agent tier set to: {tier}")
+
+    def _handle_effort_command(self, text: str) -> None:
+        parts = text.split()
+        if len(parts) != 2:
+            self._add_status("Usage: /effort [low|medium|high|xhigh|max]")
+            return
+
+        effort = parts[1].lower()
+        valid_efforts = {"low", "medium", "high", "xhigh", "max"}
+        if effort not in valid_efforts:
+            self._add_status(f"Invalid effort: {effort}. Use one of: {', '.join(valid_efforts)}")
+            return
+
+        self.engine._session_effort_override = effort
+        self._add_status(f"Reasoning effort set to: {effort}")
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
