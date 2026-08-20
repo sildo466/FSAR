@@ -18,6 +18,8 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.text import Text
 
 from src.security.confirmation import ConfirmResponse
@@ -26,6 +28,21 @@ from src.server.risk_bridge import RiskBridge
 from src.utils.fsar_config import get_default_config
 from src.utils.logger import logger
 from src.utils.render import console
+
+# Color tokens (Hermes-style) centralized so the palette is easy to tune.
+TOK = {
+    "label": "cyan",
+    "border": "blue",
+    "muted": "dim",
+    "accent": "magenta",
+    "text": "default",
+    "ok": "green",
+    "warn": "yellow",
+    "error": "red",
+}
+
+USER_GLYPH = "▸"
+ASSISTANT_GUTTER = "└─"
 
 
 class TerminalSink:
@@ -50,15 +67,12 @@ class TerminalSink:
         _type = payload.get("type", "")
 
         if _type == "chat.delta":
-            content = payload.get("content") or ""
-            self._delta += content
-            # Live-append so long replies feel like they're being typed.
-            console.print(content, end="", markup=False, highlight=False)
+            self._delta += payload.get("content") or ""
             return
 
         if _type == "chat.thinking":
             if not self._thinking_line:
-                console.print("[dim]thinking…[/dim]")
+                console.print(f"[{TOK['muted']}]thinking…[/{TOK['muted']}]")
                 self._thinking_line = True
             return
 
@@ -66,9 +80,9 @@ class TerminalSink:
             status = payload.get("status") or ""
             detail = (payload.get("detail") or "").strip()
             label = (payload.get("label") or "").strip()
-            line = f"[dim]● {status}[/dim]"
+            line = f"[{TOK['muted']}]● {status}[/{TOK['muted']}]"
             if label:
-                line += f" {label}"
+                line += f" [bold]{label}[/bold]"
             if detail:
                 line += f" — {detail}"
             console.print(line)
@@ -77,7 +91,7 @@ class TerminalSink:
         if _type == "agent.plan.updated":
             items = payload.get("items") or []
             markers = {"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"}
-            console.print("[dim]Plan:[/dim]")
+            console.print(f"[{TOK['accent']}]Plan:[/{TOK['accent']}]")
             for item in items:
                 mark = markers.get(item.get("status", "pending"), "[ ]")
                 content = item.get("content", "")
@@ -88,7 +102,8 @@ class TerminalSink:
             before = payload.get("tokens_before")
             after = payload.get("tokens_after")
             console.print(
-                f"[dim]context compacted[/dim] ({before or '?'} → {after or '?'} tokens)"
+                f"[{TOK['muted']}]context compacted[/{TOK['muted']}] "
+                f"({before or '?'} → {after or '?'} tokens)"
             )
             return
 
@@ -101,44 +116,66 @@ class TerminalSink:
             if call_id and self._awaiting_confirm == call_id:
                 self._awaiting_confirm = None
             result = payload.get("result") or ""
-            preview = (result.replace("\n", " ").strip())[:200]
+            preview = (result.replace("\n", " ").strip())[:200] or "(empty tool result)"
             custom_style = payload.get("custom_style")
             if custom_style:
                 console.print(custom_style)
             else:
-                console.print(f"[dim]⚡ {preview or '(empty tool result)'}[/dim]")
+                console.print(
+                    Panel(
+                        f"[{TOK['muted']}]{preview}[/{TOK['muted']}]",
+                        title="⚡",
+                        border_style=TOK["muted"],
+                        padding=(0, 1),
+                    )
+                )
             return
 
         if _type == "agent.run.started":
-            console.print(f"[dim]agent started[/dim] (tier={payload.get('tier')})")
+            console.print(
+                f"[{TOK['muted']}]agent started[/{TOK['muted']}] "
+                f"(tier={payload.get('tier')})"
+            )
             return
 
         if _type == "agent.run.finished":
-            console.print(f"[dim]agent finished[/dim] — {payload.get('outcome')}")
+            console.print(
+                f"[{TOK['muted']}]agent finished[/{TOK['muted']}] — {payload.get('outcome')}"
+            )
             return
 
         if _type == "chat.done":
-            # A complete assistant turn ended. The assistant text was streamed
-            # via chat.delta already; mark the turn boundary.
+            # A complete assistant turn ended. Render the accumulated text as
+            # Markdown with a Hermes-style gutter prefix.
+            if self._delta and self._delta.strip():
+                self._print_assistant(self._delta)
             self._delta = ""
             self._thinking_line = False
-            console.print()
             return
 
         if _type == "error":
             code = payload.get("code", "error")
             message = payload.get("message", "")
-            console.print(f"[bold red]X[/bold red] {code}: {message}")
+            console.print(
+                f"[bold {TOK['error']}]X[/bold {TOK['error']}] {code}: {message}"
+            )
             return
 
         if _type == "conversation.created":
             session = payload.get("session") or {}
             sid = session.get("id") if isinstance(session, dict) else None
             if sid:
-                console.print(f"[dim]session: {sid}[/dim]")
+                console.print(f"[{TOK['muted']}]session: {sid}[/{TOK['muted']}]")
             return
 
         # Unknown event type — ignore silently.
+
+    def _print_assistant(self, text: str) -> None:
+        """Render the assistant reply as Markdown with a Hermes-style gutter."""
+        console.print(f"[{TOK['border']}]{ASSISTANT_GUTTER}[/{TOK['border']}]")
+        console.print(
+            Markdown(text, code_theme="monokai", inline_code_theme="monokai")
+        )
 
     async def _confirm_tool(self, payload: dict[str, Any]) -> None:
         """Blocking terminal risk confirmation. Paused mid-turn; the engine is
@@ -155,11 +192,19 @@ class TerminalSink:
         except TypeError:
             args_preview = str(args)[:400]
 
-        console.print(f"[bold yellow]FSAR wants to run:[/bold yellow] {tool} (risk={risk})")
-        console.print(f"[dim]  args: {args_preview}[/dim]")
         console.print(
-            "  [dim][y] approve  [n] deny  [all] trust this tool for this session  "
-            "[never] permanently deny[/dim]"
+            Panel(
+                (
+                    f"[{TOK['accent']}]{tool}[/{TOK['accent']}] "
+                    f"(risk={risk})\n"
+                    f"[{TOK['muted']}]args: {args_preview}[/{TOK['muted']}]\n\n"
+                    "[y] approve  [n] deny  [all] trust this tool for this session  "
+                    "[never] permanently deny"
+                ),
+                title=f"[{TOK['warn']}]FSAR wants to run[/{TOK['warn']}]",
+                border_style=TOK["warn"],
+                padding=(0, 1),
+            )
         )
 
         self._awaiting_confirm = call_id
@@ -219,6 +264,12 @@ async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
                         "ModuleNotFoundError: No module named 'src.core.prompt_archive'"
                     )
                 continue
+
+        # User message: colored glyph + bold body (Hermes-style).
+        console.print(
+            f"[bold {TOK['label']}]{USER_GLYPH}[/bold {TOK['label']}] "
+            f"[bold]{user_input}[/bold]"
+        )
 
         try:
             await engine.handle_send(
