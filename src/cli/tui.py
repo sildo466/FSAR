@@ -528,20 +528,19 @@ class ChatApp(App):
         self._add_status(f"Reasoning effort set to: {effort}")
 
     async def _handle_compact_command(self) -> None:
-        """Compact the current conversation's in-memory short-term context.
-        Full summarization is automatic inside agent runs; here we reset the
-        volatile short cache so the next turn is built from persisted history."""
+        """Compress the current conversation with the real LLM summarizer."""
         self._add_status("Compacting conversation history...")
         try:
             conv_id = self._conv_id or self.engine.active_conversation_id()
-            cache = getattr(self.engine, "_short_cache", None)
-            before = len(cache.get(conv_id, ())) if cache else 0
-            if cache and conv_id in cache:
-                cache[conv_id].clear()
-            self._add_status(
-                f"History compacted ({before} → 0 short-term messages)."
-            )
+            before, after, compacted = await self.engine.compact_conversation(conv_id)
+            if compacted:
+                self._add_status(f"Compacted: {before} → {after} tokens.")
+            else:
+                self._add_status(
+                    "Nothing to compact (history too small, or no LLM provider)."
+                )
         except Exception as e:
+            logger.exception("compact failed")
             self._add_status(f"Compact failed: {e}")
 
     def _handle_new_command(self) -> None:

@@ -469,6 +469,70 @@ class ChatEngine:
         self._active_conv_id = row.id
         return row.id
 
+    async def compact_conversation(
+        self, conversation_id: str,
+    ) -> tuple[int, int, bool]:
+        """Compress a conversation's history into a context checkpoint using
+        the real LLM summarizer (the same `_summarize_context_chunk` the agent
+        loop uses). Older messages are folded into one system summary; the most
+        recent turns are kept verbatim.
+
+        Returns (tokens_before, tokens_after, compacted). Requires an active LLM
+        provider; without one it returns (0, 0, False)."""
+        rows = self.session_store.get_session_messages(conversation_id)
+        if not rows:
+            return 0, 0, False
+
+        messages = [{"role": r.role, "content": str(r.content or "")} for r in rows]
+        if len(messages) < 5:
+            return 0, 0, False
+
+        client, model, provider_id = self.client_and_model()
+        if client is None:
+            return 0, 0, False
+
+        before_tokens = context_cost(messages)
+        # Summarize all but the most recent K messages into one checkpoint and
+        # keep the tail verbatim (mirrors the agent-run compaction intent without
+        # depending on tiny-history threshold behavior).
+        keep_last = max(2, min(6, len(messages) // 3))
+        old = messages[:-keep_last]
+        keep_total = context_cost(messages[-keep_last:])
+        if len(old) < 3 or context_cost(old) + keep_total <= before_tokens // 2:
+            return before_tokens, before_tokens, False
+
+        summary = await self._summarize_context_chunk(
+            client=client,
+            model=model,
+            provider_id=provider_id,
+            task_id=f"compact_{conversation_id}",
+            transcript=old,
+            previous=None,
+            max_output=max(256, min(2048, before_tokens // 2)),
+        )
+        if not summary or not summary.strip():
+            return before_tokens, before_tokens, False
+
+        compacted_messages = [
+            {"role": "system", "content": f"[compacted summary]\n{summary}"},
+            *messages[-keep_last:],
+        ]
+        after_tokens = context_cost(compacted_messages)
+        if after_tokens >= before_tokens:
+            return before_tokens, before_tokens, False
+
+        # Persist checkpoint + tail, discarding the summarized middle.
+        self.session_store.delete_messages([r.id for r in rows])
+        for msg in compacted_messages:
+            self.session_store.append_message(
+                conversation_id=conversation_id,
+                role=msg["role"],
+                content=str(msg.get("content", "")),
+            )
+        self._short_cache.pop(conversation_id, None)
+        self._hydrate_short(conversation_id)
+        return before_tokens, after_tokens, True
+
     def ensure_conversation(self, conversation_id: str | None) -> str:
         """Return a valid conversation_id, creating one if needed."""
         if conversation_id and self.session_store.get(conversation_id):
