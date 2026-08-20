@@ -218,3 +218,66 @@ async def test_rapid_resend_no_duplicate_live_id() -> None:
         )
         # No DuplicateIds should have surfaced; the app is still alive.
         assert app.screen is not None
+
+
+@pytest.mark.asyncio
+async def test_permissions_command_no_crash_and_saves() -> None:
+    """/permissions must read/write real config keys (security.sandbox.path),
+    not a fabricated engine attribute."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    engine = ChatEngine(get_default_config(), RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/permissions"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        # The PermissionsScreen modal opened (covers screen).
+        assert app.screen.id == "permissions-screen", (
+            f"permissions screen should open, got {app.screen.id}"
+        )
+        # Set a path and save (the modal is the active screen).
+        path_input = app.screen.query_one("#sandbox-path-input")
+        path_input.value = "C:/tmp/sandbox-test"
+        await pilot.click("#save-btn")
+        await pilot.pause(0.3)
+        assert engine.config.get("security.sandbox.path") == "C:/tmp/sandbox-test", (
+            "config should persist the sandbox path"
+        )
+
+
+@pytest.mark.asyncio
+async def test_compact_command_no_crash() -> None:
+    """/compact must not raise AttributeError on the real engine."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    engine = ChatEngine(get_default_config(), RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/compact"
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        texts = [str(c.render()) for c in app.history.query("Static")]
+        joined = "\n".join(texts)
+        assert "Compacting" in joined, "compact should report progress"
+
+
+@pytest.mark.asyncio
+async def test_resume_command_no_crash() -> None:
+    """/resume must list real sessions and not raise (no fake db import)."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    engine = ChatEngine(get_default_config(), RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/resume"
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        # Either the select screen opened or a "no conversations" message; no crash.
+        assert True

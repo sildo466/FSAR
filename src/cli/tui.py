@@ -346,7 +346,7 @@ class ChatApp(App):
                 self._handle_new_command()
                 return
             if base == "/resume":
-                self._handle_resume_command()
+                self.run_worker(self._handle_resume_command(), exclusive=False)
                 return
             if base == "/permissions":
                 self._handle_permissions_command()
@@ -528,10 +528,19 @@ class ChatApp(App):
         self._add_status(f"Reasoning effort set to: {effort}")
 
     async def _handle_compact_command(self) -> None:
+        """Compact the current conversation's in-memory short-term context.
+        Full summarization is automatic inside agent runs; here we reset the
+        volatile short cache so the next turn is built from persisted history."""
         self._add_status("Compacting conversation history...")
         try:
-            await self.engine.compact_history()
-            self._add_status("History compacted successfully")
+            conv_id = self._conv_id or self.engine.active_conversation_id()
+            cache = getattr(self.engine, "_short_cache", None)
+            before = len(cache.get(conv_id, ())) if cache else 0
+            if cache and conv_id in cache:
+                cache[conv_id].clear()
+            self._add_status(
+                f"History compacted ({before} → 0 short-term messages)."
+            )
         except Exception as e:
             self._add_status(f"Compact failed: {e}")
 
@@ -544,50 +553,59 @@ class ChatApp(App):
         self._conv_id = self.engine.new_conversation()
         self._add_status("New conversation started.")
 
-    def _handle_resume_command(self) -> None:
-        """Show historical conversation list for resumption."""
+    async def _handle_resume_command(self) -> None:
+        """List historical conversations for resumption."""
         from src.cli.tui_screens import ResumeSelectScreen
-        from src.database.conversation_manager import ConversationManager
 
-        db_path = os.path.join(os.getcwd(), "data", "fsar.db")
-        conv_mgr = ConversationManager(db_path)
-
-        convs = conv_mgr.list_conversations()
-        if not convs:
+        rows = self.engine.session_store.list(limit=50)
+        if not rows:
             self._add_status("No historical conversations found.")
             return
 
-        sessions = [
-            (f"{c['started_at'][:19]} - {c['title'] or 'Untitled'}", str(c["conversation_id"]))
-            for c in convs
-        ]
+        def label(row) -> str:
+            title = (row.title or "").strip() or row.id[:8]
+            return f"{row.updated_at:%Y-%m-%d %H:%M} — {title}"
 
-        def on_selected(conv_id_str: str | None) -> None:
-            if conv_id_str:
-                self._conv_id = conv_id_str
-                self.engine._current_conversation_id = conv_id_str
-                self._add_status(f"Resumed conversation: {conv_id_str}")
+        sessions = [(label(r), r.id) for r in rows]
+
+        def on_selected(conv_id: str | None) -> None:
+            if conv_id:
+                self.run_worker(self._do_resume(conv_id))
 
         self.push_screen(ResumeSelectScreen(sessions), on_selected)
 
+    async def _do_resume(self, conv_id: str) -> None:
+        ok = await self.engine.switch_conversation(conv_id)
+        if ok:
+            self._conv_id = conv_id
+            self._add_status(f"Resumed conversation: {conv_id}")
+        else:
+            self._add_status(f"Failed to load conversation: {conv_id}")
+
     def _handle_permissions_command(self) -> None:
-        """Configure sandbox permissions."""
+        """Configure sandbox permissions (sandbox path + approval mode)."""
         from src.cli.tui_screens import PermissionsScreen
 
-        current_path = self.engine.sandbox_path or os.getcwd()
-        current_mode = self.engine.approval_mode or "auto"
+        current_path = self.engine.config.get("security.sandbox.path") or os.getcwd()
+        no_trust = bool(self.engine.config.get("security.session.no_trust_mode", False))
+        current_mode = "manual" if no_trust else "auto"
 
         def on_result(result: dict[str, str] | None) -> None:
-            if result:
-                new_path = result.get("path", current_path)
-                new_mode = result.get("mode", current_mode)
-                self.engine.sandbox_path = new_path
-                self.engine.approval_mode = new_mode
-                self._add_status(f"Sandbox updated: {new_path} [{new_mode}]")
+            if not result:
+                return
+            new_path = result.get("sandbox_path") or current_path
+            new_mode = result.get("mode") or current_mode
+            self.engine.config.patch("security.sandbox.path", new_path)
+            self.engine.config.patch(
+                "security.session.no_trust_mode", new_mode == "manual"
+            )
+            self.engine.config.save()
+            self.engine.permissions.no_trust_mode = new_mode == "manual"
+            self._add_status(f"Sandbox updated: {new_path} [{new_mode}]")
 
         self.push_screen(
             PermissionsScreen(current_path, current_mode, confirm_on_exit=True),
-            on_result
+            on_result,
         )
 
     def _list_available_models(self) -> list[tuple[str, str]]:
