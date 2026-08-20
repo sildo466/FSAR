@@ -282,6 +282,9 @@ class ChatApp(App):
                     )
                 )
                 return
+            if base == "/model":
+                self._handle_model_command()
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -346,6 +349,46 @@ class ChatApp(App):
             except Exception:
                 pass
             self._live = None
+
+    # ---- command handlers ----
+
+    def _handle_model_command(self) -> None:
+        from src.cli.tui_screens import ModelSelectScreen
+
+        models = self._list_available_models()
+        if not models:
+            self._add_status("No models available")
+            return
+
+        def on_selected(model: str | None) -> None:
+            if model:
+                self.engine._session_model_override = model
+                self._add_status(f"Switched to model: {model}")
+
+        self.push_screen(ModelSelectScreen(models), on_selected)
+
+    def _list_available_models(self) -> list[tuple[str, str]]:
+        """Return [(display_name, provider:model), ...] for all configured models."""
+        providers = self.engine.config.get("llm.providers", {})
+        if not isinstance(providers, dict):
+            return []
+
+        models = []
+        for provider_id, provider_config in providers.items():
+            if not isinstance(provider_config, dict):
+                continue
+            model_list = provider_config.get("models", [])
+            if isinstance(model_list, list):
+                for model in model_list:
+                    if isinstance(model, str):
+                        full_name = f"{provider_id}:{model}"
+                        models.append((full_name, full_name))
+            elif provider_config.get("model"):
+                model = provider_config["model"]
+                full_name = f"{provider_id}:{model}"
+                models.append((full_name, full_name))
+
+        return models
 
 
 def TextualPrefix(text: str, style: str) -> str:
