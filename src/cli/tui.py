@@ -300,6 +300,9 @@ class ChatApp(App):
             if base == "/compact":
                 self.run_worker(self._handle_compact_command(), exclusive=False)
                 return
+            if base == "/reset":
+                self._handle_reset_command()
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -455,6 +458,10 @@ class ChatApp(App):
             self._add_status("History compacted successfully")
         except Exception as e:
             self._add_status(f"Compact failed: {e}")
+
+    def _handle_reset_command(self) -> None:
+        self.engine.reset_conversation()
+        self._add_status("Conversation reset. All history cleared.")
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
