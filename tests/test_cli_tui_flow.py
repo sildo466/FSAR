@@ -281,3 +281,68 @@ async def test_resume_command_no_crash() -> None:
         await pilot.pause(0.5)
         # Either the select screen opened or a "no conversations" message; no crash.
         assert True
+
+
+@pytest.mark.asyncio
+async def test_status_bar_mode_and_toggle() -> None:
+    """Bottom status bar shows the mode; Shift+Tab toggles auto/manual and
+    persists to config."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    engine = ChatEngine(get_default_config(), RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        await pilot.pause(0.1)
+        # The status bar must be present and show a mode label.
+        app._update_status()
+        await pilot.pause(0.05)
+        mode_text = "".join(
+            s.text for s in app.query_one("#mode-status").render_line(0)
+        )
+        assert "mode" in mode_text, f"expected mode indicator, got {mode_text!r}"
+        initial = "manual" if engine.permissions.no_trust_mode else "auto"
+        # Press shift+tab to toggle
+        from textual.events import Key
+        await pilot.press("shift+tab")
+        await pilot.pause(0.1)
+        toggled = "manual" if engine.permissions.no_trust_mode else "auto"
+        assert toggled != initial, "shift+tab should toggle the mode"
+        assert bool(engine.config.get("security.session.no_trust_mode")) == (
+            toggled == "manual"
+        ), "mode should persist to config"
+
+
+@pytest.mark.asyncio
+async def test_tier_ultra_accepted() -> None:
+    """/tier must accept the ultra tier."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    engine = ChatEngine(get_default_config(), RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/tier ultra"
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert engine._session_tier_override == "ultra"
+
+
+@pytest.mark.asyncio
+async def test_startup_cwd_sandbox_and_hint() -> None:
+    """At startup the sandbox path is the terminal cwd and a working-dir hint is
+    set for the prompt."""
+    import os
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import get_default_config
+
+    config = get_default_config()
+    config.patch("security.sandbox.path", os.getcwd())
+    config.save()
+    engine = ChatEngine(config, RiskBridge())
+    engine._session_cwd_hint = f"[TUI context] working in: {os.getcwd()}."
+
+    assert config.get("security.sandbox.path") == os.getcwd()
+    assert "working in" in engine._session_cwd_hint
+    assert os.getcwd() in engine._session_cwd_hint

@@ -10,7 +10,7 @@ COMMANDS = {
     "/model": "Select LLM model",
     "/character": "Select character card",
     "/user": "Select user card",
-    "/tier": "Set agent tier (low|medium|high|xhigh|max)",
+    "/tier": "Set agent tier (low|medium|high|xhigh|max|ultra)",
     "/effort": "Set reasoning effort (low|medium|high|xhigh|max)",
     "/compact": "Compact conversation history",
     "/new": "Start a new conversation",

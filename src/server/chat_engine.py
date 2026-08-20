@@ -436,6 +436,8 @@ class ChatEngine:
         self._session_effort_override: str | None = None
         self._session_character_override: int | None = None
         self._session_user_override: int | None = None
+        # TUI-only working-directory hint injected into the system prompt.
+        self._session_cwd_hint: str | None = None
 
     # ---------- session lifecycle ----------
 
@@ -3208,7 +3210,7 @@ class ChatEngine:
                     self._experience_block(profile.injector_intensity)
                     if profile.inject_experience else ""
                 )
-        return build_system_prompt(
+        prompt = build_system_prompt(
             mode=mode,
             character=character,
             user_card=user_card,
@@ -3218,6 +3220,9 @@ class ChatEngine:
             workspace_context=self._workspace_context(conv_id),
             slim=slim,
         )
+        if self._session_cwd_hint:
+            prompt = f"{prompt}\n\n{self._session_cwd_hint}"
+        return prompt
 
     def _workspace_context(self, conv_id: str) -> str:
         workspace = self.workspace_repo.get_or_create_binding(conv_id)

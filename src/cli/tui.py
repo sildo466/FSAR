@@ -24,7 +24,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Footer, Input, Markdown, Static
 
 from src.security.confirmation import ConfirmResponse
@@ -220,6 +220,20 @@ class ChatApp(App):
     #input:focus {
         border: heavy cyan;
     }
+    #statusbar {
+        dock: bottom;
+        height: 1;
+        background: $panel;
+        color: $text-muted;
+    }
+    #mode-status {
+        padding: 0 1;
+        color: $accent;
+        text-style: bold;
+    }
+    #ctx-tokens {
+        padding: 0 1;
+    }
     """
 
     def __init__(self, engine: ChatEngine, mode: str, bridge: RiskBridge) -> None:
@@ -241,6 +255,11 @@ class ChatApp(App):
         with self.history:
             yield Static("\n".join(_banner_lines()), id="banner")
         self.compose_suggestions()
+        yield Horizontal(
+            Static("", id="mode-status"),
+            Static("", id="ctx-tokens"),
+            id="statusbar",
+        )
         yield Input(placeholder="Message FSAR… (/help, /exit)", id="input")
         yield Footer()
 
@@ -254,8 +273,49 @@ class ChatApp(App):
 
     def on_mount(self) -> None:
         self._conv_id = self.engine.new_conversation()
+        self._update_status()
+        self.set_interval(2.0, self._update_status)
         self.query_one("#input", Input).focus()
         self.run_worker(self._start_mcp(), exclusive=True)
+
+    def on_key(self, event) -> None:
+        if event.key == "shift+tab":
+            self._toggle_mode()
+            event.stop()
+
+    def _mode_label(self) -> str:
+        return "manual" if self.engine.permissions.no_trust_mode else "auto"
+
+    def _update_status(self) -> None:
+        """Refresh the bottom status bar: mode indicator + context token count."""
+        try:
+            mode = self._mode_label()
+            self.query_one("#mode-status", Static).update(
+                f"{mode} mode (shift+tab to switch)"
+            )
+            used, window = self._context_usage()
+            self.query_one("#ctx-tokens", Static).update(f"{used}/{window} tokens")
+        except Exception:
+            pass
+
+    def _context_usage(self) -> tuple[int, int]:
+        from src.core.context_compaction import context_cost
+
+        msgs: list = []
+        cache = getattr(self.engine, "_short_cache", {})
+        conv = self._conv_id
+        if conv and conv in cache:
+            msgs = list(cache[conv])
+        used = context_cost(msgs)
+        window = self.engine._model_limits()[0]
+        return used, window
+
+    def _toggle_mode(self) -> None:
+        new_no_trust = not bool(self.engine.permissions.no_trust_mode)
+        self.engine.permissions.no_trust_mode = new_no_trust
+        self.engine.config.patch("security.session.no_trust_mode", new_no_trust)
+        self.engine.config.save()
+        self._update_status()
 
     async def _start_mcp(self) -> None:
         try:
@@ -500,11 +560,11 @@ class ChatApp(App):
     def _handle_tier_command(self, text: str) -> None:
         parts = text.split()
         if len(parts) != 2:
-            self._add_status("Usage: /tier [low|medium|high|xhigh|max]")
+            self._add_status("Usage: /tier [low|medium|high|xhigh|max|ultra]")
             return
 
         tier = parts[1].lower()
-        valid_tiers = {"low", "medium", "high", "xhigh", "max"}
+        valid_tiers = {"low", "medium", "high", "xhigh", "max", "ultra"}
         if tier not in valid_tiers:
             self._add_status(f"Invalid tier: {tier}. Use one of: {', '.join(valid_tiers)}")
             return
@@ -685,6 +745,22 @@ def main() -> None:
     config = get_default_config()
     bridge = RiskBridge()
     engine = ChatEngine(config, bridge)
+
+    # Sandbox = the terminal's current directory at launch. Print it and tell
+    # the model where it is working (TUI-only prompt hint).
+    _cwd = os.getcwd()
+    config.patch("security.sandbox.path", _cwd)
+    config.save()
+    engine.permissions.no_trust_mode = bool(
+        config.get("security.session.no_trust_mode", False)
+    )
+    engine._session_cwd_hint = (
+        f"[TUI context] You are currently working in: {_cwd}.\n"
+        f"自己当前的工作目录为: {_cwd}。"
+    )
+    print(f"Sandbox: {_cwd}  |  mode: "
+          + ("manual" if engine.permissions.no_trust_mode else "auto"))
+
     engine.card_repo.seed_builtins_if_empty()
     if engine.card_repo.get_default_character() is None:
         with engine.card_repo._connect() as conn:
