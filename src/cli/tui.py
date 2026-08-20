@@ -21,7 +21,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.text import Text
 
 from src.security.confirmation import ConfirmResponse
 from src.server.chat_engine import ChatEngine
@@ -254,12 +253,8 @@ async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
     while True:
         try:
             loop = asyncio.get_running_loop()
-            # White top border for the input box; raw prompt (no stray ">"),
-            # the user line itself is echoed below.
-            console.print(
-                Text("-" * 60, style="bold white"),
-                highlight=False,
-            )
+            # Full-width white rule as the input box top border.
+            console.rule(style="bold white")
             user_input = await asyncio.wait_for(
                 loop.run_in_executor(None, lambda: input("  ").strip()),
                 timeout=None,
@@ -351,6 +346,18 @@ def main() -> None:
     # character cards exist before the first turn (the GUI seeds these at
     # startup). Without them handle_send fails on "no character card available".
     engine.card_repo.seed_builtins_if_empty()
+    # seed_builtins_if_empty only assigns is_default when inserting a fresh
+    # FSAR/zh card; an existing card set that lacks a default leaves
+    # get_default_character() as None, which breaks the agent turn. Pick the
+    # first card as default when none is marked.
+    if engine.card_repo.get_default_character() is None:
+        with engine.card_repo._connect() as conn:
+            conn.execute(
+                "UPDATE character_cards SET is_default = 1 "
+                "WHERE id = (SELECT id FROM character_cards "
+                "ORDER BY is_default DESC, name ASC LIMIT 1)"
+            )
+            conn.commit()
 
     _print_banner(engine)
 
