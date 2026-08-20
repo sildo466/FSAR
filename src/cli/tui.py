@@ -234,14 +234,34 @@ class TerminalSink:
         self.bridge.respond(call_id, response)
 
 
+def _print_banner(engine: ChatEngine) -> None:
+    """Faux-GUI startup banner, mirroring the legacy CLI look."""
+    console.print()
+    console.print("  ███████╗███████╗ █████╗ ██████╗ ")
+    console.print("  ██╔════╝██╔════╝██╔══██╗██╔══██╗")
+    console.print("  █████╗  ███████╗███████║██████╔╝")
+    console.print("  ██╔══╝  ╚════██║██╔══██║██╔══██╗")
+    console.print("  ██║     ███████║██║  ██║██║  ██║")
+    console.print("  ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝")
+    console.print("  Fully Self-evolving AI Companion")
+    console.print()
+    console.print("  Type /help for commands, /exit to quit")
+    console.print()
+
+
 async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
     conv_id = engine.new_conversation()
-    console.print(f"[bold]FSAR[/bold] terminal — type /help, /exit to quit")
     while True:
         try:
             loop = asyncio.get_running_loop()
+            # White top border for the input box; raw prompt (no stray ">"),
+            # the user line itself is echoed below.
+            console.print(
+                Text("-" * 60, style="bold white"),
+                highlight=False,
+            )
             user_input = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: input("\n> ").strip()),
+                loop.run_in_executor(None, lambda: input("  ").strip()),
                 timeout=None,
             )
         except (EOFError, KeyboardInterrupt):
@@ -266,7 +286,7 @@ async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
                     )
                 continue
 
-        # User message: colored glyph + bold body (Hermes-style).
+        # User message: colored glyph + bold body inside the input box.
         console.print(
             f"[bold {TOK['label']}]{USER_GLYPH}[/bold {TOK['label']}] "
             f"[bold]{user_input}[/bold]"
@@ -287,7 +307,22 @@ async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
 def main() -> None:
     """CLI entry point — build the shared ChatEngine and run the terminal REPL."""
     from src.utils.migrate import run_migration
+    from src.utils.fsar_home import get_fsar_home
     from pathlib import Path
+
+    # Keep FSAR's loguru chatter out of the interactive terminal so logs never
+    # interleave with conversation output. They still land in the log file.
+    from loguru import logger as _fsar_logger
+    _fsar_logger.remove()
+    _cli_log_dir = get_fsar_home() / "data" / "logs"
+    _cli_log_dir.mkdir(parents=True, exist_ok=True)
+    _fsar_logger.add(
+        str(_cli_log_dir / "fsar_cli_{time:YYYY-MM-DD}.log"),
+        rotation="00:00",
+        retention="30 days",
+        level="DEBUG",
+        encoding="utf-8",
+    )
 
     # Ensure the project root is importable regardless of the launch directory.
     # The engine imports migration modules under the ``data`` package at runtime
@@ -312,6 +347,12 @@ def main() -> None:
     bridge = RiskBridge()
     engine = ChatEngine(config, bridge)
     sink = TerminalSink(bridge)
+    # A CLI session has no onboarding to seed cards, so make sure the built-in
+    # character cards exist before the first turn (the GUI seeds these at
+    # startup). Without them handle_send fails on "no character card available".
+    engine.card_repo.seed_builtins_if_empty()
+
+    _print_banner(engine)
 
     async def _amain() -> None:
         await engine.start_mcp()
