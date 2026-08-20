@@ -291,6 +291,9 @@ class ChatApp(App):
             if base == "/user":
                 self._handle_user_command()
                 return
+            if base == "/tier":
+                self._handle_tier_command(text)
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -408,6 +411,21 @@ class ChatApp(App):
                     self._add_status(f"Switched to user: {user_card.name}")
 
         self.push_screen(UserSelectScreen(users), on_selected)
+
+    def _handle_tier_command(self, text: str) -> None:
+        parts = text.split()
+        if len(parts) != 2:
+            self._add_status("Usage: /tier [low|medium|high|xhigh|max]")
+            return
+
+        tier = parts[1].lower()
+        valid_tiers = {"low", "medium", "high", "xhigh", "max"}
+        if tier not in valid_tiers:
+            self._add_status(f"Invalid tier: {tier}. Use one of: {', '.join(valid_tiers)}")
+            return
+
+        self.engine._session_tier_override = tier
+        self._add_status(f"Agent tier set to: {tier}")
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
