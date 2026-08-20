@@ -297,6 +297,9 @@ class ChatApp(App):
             if base == "/effort":
                 self._handle_effort_command(text)
                 return
+            if base == "/compact":
+                self.run_worker(self._handle_compact_command(), exclusive=False)
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -444,6 +447,14 @@ class ChatApp(App):
 
         self.engine._session_effort_override = effort
         self._add_status(f"Reasoning effort set to: {effort}")
+
+    async def _handle_compact_command(self) -> None:
+        self._add_status("Compacting conversation history...")
+        try:
+            await self.engine.compact_history()
+            self._add_status("History compacted successfully")
+        except Exception as e:
+            self._add_status(f"Compact failed: {e}")
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
