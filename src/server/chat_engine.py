@@ -431,6 +431,12 @@ class ChatEngine:
         self._mcp_started = False
         self._command_followup: dict[str, str] | None = None
 
+        self._session_model_override: str | None = None
+        self._session_tier_override: str | None = None
+        self._session_effort_override: str | None = None
+        self._session_character_override: int | None = None
+        self._session_user_override: int | None = None
+
     # ---------- session lifecycle ----------
 
     def active_conversation_id(self) -> str | None:
@@ -623,6 +629,15 @@ class ChatEngine:
     # ---------- LLM access ----------
 
     def client_and_model(self) -> tuple[Any, str, str]:
+        if self._session_model_override:
+            parts = self._session_model_override.split(":", 1)
+            if len(parts) == 2:
+                provider_id, model = parts
+                try:
+                    return make_llm_client(provider_id), model, provider_id
+                except Exception as e:
+                    logger.error(f"Session model override failed: {e}")
+
         active_id = self.config.get("llm.active", "")
         if not active_id:
             return None, "", ""
@@ -891,8 +906,12 @@ class ChatEngine:
         )
 
     def _bind_character(self, conv_id: str, character_id: int | None):
-        if character_id is not None:
-            requested_character = self.card_repo.get_character(character_id)
+        target_id = character_id
+        if self._session_character_override is not None:
+            target_id = self._session_character_override
+
+        if target_id is not None:
+            requested_character = self.card_repo.get_character(target_id)
             if requested_character is not None:
                 self.session_store.set_character(conv_id, requested_character.id)
         char_id = self.session_store.get_character(conv_id)
@@ -1090,7 +1109,8 @@ class ChatEngine:
                          provider_id: str = "") -> AgentLoopResult:
         if ws is None:
             ws = _NoOpWebSocket()
-        profile = get_tier_profile(self.config.get("agent.tier", "medium"))
+        tier = self._session_tier_override or self.config.get("agent.tier", "medium")
+        profile = get_tier_profile(tier)
         system_prompt = await self._build_prompt(
             conv_id, "agent", user_input, profile=profile, character=character,
         )
@@ -2725,6 +2745,8 @@ class ChatEngine:
             return ""
 
     def _model_thinking_effort(self) -> str:
+        if self._session_effort_override:
+            return self._session_effort_override
         try:
             return str(self.config.get("llm.model_thinking_effort", "off"))
         except Exception:
@@ -3088,7 +3110,14 @@ class ChatEngine:
                 character = self.card_repo.get_character(char_id)
         if character is None:
             character = self.card_repo.get_default_character()
-        user_card = self.card_repo.get_default_user_card()
+
+        user_card_id = self._session_user_override
+        if user_card_id is not None:
+            user_card = self.card_repo.get_user_card(user_card_id)
+        else:
+            user_card = None
+        if user_card is None:
+            user_card = self.card_repo.get_default_user_card()
         memory_block = await asyncio.to_thread(
             self._memory_block, user_input, character=character
         )
