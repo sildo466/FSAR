@@ -729,6 +729,38 @@ def _configure_tui_runtime(
     return current_cwd
 
 
+def _startup_summary(engine: ChatEngine, cwd: str) -> str:
+    from src.core.agent_tiers import get_tier_profile
+
+    character = engine.card_repo.get_default_character()
+    if character is None:
+        characters = engine.card_repo.list_characters()
+        character = characters[0] if characters else None
+    if character is None:
+        character_label = "Assistant"
+    else:
+        character_label = f"{character.name} (id={character.id})"
+
+    configured_tier = engine._session_tier_override or engine.config.get(
+        "agent.tier", "medium"
+    )
+    tier = get_tier_profile(configured_tier).name
+
+    provider_id = str(engine.config.get("llm.active", "") or "")
+    provider = engine.config.get_llm_config(provider_id) if provider_id else {}
+    model = str(provider.get("model", "") or "")
+    model_label = f"{provider_id}/{model}" if provider_id and model else "not configured"
+
+    return "\n".join(
+        (
+            f"Character card: {character_label}",
+            f"Agent tier: {tier}",
+            f"Model: {model_label}",
+            f"CWD: {cwd}",
+        )
+    )
+
+
 def main() -> None:
     """CLI/TUI entry point — build the shared ChatEngine and run the Textual app."""
     from src.utils.migrate import run_migration
@@ -769,9 +801,6 @@ def main() -> None:
     engine = ChatEngine(config, bridge)
 
     _cwd = _configure_tui_runtime(engine)
-    print(f"Sandbox: {_cwd}  |  mode: "
-          + ("manual" if engine.permissions.no_trust_mode else "auto"))
-
     engine.card_repo.seed_builtins_if_empty()
     if engine.card_repo.get_default_character() is None:
         with engine.card_repo._connect() as conn:
@@ -781,6 +810,10 @@ def main() -> None:
                 "ORDER BY is_default DESC, name ASC LIMIT 1)"
             )
             conn.commit()
+
+    print(_startup_summary(engine, _cwd))
+    print(f"Sandbox: {_cwd}  |  mode: "
+          + ("manual" if engine.permissions.no_trust_mode else "auto"))
 
     # MCP start/stop run inside the App's own event loop (on_mount/on_unmount),
     # so main() only owns the blocking Textual run.

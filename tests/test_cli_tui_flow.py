@@ -377,6 +377,34 @@ def test_tui_startup_binds_workspace_to_cwd(tmp_path) -> None:
     assert expected in engine._session_cwd_hint
 
 
+def test_startup_summary_reports_runtime_selection() -> None:
+    """Startup output must identify the active card, tier, model, and cwd."""
+    from src.cli.tui import _startup_summary
+
+    class Config:
+        def get(self, key: str, default=None):
+            return {"agent.tier": "ultra", "llm.active": "p1"}.get(key, default)
+
+        def get_llm_config(self, provider_id: str):
+            assert provider_id == "p1"
+            return {"model": "MiniMax-M3"}
+
+    engine = SimpleNamespace(
+        config=Config(),
+        card_repo=SimpleNamespace(
+            get_default_character=lambda: SimpleNamespace(id=9, name="Saffari")
+        ),
+        _session_tier_override=None,
+    )
+
+    summary = _startup_summary(engine, "C:/workspace")
+
+    assert "Character card: Saffari (id=9)" in summary
+    assert "Agent tier: ultra" in summary
+    assert "Model: p1/MiniMax-M3" in summary
+    assert "CWD: C:/workspace" in summary
+
+
 @pytest.mark.asyncio
 async def test_tui_cwd_hint_reaches_real_system_prompt(tmp_path, monkeypatch) -> None:
     """The TUI cwd hint must be present in the prompt sent by ChatEngine."""
