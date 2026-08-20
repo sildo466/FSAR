@@ -18,6 +18,7 @@ pyyaml>=6.0
 python-dotenv>=1.0
 loguru>=0.7
 rich>=13.0       # CLI Markdown rendering (Phase 2.5)
+textual>=0.80    # terminal TUI front-end
 
 # Image handling — avatar upload in src/memory/cards.py and src/server/ws_server.py
 Pillow>=10.0

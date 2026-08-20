@@ -21,6 +21,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "loguru>=0.7",
     "rich>=13.0",
+    "textual>=0.80",
     "Pillow>=10.0",
     "PyPDF2>=3.0",
     "httpx>=0.24",

@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Terminal front-end: a TerminalSink that renders ChatEngine events to stdout,
-plus the REPL loop that drives the shared ChatEngine (same stack as the GUI)."""
+"""Terminal front-end (Textual TUI): drives the shared ChatEngine.
+
+Replaces the rolling CLI with a full-screen Textual app — bottom-docked input
+box with the assistant history scrolling above. The TerminalSink routes
+ChatEngine events back into the UI via call_from_thread, so the same engine
+path the GUI uses drives this terminal surface too.
+"""
 
 from __future__ import annotations
 
@@ -10,100 +15,99 @@ import os
 import sys
 from typing import Any
 
-# Re-wrap stdout/stderr as UTF-8 before rich constructs its console, so glyphs
-# render on Windows (GBK console) and stay correct on Linux/macOS. No-op when
-# the stream is already UTF-8.
+# Re-wrap stdout/stderr as UTF-8 so glyphs render on Windows (GBK console) and
+# stay correct on Linux/macOS. No-op when the stream is already UTF-8.
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
-from rich.markdown import Markdown
-from rich.panel import Panel
+from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
+from textual.widgets import Footer, Input, Markdown, Static
 
 from src.security.confirmation import ConfirmResponse
 from src.server.chat_engine import ChatEngine
 from src.server.risk_bridge import RiskBridge
 from src.utils.fsar_config import get_default_config
 from src.utils.logger import logger
-from src.utils.render import console
 
-# Color tokens (Hermes-style) centralized so the palette is easy to tune.
-TOK = {
-    "label": "cyan",
-    "border": "blue",
-    "muted": "dim",
-    "accent": "magenta",
-    "text": "default",
-    "ok": "green",
-    "warn": "yellow",
-    "error": "red",
-}
-
-USER_GLYPH = "▸"
-ASSISTANT_GUTTER = "└─"
+ASSISTANT_STYLE = ""
+USER_STYLE = "bold"
+MUTED = "dim"
+ACCENT = "magenta"
+LABEL = "cyan"
+BORDER = "blue"
+ERROR = "red"
+WARN = "yellow"
 
 
 class TerminalSink:
-    """Stand-in for a FastAPI WebSocket that renders ChatEngine events to the
-    terminal instead of pushing them to a browser client.
-
-    The engine only ever calls ``send_json`` on this object (never accept /
-    receive / close), so implementing those two methods is the whole contract.
+    """Stand-in for a FastAPI WebSocket that routes ChatEngine events into the
+    Textual UI. The engine only calls ``send_json``/``send``, so this is the
+    whole contract — plus a back-reference to the app for safe cross-thread UI
+    updates.
     """
 
-    def __init__(self, bridge: RiskBridge) -> None:
+    def __init__(self, app: "ChatApp", bridge: RiskBridge) -> None:
+        self.app = app
         self.bridge = bridge
-        # Accumulated assistant text for the in-flight turn
         self._delta = ""
-        self._thinking_line = False
-        self._awaiting_confirm: str | None = None
+        self._anim: dict[str, Any] = {}
+        self._pending_confirm_meta: dict[str, Any] | None = None
 
     async def send(self, data: Any) -> None:
-        """Raw-string path is unused by the engine; keep it a no-op."""
+        """Raw-string path is unused by the engine."""
+
+    def _post(self, fn, *args) -> None:
+        """Safely run a UI update from the worker thread."""
+        try:
+            self.app.call_from_thread(fn, *args)
+        except Exception:
+            # App may be shutting down; drops are fine.
+            pass
 
     async def send_json(self, payload: dict[str, Any]) -> None:
         _type = payload.get("type", "")
 
         if _type == "chat.delta":
             self._delta += payload.get("content") or ""
+            self._post(self.app._stream_delta, self._delta)
             return
 
         if _type == "chat.thinking":
-            if not self._thinking_line:
-                console.print(f"[{TOK['muted']}]thinking…[/{TOK['muted']}]")
-                self._thinking_line = True
+            self._post(self.app._add_status, "thinking…")
             return
 
         if _type == "agent.status":
             status = payload.get("status") or ""
             detail = (payload.get("detail") or "").strip()
             label = (payload.get("label") or "").strip()
-            line = f"[{TOK['muted']}]● {status}[/{TOK['muted']}]"
+            line = status
             if label:
-                line += f" [bold]{label}[/bold]"
+                line += f" {label}"
             if detail:
                 line += f" — {detail}"
-            console.print(line)
+            self._post(self.app._add_status, line)
             return
 
         if _type == "agent.plan.updated":
             items = payload.get("items") or []
             markers = {"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"}
-            console.print(f"[{TOK['accent']}]Plan:[/{TOK['accent']}]")
+            lines = ["Plan:"]
             for item in items:
                 mark = markers.get(item.get("status", "pending"), "[ ]")
-                content = item.get("content", "")
-                console.print(f"  {mark} {content}")
+                lines.append(f"  {mark} {item.get('content', '')}")
+            self._post(self.app._add_status, "\n".join(lines))
             return
 
         if _type == "agent.context.compacted":
             before = payload.get("tokens_before")
             after = payload.get("tokens_after")
-            console.print(
-                f"[{TOK['muted']}]context compacted[/{TOK['muted']}] "
-                f"({before or '?'} → {after or '?'} tokens)"
+            self._post(
+                self.app._add_status,
+                f"context compacted ({before or '?'} → {after or '?'} tokens)",
             )
             return
 
@@ -113,74 +117,44 @@ class TerminalSink:
 
         if _type == "chat.tool_result":
             call_id = payload.get("call_id")
-            if call_id and self._awaiting_confirm == call_id:
-                self._awaiting_confirm = None
             result = payload.get("result") or ""
             preview = (result.replace("\n", " ").strip())[:200] or "(empty tool result)"
-            custom_style = payload.get("custom_style")
-            if custom_style:
-                console.print(custom_style)
-            else:
-                console.print(
-                    Panel(
-                        f"[{TOK['muted']}]{preview}[/{TOK['muted']}]",
-                        title="⚡",
-                        border_style=TOK["muted"],
-                        padding=(0, 1),
-                    )
-                )
+            # Re-render the assistant turn (a tool result may carry text).
+            self._post(self.app._add_tool_result, preview)
             return
 
         if _type == "agent.run.started":
-            console.print(
-                f"[{TOK['muted']}]agent started[/{TOK['muted']}] "
-                f"(tier={payload.get('tier')})"
-            )
+            self._post(self.app._add_status, f"agent started (tier={payload.get('tier')})")
             return
 
         if _type == "agent.run.finished":
-            console.print(
-                f"[{TOK['muted']}]agent finished[/{TOK['muted']}] — {payload.get('outcome')}"
-            )
+            self._post(self.app._add_status, f"agent finished — {payload.get('outcome')}")
             return
 
         if _type == "chat.done":
-            # A complete assistant turn ended. Render the accumulated text as
-            # Markdown with a Hermes-style gutter prefix.
-            if self._delta and self._delta.strip():
-                self._print_assistant(self._delta)
+            # End of an assistant turn: render the accumulated text as Markdown.
+            text = self._delta
             self._delta = ""
-            self._thinking_line = False
+            self._post(self.app._add_assistant, text)
             return
 
         if _type == "error":
             code = payload.get("code", "error")
             message = payload.get("message", "")
-            console.print(
-                f"[bold {TOK['error']}]X[/bold {TOK['error']}] {code}: {message}"
-            )
+            self._post(self.app._add_error, f"{code}: {message}")
             return
 
         if _type == "conversation.created":
             session = payload.get("session") or {}
             sid = session.get("id") if isinstance(session, dict) else None
             if sid:
-                console.print(f"[{TOK['muted']}]session: {sid}[/{TOK['muted']}]")
+                self._post(self.app._add_status, f"session: {sid}")
             return
 
-        # Unknown event type — ignore silently.
-
-    def _print_assistant(self, text: str) -> None:
-        """Render the assistant reply as Markdown with a Hermes-style gutter."""
-        console.print(f"[{TOK['border']}]{ASSISTANT_GUTTER}[/{TOK['border']}]")
-        console.print(
-            Markdown(text, code_theme="monokai", inline_code_theme="monokai")
-        )
-
     async def _confirm_tool(self, payload: dict[str, Any]) -> None:
-        """Blocking terminal risk confirmation. Paused mid-turn; the engine is
-        awaiting bridge.submit(call_id, ...) so we resolve it with the user's
-        choice here."""
+        """Blocking risk confirmation. In the TUI we cannot call input(), so we
+        append the prompt to history and wait for the next Input submission to
+        resolve bridge.submit(call_id, ...)."""
         call_id = payload.get("call_id")
         if not call_id:
             return
@@ -192,121 +166,212 @@ class TerminalSink:
         except TypeError:
             args_preview = str(args)[:400]
 
-        console.print(
-            Panel(
-                (
-                    f"[{TOK['accent']}]{tool}[/{TOK['accent']}] "
-                    f"(risk={risk})\n"
-                    f"[{TOK['muted']}]args: {args_preview}[/{TOK['muted']}]\n\n"
-                    "[y] approve  [n] deny  [all] trust this tool for this session  "
-                    "[never] permanently deny"
-                ),
-                title=f"[{TOK['warn']}]FSAR wants to run[/{TOK['warn']}]",
-                border_style=TOK["warn"],
-                padding=(0, 1),
-            )
+        self._pending_confirm_meta = {
+            "call_id": call_id,
+            "tool": tool,
+            "args": args_preview,
+            "risk": risk,
+        }
+        prompt = (
+            f"[bold yellow]FSAR wants to run:[/bold yellow] {tool} (risk={risk})\n"
+            f"[dim]  args: {args_preview}[/dim]\n"
+            "  [dim][y] approve  [n] deny  [all] trust tool this session  "
+            "[never] permanently deny[/dim]"
         )
+        self._post(self.app._add_confirm, prompt)
 
-        self._awaiting_confirm = call_id
-
-        loop = asyncio.get_running_loop()
-        try:
-            raw = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: input("  > ").strip().lower(),
-                ),
-                timeout=30.0,
-            )
-        except (asyncio.TimeoutError, EOFError):
-            raw = "n"
-
-        if raw in ("y", "yes"):
-            response = ConfirmResponse.YES
-        elif raw in ("all", "a"):
+    def resolve_confirm(self, raw: str) -> None:
+        """Called from the UI when the user submits y/n/all/never while a risk
+        confirmation is pending."""
+        if not self._pending_confirm_meta:
+            return
+        call_id = self._pending_confirm_meta["call_id"]
+        raw = raw.strip().lower()
+        if raw in ("all", "a"):
             response = ConfirmResponse.ALL
         elif raw in ("never", "v"):
             response = ConfirmResponse.NEVER
+        elif raw in ("y", "yes"):
+            response = ConfirmResponse.YES
         else:
             response = ConfirmResponse.NO
-
+        self._pending_confirm_meta = None
         self.bridge.respond(call_id, response)
 
 
-def _print_banner(engine: ChatEngine) -> None:
-    """Faux-GUI startup banner, mirroring the legacy CLI look."""
-    console.print()
-    console.print("  ███████╗███████╗ █████╗ ██████╗ ")
-    console.print("  ██╔════╝██╔════╝██╔══██╗██╔══██╗")
-    console.print("  █████╗  ███████╗███████║██████╔╝")
-    console.print("  ██╔══╝  ╚════██║██╔══██║██╔══██╗")
-    console.print("  ██║     ███████║██║  ██║██║  ██║")
-    console.print("  ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝")
-    console.print("  Fully Self-evolving AI Companion")
-    console.print()
-    console.print("  Type /help for commands, /exit to quit")
-    console.print()
+class ChatApp(App):
+    """Full-screen Textual chat front-end for FSAR."""
 
+    CSS = """
+    #history {
+        height: 1fr;
+        border-bottom: heavy white;
+        padding: 0 1;
+    }
+    #input {
+        dock: bottom;
+        height: 3;
+        border: heavy white;
+        margin: 0 1 1 1;
+    }
+    #input:focus {
+        border: heavy cyan;
+    }
+    """
 
-async def _run(engine: ChatEngine, sink: TerminalSink, mode: str) -> None:
-    conv_id = engine.new_conversation()
-    while True:
+    def __init__(self, engine: ChatEngine, mode: str, bridge: RiskBridge) -> None:
+        super().__init__()
+        self.engine = engine
+        self.mode = mode
+        # Engine and sink MUST share the same bridge, or the engine's awaited
+        # bridge.submit() never sees the sink's respond() and confirmation
+        # deadlocks. main() hands in the same instance it gave ChatEngine.
+        self.bridge = bridge
+        self.sink = TerminalSink(self, self.bridge)
+        self._conv_id: str | None = None
+        self._live: Static | None = None
+
+    def compose(self) -> ComposeResult:
+        self.history = VerticalScroll(id="history")
+        self.history.auto_scroll = True
+        with self.history:
+            yield Static("\n".join(_banner_lines()), id="banner")
+        yield Input(placeholder="Message FSAR… (/help, /exit)", id="input")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self._conv_id = self.engine.new_conversation()
+        self.query_one("#input", Input).focus()
+        self.run_worker(self._start_mcp(), exclusive=True)
+
+    async def _start_mcp(self) -> None:
         try:
-            loop = asyncio.get_running_loop()
-            # Full-width white rule as the input box top border.
-            console.rule(style="bold white")
-            user_input = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: input("  ").strip()),
-                timeout=None,
-            )
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]Goodbye![/dim]")
+            await self.engine.start_mcp()
+        except Exception as e:
+            logger.error(f"MCP start failed: {e}")
+            self.sink._post(self._add_error, f"MCP start failed: {e}")
+
+    async def on_unmount(self) -> None:
+        try:
+            await self.engine.stop_mcp()
+        except Exception as e:
+            logger.error(f"MCP stop failed: {e}")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        input_widget = self.query_one("#input", Input)
+        input_widget.value = ""
+        if not text:
             return
 
-        if not user_input:
-            continue
-
-        if user_input.startswith("/"):
-            if user_input.split()[0].lower() in ("/exit", "/quit"):
-                console.print("[dim]Goodbye![/dim]")
+        if text.startswith("/"):
+            base = text.split()[0].lower()
+            if base in ("/exit", "/quit"):
+                self.exit()
                 return
-            if user_input.split()[0].lower() in ("/fsar", "/attic"):
-                if user_input.split()[0].lower() == "/fsar":
-                    console.print("00101111 01100001 01110100 01110100 01101001 01100011")
-                else:
-                    console.print(
+            if base in ("/fsar", "/attic"):
+                self._add_status(
+                    "00101111 01100001 01110100 01110100 01101001 01100011"
+                    if base == "/fsar"
+                    else (
                         "Traceback (most recent call last):\n"
                         '  File "<stdin>", line 1, in <module>\n'
                         "ModuleNotFoundError: No module named 'src.core.prompt_archive'"
                     )
-                continue
+                )
+                return
 
-        # User message: colored glyph + bold body inside the input box.
-        console.print(
-            f"[bold {TOK['label']}]{USER_GLYPH}[/bold {TOK['label']}] "
-            f"[bold]{user_input}[/bold]"
-        )
+        # A pending risk confirmation wants a y/n/all/never reply.
+        if self.sink._pending_confirm_meta:
+            self.sink.resolve_confirm(text)
+            return
 
+        self._add_user(text)
+        self.run_worker(self._run_turn(text), exclusive=False)
+
+    async def _run_turn(self, text: str) -> None:
         try:
-            await engine.handle_send(
-                sink, user_input, mode, conversation_id=conv_id,
+            await self.engine.handle_send(
+                self.sink, text, self.mode, conversation_id=self._conv_id,
             )
         except asyncio.CancelledError:
-            console.print("\n[dim](Cancelled.)[/dim]")
-            return
+            pass
         except Exception as e:
             logger.error(f"turn failed: {e}")
-            console.print(f"[bold red]X[/bold red] {e}")
+            self.sink._post(self._add_error, str(e))
+
+    # ---- history updaters (run on the UI thread via call_from_thread) ----
+
+    def _add_user(self, text: str) -> None:
+        self.history.mount(Static(TextualPrefix(f"{text}", USER_STYLE)))
+
+    def _add_assistant(self, text: str) -> None:
+        if not text or not text.strip():
+            return
+        # Remove the transient streaming widget, then render the full reply.
+        self._clear_live()
+        self.history.mount(Markdown(text))
+
+    def _add_status(self, text: str) -> None:
+        self.history.mount(Static(f"[{MUTED}]{text}[/{MUTED}]"))
+
+    def _add_confirm(self, text: str) -> None:
+        self.history.mount(Markdown(text))
+
+    def _add_tool_result(self, text: str) -> None:
+        self.history.mount(
+            Static(f"[{MUTED}]⚡ {text}[/{MUTED}]")
+        )
+
+    def _add_error(self, text: str) -> None:
+        self.history.mount(Static(f"[bold {ERROR}]X[/bold {ERROR}] {text}"))
+
+    def _stream_delta(self, text: str) -> None:
+        # Keep ONE transient widget for the in-flight reply, updated in place,
+        # final Markdown replaces it on chat.done. Avoids mounting a new Static
+        # per delta (which flooded the history).
+        if self._live is None:
+            self._live = Static("")
+            self._live.id = "live"
+            self.history.mount(self._live)
+        self._live.update(text)
+        self.history.scroll_end(animate=False)
+
+    def _clear_live(self) -> None:
+        if self._live is not None:
+            try:
+                self._live.remove()
+            except Exception:
+                pass
+            self._live = None
+
+
+def TextualPrefix(text: str, style: str) -> str:
+    """Prefix wrapper kept thin: the caller passes the raw text."""
+    return f"[{style}]▸[/{style}] {text}"
+
+
+def _banner_lines() -> list[str]:
+    return [
+        "  ███████╗███████╗ █████╗ ██████╗ ",
+        "  ██╔════╝██╔════╝██╔══██╗██╔══██╗",
+        "  █████╗  ███████╗███████║██████╔╝",
+        "  ██╔══╝  ╚════██║██╔══██║██╔══██╗",
+        "  ██║     ███████║██║  ██║██║  ██║",
+        "  ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝",
+        "  Fully Self-evolving AI Companion",
+        "",
+        "  Type /help for commands, /exit to quit",
+    ]
 
 
 def main() -> None:
-    """CLI entry point — build the shared ChatEngine and run the terminal REPL."""
+    """CLI/TUI entry point — build the shared ChatEngine and run the Textual app."""
     from src.utils.migrate import run_migration
     from src.utils.fsar_home import get_fsar_home
     from pathlib import Path
 
-    # Keep FSAR's loguru chatter out of the interactive terminal so logs never
-    # interleave with conversation output. They still land in the log file.
+    # Keep FSAR's loguru chatter out of the terminal; it still goes to a file.
     from loguru import logger as _fsar_logger
     _fsar_logger.remove()
     _cli_log_dir = get_fsar_home() / "data" / "logs"
@@ -319,11 +384,8 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    # Ensure the project root is importable regardless of the launch directory.
-    # The engine imports migration modules under the ``data`` package at runtime
-    # (e.g. SessionStore -> data.migrations.*), which only resolves when the
-    # FSAR root is on sys.path. A console script can start from any cwd, so pin
-    # both the project root and the cwd up front, before ChatEngine constructs.
+    # Pin project root + cwd onto sys.path so data.* imports resolve regardless
+    # of the launch directory (a console script can start from anywhere).
     _root = Path(__file__).resolve().parent.parent.parent
     for _p in (str(_root), os.getcwd()):
         if _p not in sys.path:
@@ -341,15 +403,7 @@ def main() -> None:
     config = get_default_config()
     bridge = RiskBridge()
     engine = ChatEngine(config, bridge)
-    sink = TerminalSink(bridge)
-    # A CLI session has no onboarding to seed cards, so make sure the built-in
-    # character cards exist before the first turn (the GUI seeds these at
-    # startup). Without them handle_send fails on "no character card available".
     engine.card_repo.seed_builtins_if_empty()
-    # seed_builtins_if_empty only assigns is_default when inserting a fresh
-    # FSAR/zh card; an existing card set that lacks a default leaves
-    # get_default_character() as None, which breaks the agent turn. Pick the
-    # first card as default when none is marked.
     if engine.card_repo.get_default_character() is None:
         with engine.card_repo._connect() as conn:
             conn.execute(
@@ -359,19 +413,10 @@ def main() -> None:
             )
             conn.commit()
 
-    _print_banner(engine)
-
-    async def _amain() -> None:
-        await engine.start_mcp()
-        try:
-            await _run(engine, sink, mode)
-        finally:
-            await engine.stop_mcp()
-
-    try:
-        asyncio.run(_amain())
-    except KeyboardInterrupt:
-        console.print("\n[dim]Goodbye![/dim]")
+    # MCP start/stop run inside the App's own event loop (on_mount/on_unmount),
+    # so main() only owns the blocking Textual run.
+    app = ChatApp(engine, mode, bridge)
+    app.run()
 
 
 if __name__ == "__main__":
