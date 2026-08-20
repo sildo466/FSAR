@@ -25,7 +25,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.css.query import NoMatches
 from textual.widgets import Footer, Input, Markdown, Static
 
 from src.security.confirmation import ConfirmResponse
@@ -240,8 +239,17 @@ class ChatApp(App):
         self.history.auto_scroll = True
         with self.history:
             yield Static("\n".join(_banner_lines()), id="banner")
+        self.compose_suggestions()
         yield Input(placeholder="Message FSAR… (/help, /exit)", id="input")
         yield Footer()
+
+    def compose_suggestions(self) -> None:
+        """Mount the suggestion popup once; content updated in-place."""
+        from src.cli.tui_widgets import CommandSuggestionPopup
+
+        self._suggestion_popup = CommandSuggestionPopup([], id="cmd-suggestions")
+        self._suggestion_popup.display = False
+        self.mount(self._suggestion_popup)
 
     def on_mount(self) -> None:
         self._conv_id = self.engine.new_conversation()
@@ -275,32 +283,21 @@ class ChatApp(App):
         suggestions = predictor.predict(text)
 
         if suggestions:
-            self._show_suggestions(suggestions)
+            self._update_suggestions(suggestions)
         else:
             self._hide_suggestions()
 
-    def _show_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
-        """Display command suggestion popup."""
-        from src.cli.tui_widgets import CommandSuggestionPopup
-
-        # Remove existing popup by querying DOM, not instance reference
-        try:
-            old = self.query_one("#cmd-suggestions")
-            old.remove()
-        except NoMatches:
-            pass
-
-        self._suggestion_popup = CommandSuggestionPopup(suggestions, id="cmd-suggestions")
-        self.mount(self._suggestion_popup)
+    def _update_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
+        """Update popup content in place and make visible."""
+        if self._suggestion_popup is None:
+            return
+        self._suggestion_popup.set_suggestions(suggestions)
+        self._suggestion_popup.display = True
 
     def _hide_suggestions(self) -> None:
-        """Remove command suggestion popup."""
-        if self._suggestion_popup:
-            try:
-                self._suggestion_popup.remove()
-            except Exception:
-                pass
-            self._suggestion_popup = None
+        """Hide command suggestion popup."""
+        if self._suggestion_popup is not None:
+            self._suggestion_popup.display = False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()

@@ -38,12 +38,20 @@ class CommandSuggestionPopup(Static):
     }
     """
 
-    def __init__(self, suggestions: list[tuple[str, str]], **kwargs) -> None:
+    def __init__(self, suggestions: list[tuple[str, str]] | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.suggestions = suggestions
+        self.suggestions = suggestions or []
 
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             for cmd, desc in self.suggestions:
                 line = f"[cyan bold]{cmd}[/] [dim]{desc}[/]"
                 yield Static(line, classes="suggestion-item")
+
+    def set_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
+        """Replace rendered suggestions (no re-mount)."""
+        self.suggestions = suggestions
+        lines = [
+            f"[cyan bold]{cmd}[/] [dim]{desc}[/]" for cmd, desc in suggestions
+        ]
+        self.update("\n".join(lines))
