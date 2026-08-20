@@ -285,6 +285,9 @@ class ChatApp(App):
             if base == "/model":
                 self._handle_model_command()
                 return
+            if base == "/character":
+                self._handle_character_command()
+                return
 
         # A pending risk confirmation wants a y/n/all/never reply.
         if self.sink._pending_confirm_meta:
@@ -366,6 +369,24 @@ class ChatApp(App):
                 self._add_status(f"Switched to model: {model}")
 
         self.push_screen(ModelSelectScreen(models), on_selected)
+
+    def _handle_character_command(self) -> None:
+        from src.cli.tui_screens import CharacterSelectScreen
+
+        characters = [(c.name, c.id) for c in self.engine.card_repo.list_characters()]
+        if not characters:
+            self._add_status("No character cards available")
+            return
+
+        def on_selected(card_id_str: str | None) -> None:
+            if card_id_str:
+                card_id = int(card_id_str)
+                character = self.engine.card_repo.get_character(card_id)
+                if character:
+                    self.engine._session_character_override = card_id
+                    self._add_status(f"Switched to character: {character.name}")
+
+        self.push_screen(CharacterSelectScreen(characters), on_selected)
 
     def _list_available_models(self) -> list[tuple[str, str]]:
         """Return [(display_name, provider:model), ...] for all configured models."""
