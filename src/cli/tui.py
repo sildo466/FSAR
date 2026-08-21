@@ -386,20 +386,29 @@ class ChatApp(App):
         if text.startswith("/") and self._handle_slash(text):
             return
 
+        self._send_text(text)
+
+    def _send_text(self, text: str) -> None:
+        """Send a plain message to the engine (used by submit and by picking an
+        engine-level slash command from the suggestion popup)."""
         # Risk confirmation is handled exclusively by the ConfirmBar (it takes
         # focus, so the Input is not typable while an approval is pending).
         if self.sink._pending_confirm_meta:
             return
-
         self._add_user(text)
         self.run_worker(self._run_turn(text), exclusive=False)
 
     def _pick_slash_command(self, command: str) -> None:
-        """Enter pressed on a highlighted suggestion: execute that command."""
+        """Enter pressed on a highlighted suggestion: execute that command.
+        UI-level commands dispatch locally; engine-level ones (memory, skills,
+        exp, ...) fall through to the normal send path and the engine runs
+        them."""
         self.query_one("#input", Input).value = ""
         self._hide_suggestions()
-        if command.startswith("/"):
-            self._handle_slash(command)
+        if not command.startswith("/"):
+            return
+        if not self._handle_slash(command):
+            self._send_text(command)
 
     def _handle_slash(self, text: str) -> bool:
         """Dispatch a slash command; True when the text was consumed by it."""

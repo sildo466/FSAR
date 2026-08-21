@@ -66,6 +66,8 @@ def test_predictor_lists_all_matches() -> None:
     assert predictor.predict("/c") == [
         ("/character", COMMANDS["/character"]),
         ("/compact", COMMANDS["/compact"]),
+        ("/clear", COMMANDS["/clear"]),
+        ("/config", COMMANDS["/config"]),
     ]
     assert predictor.predict("hello") == []
 
@@ -79,10 +81,10 @@ async def test_up_down_browses_all_and_escape_closes() -> None:
         popup = app._suggestion_popup
         assert inp._popup is popup, "input must be wired to the popup"
 
-        inp.value = "/e"  # matches /exit and /effort
+        inp.value = "/e"  # matches /exit, /effort, /exp
         await pilot.pause(0.05)
         assert popup.display, "popup should be visible while typing /"
-        assert [cmd for cmd, _ in popup.suggestions] == ["/exit", "/effort"]
+        assert [cmd for cmd, _ in popup.suggestions] == ["/exit", "/effort", "/exp"]
         assert popup.selected_command() == "/exit"
 
         await pilot.press("down")
@@ -91,17 +93,47 @@ async def test_up_down_browses_all_and_escape_closes() -> None:
 
         await pilot.press("down")
         await pilot.pause(0.05)
+        assert popup.selected_command() == "/exp", "down should move the highlight"
+
+        await pilot.press("down")
+        await pilot.pause(0.05)
         assert popup.selected_command() == "/exit", "selection should wrap around"
 
         await pilot.press("up")
         await pilot.pause(0.05)
-        assert popup.selected_command() == "/effort", "up should move the highlight"
+        assert popup.selected_command() == "/exp", "up should move the highlight"
 
         await pilot.press("escape")
         await pilot.pause(0.05)
         assert not popup.display, "escape should close the suggestions"
 
         assert engine.turns == [], "browsing must not send anything to the engine"
+
+
+@pytest.mark.asyncio
+async def test_highlight_stays_visible_scrolling_below_first_page() -> None:
+    """Scrolling past the visible window must keep the ▸ cursor on screen
+    (regression: wrapped text pushed the highlight below the fold)."""
+    engine = _StubEngine()
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/"  # all commands
+        await pilot.pause(0.05)
+        popup = app._suggestion_popup
+        assert len(popup.suggestions) == len(COMMANDS)
+
+        for _ in range(9):
+            await pilot.press("down")
+            await pilot.pause(0.02)
+
+        assert popup.selected == 9
+        assert popup._offset <= popup.selected < popup._offset + popup.MAX_VISIBLE, (
+            "highlight must be inside the rendered viewport"
+        )
+        local = popup.selected - popup._offset
+        row_text = "".join(s.text for s in popup.render_line(local))
+        assert row_text.startswith("▸"), f"selected row must show ▸, got {row_text!r}"
 
 
 @pytest.mark.asyncio
@@ -124,6 +156,28 @@ async def test_enter_runs_selected_slash_command() -> None:
             "selected command should have run (/tier without args prints usage)"
         )
         assert engine.turns == [], "a picked slash command must not hit the LLM path"
+
+
+@pytest.mark.asyncio
+async def test_enter_runs_engine_level_command() -> None:
+    """Engine-level commands (memory, skills, ...) have no UI handler: picking
+    one must fall through to the engine send path instead of being swallowed."""
+    engine = _StubEngine()
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/memory"
+        await pilot.pause(0.05)
+        assert app._suggestion_popup.selected_command() == "/memory"
+
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+
+        assert engine.turns == ["/memory"], (
+            "engine-level command should reach the engine, got %r" % engine.turns
+        )
+        assert inp.value == ""
+        assert not app._suggestion_popup.display
 
 
 @pytest.mark.asyncio

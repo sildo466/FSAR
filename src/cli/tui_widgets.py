@@ -21,12 +21,13 @@ class CommandSuggestionPopup(Static):
     CommandSuggestionPopup {
         dock: bottom;
         offset: 0 -4;
-        width: 60;
+        width: 66;
         height: auto;
         max-height: 12;
         background: $surface;
         border: tall $primary;
         padding: 1;
+        text-wrap: nowrap;
     }
     """
 
