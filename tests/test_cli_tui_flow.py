@@ -340,15 +340,7 @@ async def test_tier_ultra_accepted() -> None:
         assert engine._session_tier_override == "ultra"
 
 
-def test_tui_startup_binds_workspace_to_cwd(tmp_path) -> None:
-    """TUI startup must configure both sandbox settings and the real workspace."""
-    from src.cli.tui import _configure_tui_runtime
-    from src.utils.fsar_config import FsarConfig
-
-    config_path = tmp_path / "fsar.yaml"
-    config = FsarConfig(config_path)
-    workspace = SimpleNamespace(id=7, root_path="C:/old-sandbox")
-
+def _tui_runtime_engine(config: FsarConfig, workspace: Any) -> SimpleNamespace:
     class WorkspaceRepo:
         def __init__(self) -> None:
             self.updated: tuple[int, str] | None = None
@@ -361,11 +353,25 @@ def test_tui_startup_binds_workspace_to_cwd(tmp_path) -> None:
             workspace.root_path = fields["root_path"]
             return workspace
 
-    engine = SimpleNamespace(
+    return SimpleNamespace(
         config=config,
         permissions=SimpleNamespace(no_trust_mode=False),
         workspace_repo=WorkspaceRepo(),
     )
+
+
+def test_tui_startup_binds_workspace_to_cwd(tmp_path, monkeypatch) -> None:
+    """TUI startup must bind the freshly-seeded Sandbox workspace to the cwd."""
+    from pathlib import Path
+
+    from src.cli.tui import _configure_tui_runtime
+    from src.utils.fsar_config import FsarConfig
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    seeded = Path.home() / "FSAR-workspace"
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    workspace = SimpleNamespace(id=7, name="Sandbox", root_path=str(seeded))
+    engine = _tui_runtime_engine(config, workspace)
     cwd = tmp_path / "cwd"
     cwd.mkdir()
 
@@ -375,6 +381,31 @@ def test_tui_startup_binds_workspace_to_cwd(tmp_path) -> None:
     assert config.get("security.sandbox.path") == expected
     assert engine.workspace_repo.updated == (7, expected)
     assert expected in engine._session_cwd_hint
+
+
+def test_tui_startup_preserves_explicit_sandbox_choice(tmp_path) -> None:
+    """A configured sandbox + non-seeded default workspace (e.g. the GUI's
+    "ALL Computer") must survive a TUI launch — never be clobbered by cwd."""
+    from src.cli.tui import _configure_tui_runtime
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("security.sandbox.path", "C:\\")
+    config.save()
+    workspace = SimpleNamespace(id=7, name="ALL Computer", root_path="C:\\")
+    engine = _tui_runtime_engine(config, workspace)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+
+    _configure_tui_runtime(engine, cwd)
+
+    assert config.get("security.sandbox.path") == "C:\\", (
+        "TUI must not overwrite an explicitly configured sandbox path"
+    )
+    assert engine.workspace_repo.updated is None, (
+        "TUI must not repoint a user-chosen default workspace"
+    )
+    assert str(cwd.resolve()) in engine._session_cwd_hint
 
 
 def test_startup_summary_reports_runtime_selection() -> None:

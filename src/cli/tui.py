@@ -747,16 +747,25 @@ def _configure_tui_runtime(
     engine: ChatEngine,
     cwd: str | os.PathLike[str] | None = None,
 ) -> str:
+    """Bind a fresh TUI to its working directory — but never clobber an
+    explicit sandbox choice. The cwd only becomes the sandbox when there is no
+    configured sandbox path and the default workspace is still the out-of-box
+    "Sandbox" seed; a GUI-chosen workspace (e.g. "ALL Computer") or a sandbox
+    path set in /permissions is preserved across TUI launches."""
+    from pathlib import Path
+
     config = engine.config
     current_cwd = os.path.abspath(os.fspath(cwd or os.getcwd()))
-    config.patch("security.sandbox.path", current_cwd)
+    if not config.get("security.sandbox.path"):
+        config.patch("security.sandbox.path", current_cwd)
     workspace = engine.workspace_repo.get_default_for_new()
-    if (
-        workspace is not None
-        and os.path.normcase(os.path.abspath(workspace.root_path))
-        != os.path.normcase(current_cwd)
-    ):
-        engine.workspace_repo.update(workspace.id, root_path=current_cwd)
+    if workspace is not None:
+        seeded = os.path.normcase(
+            os.path.abspath(os.fspath(Path.home() / "FSAR-workspace"))
+        )
+        root = os.path.normcase(os.path.abspath(workspace.root_path))
+        if getattr(workspace, "name", "") == "Sandbox" and root == seeded:
+            engine.workspace_repo.update(workspace.id, root_path=current_cwd)
     engine.permissions.no_trust_mode = bool(
         config.get("security.session.no_trust_mode", False)
     )
