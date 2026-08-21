@@ -438,6 +438,9 @@ class ChatEngine:
         self._session_user_override: int | None = None
         # TUI-only working-directory hint injected into the system prompt.
         self._session_cwd_hint: str | None = None
+        # Real context size (per conversation) actually handed to the model,
+        # kept so UI gauges reflect usage instead of just the short-cache tail.
+        self._conv_context_tokens: dict[str, int] = {}
 
     # ---------- session lifecycle ----------
 
@@ -1186,6 +1189,7 @@ class ChatEngine:
         messages.extend(self._fit_history(
             system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
         ))
+        self._track_context(conv_id, messages)
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
         runtime.active_skill = self._detect_active_skill_from_context(conv_id)
@@ -1285,6 +1289,15 @@ class ChatEngine:
 
         return result
 
+    def _track_context(self, conv_id: str, messages: list[Any]) -> None:
+        """Record the real context cost handed to the model for this
+        conversation so UI gauges show actual usage. The agent loop grows
+        ``messages`` as tool exchanges accumulate, which is exactly what the
+        model sees — the short cache only holds user + final replies."""
+        from src.core.context_compaction import context_cost
+
+        self._conv_context_tokens[conv_id] = context_cost(messages)
+
     async def _agent_loop(
         self,
         *,
@@ -1317,6 +1330,8 @@ class ChatEngine:
         for turn in range(profile.max_tool_turns):
             if self._cancelled:
                 return AgentLoopResult("(Cancelled.)", "failure", tool_steps)
+
+            self._track_context(conv_id, messages)
 
             dynamic = self._dynamic_agent_context(
                 runtime=runtime,
@@ -2832,6 +2847,7 @@ class ChatEngine:
         messages.extend(self._fit_history(
             system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
         ))
+        self._track_context(conv_id, messages)
         base_url = str(getattr(client, "base_url", "") or "")
         deepseek = is_deepseek_official(base_url)
         thinking_payload = resolve_thinking_payload(

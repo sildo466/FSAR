@@ -493,3 +493,34 @@ async def test_tui_cwd_hint_reaches_real_system_prompt(tmp_path, monkeypatch) ->
     )
 
     assert str(tmp_path.resolve()) in prompt
+
+
+@pytest.mark.asyncio
+async def test_context_usage_reflects_real_agent_context(tmp_path) -> None:
+    """The token gauge must report what the model was actually handed (system +
+    history + tool loop), not the tiny short-cache tail. An agent task with
+    thousands of context characters previously showed ~500 tokens."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+    engine = ChatEngine(config, RiskBridge())
+    app = ChatApp(engine, "agent", RiskBridge())
+
+    async with app.run_test() as pilot:
+        used0, window = app._context_usage()
+
+        # Emulate the engine having fed a large real context to the model.
+        engine._track_context(
+            app._conv_id,
+            [{"role": "system", "content": "指引" * 600},
+             {"role": "user", "content": "请分析" * 400}],
+        )
+        await pilot.pause(0.05)
+        used1, _ = app._context_usage()
+
+        assert used1 >= 1000, f"tracked context must be large, got {used1}"
+        assert used1 > used0, "gauge must prefer the tracked real context"
+        assert window >= 1024

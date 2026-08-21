@@ -314,14 +314,17 @@ class ChatApp(App):
             pass
 
     def _context_usage(self) -> tuple[int, int]:
+        """Real context consumed by this conversation: the tracked cost of the
+        messages actually sent to the model (system + history + tool loop),
+        falling back to the short-cache estimate when nothing is tracked yet."""
         from src.core.context_compaction import context_cost
 
-        msgs: list = []
-        cache = getattr(self.engine, "_short_cache", {})
-        conv = self._conv_id
-        if conv and conv in cache:
-            msgs = list(cache[conv])
-        used = context_cost(msgs)
+        tracked = getattr(self.engine, "_conv_context_tokens", {})
+        used = tracked.get(self._conv_id)
+        if used is None:
+            cache = getattr(self.engine, "_short_cache", {})
+            msgs = list(cache.get(self._conv_id, [])) if self._conv_id else []
+            used = context_cost(msgs)
         window = self.engine._model_limits()[0]
         return used, window
 
