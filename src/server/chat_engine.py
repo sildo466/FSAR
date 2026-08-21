@@ -1296,7 +1296,9 @@ class ChatEngine:
         model sees — the short cache only holds user + final replies."""
         from src.core.context_compaction import context_cost
 
-        self._conv_context_tokens[conv_id] = context_cost(messages)
+        tokens = getattr(self, "_conv_context_tokens", {})
+        tokens[conv_id] = context_cost(messages)
+        self._conv_context_tokens = tokens
 
     async def _agent_loop(
         self,
