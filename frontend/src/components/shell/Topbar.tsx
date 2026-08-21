@@ -13,6 +13,7 @@ import { ModelEffortSwitcher } from "../chat/ModelEffortSwitcher";
 import { TierSwitcher } from "../chat/TierSwitcher";
 import { TtsAutoplayToggle } from "../chat/TtsAutoplayToggle";
 import { ChatModelPicker } from "../ChatModelPicker";
+import { TokenMeter } from "./TokenMeter";
 
 export function Topbar() {
   const { t } = useTranslation();
@@ -42,6 +43,7 @@ export function Topbar() {
     <motion.header initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="glass fixed left-[5.5rem] right-3 top-3 z-30 flex h-12 items-center justify-between rounded-full px-2 shadow-[0_12px_36px_var(--glow-faint)] sm:px-4">
       <div className="flex items-center gap-2">
         <div className="hidden text-[13px] text-text-muted font-mono md:block">FSAR · local-first agent</div>
+        <TokenMeter />
         <button
           onClick={cycle}
           title={t("settings.style.theme") + `: ${theme}`}

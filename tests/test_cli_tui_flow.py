@@ -524,3 +524,32 @@ async def test_context_usage_reflects_real_agent_context(tmp_path) -> None:
         assert used1 >= 1000, f"tracked context must be large, got {used1}"
         assert used1 > used0, "gauge must prefer the tracked real context"
         assert window >= 1024
+
+
+@pytest.mark.asyncio
+async def test_emit_context_broadcasts_live_gauge(tmp_path) -> None:
+    """The GUI top-bar gauge is fed by a chat.context ws push carrying the
+    conversation's real used/window tokens."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import FsarConfig
+
+    class FakeWs:
+        def __init__(self) -> None:
+            self.sent: list[dict] = []
+
+        async def send_json(self, payload: dict) -> None:
+            self.sent.append(payload)
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+    engine = ChatEngine(config, RiskBridge())
+    ws = FakeWs()
+
+    engine._track_context("conv-1", [{"role": "user", "content": "你" * 800}])
+    await engine._emit_context(ws, "conv-1")
+
+    assert ws.sent and ws.sent[-1]["type"] == "chat.context"
+    assert ws.sent[-1]["conversation_id"] == "conv-1"
+    assert ws.sent[-1]["used_tokens"] >= 800, ws.sent[-1]
+    assert ws.sent[-1]["window_tokens"] >= 1024

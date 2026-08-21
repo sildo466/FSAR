@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { useWS } from "./stores/ws";
 import { useCardsStore } from "./stores/cards";
 import { useSessions } from "./stores/sessions";
+import { useTokenMeter } from "./stores/token-meter";
 import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
 import { Chat } from "./pages/Chat";
@@ -71,6 +72,7 @@ export function App() {
   const initCards = useCardsStore((s) => s.init);
   const initWorkspace = useWorkspace((s) => s.init);
   const initSessions = useSessions((s) => s.init);
+  const initTokenMeter = useTokenMeter((s) => s.init);
   useEffect(() => {
     if (!client) return;
     const detach = initCards(client);
@@ -88,6 +90,12 @@ export function App() {
     if (!client) return;
     return initWorkspace(client);
   }, [client, initWorkspace]);
+
+  useEffect(() => {
+    if (!client) return;
+    const detach = initTokenMeter(client);
+    return () => detach();
+  }, [client, initTokenMeter]);
 
   useThemeApplication();
   useMotionApplication();

@@ -1190,6 +1190,7 @@ class ChatEngine:
             system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
         ))
         self._track_context(conv_id, messages)
+        await self._emit_context(ws, conv_id)
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
         runtime.active_skill = self._detect_active_skill_from_context(conv_id)
@@ -1300,6 +1301,22 @@ class ChatEngine:
         tokens[conv_id] = context_cost(messages)
         self._conv_context_tokens = tokens
 
+    async def _emit_context(self, ws: Any, conv_id: str) -> None:
+        """Push this conversation's live context usage (used/window tokens) to
+        the UI over the wire, mirroring the TUI gauge. Unknown sinks (e.g. the
+        terminal sink) ignore the message."""
+        try:
+            used = getattr(self, "_conv_context_tokens", {}).get(conv_id, 0)
+            window = self._model_limits()[0]
+            await ws.send_json({
+                "type": "chat.context",
+                "conversation_id": conv_id,
+                "used_tokens": used,
+                "window_tokens": window,
+            })
+        except Exception:
+            pass
+
     async def _agent_loop(
         self,
         *,
@@ -1334,6 +1351,8 @@ class ChatEngine:
                 return AgentLoopResult("(Cancelled.)", "failure", tool_steps)
 
             self._track_context(conv_id, messages)
+            if not is_subagent:
+                await self._emit_context(ws, conv_id)
 
             dynamic = self._dynamic_agent_context(
                 runtime=runtime,
@@ -2850,6 +2869,7 @@ class ChatEngine:
             system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
         ))
         self._track_context(conv_id, messages)
+        await self._emit_context(ws, conv_id)
         base_url = str(getattr(client, "base_url", "") or "")
         deepseek = is_deepseek_official(base_url)
         thinking_payload = resolve_thinking_payload(

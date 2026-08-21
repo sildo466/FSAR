@@ -212,6 +212,7 @@ export type ServerMsg =
   | { type: "asr.model_deleted"; request_id: string; size: string; ok: boolean }
   | { type: "agent.run.started"; task_id: string; message_id: string; tier: string }
   | { type: "agent.run.finished"; task_id: string; outcome: "success" | "failure" }
+  | { type: "chat.context"; conversation_id: string; used_tokens: number; window_tokens: number }
   | { type: "agent.status"; task_id: string; agent_id: string; parent_id: string | null; depth: number; kind: "main" | "subagent"; label: string; status: string; detail: string }
   | { type: "agent.plan.updated"; task_id: string; agent_id: string; items: Array<{ id: string; content: string; status: string }> }
   | { type: "agent.context.compacted"; task_id: string; agent_id: string; tokens_before: number; tokens_after: number }
