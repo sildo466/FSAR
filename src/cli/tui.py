@@ -27,6 +27,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Input, Markdown, Static
 
+from src.cli.tui_widgets import ChatInput
 from src.security.confirmation import ConfirmResponse
 from src.server.chat_engine import ChatEngine
 from src.server.risk_bridge import RiskBridge
@@ -268,7 +269,7 @@ class ChatApp(App):
         self.compose_suggestions()
         yield Vertical(
             Static("", id="ctx-tokens"),
-            Input(placeholder="Message FSAR… (/help, /exit)", id="input"),
+            ChatInput(placeholder="Message FSAR… (/help, /exit)", id="input"),
             Static("", id="mode-status"),
             id="composer",
         )
@@ -285,7 +286,11 @@ class ChatApp(App):
         self._conv_id = self.engine.new_conversation()
         self._update_status()
         self.set_interval(2.0, self._update_status)
-        self.query_one("#input", Input).focus()
+        input_widget = self.query_one("#input", ChatInput)
+        input_widget._popup = self._suggestion_popup
+        input_widget._on_pick = self._pick_slash_command
+        input_widget._on_dismiss = self._hide_suggestions
+        input_widget.focus()
         self.run_worker(self._start_mcp(), exclusive=True)
 
     def on_key(self, event) -> None:
@@ -378,49 +383,8 @@ class ChatApp(App):
         if not text:
             return
 
-        if text.startswith("/"):
-            base = text.split()[0].lower()
-            if base in ("/exit", "/quit"):
-                self.exit()
-                return
-            if base in ("/fsar", "/attic"):
-                self._add_status(
-                    "00101111 01100001 01110100 01110100 01101001 01100011"
-                    if base == "/fsar"
-                    else (
-                        "Traceback (most recent call last):\n"
-                        '  File "<stdin>", line 1, in <module>\n'
-                        "ModuleNotFoundError: No module named 'src.core.prompt_archive'"
-                    )
-                )
-                return
-            if base == "/model":
-                self._handle_model_command()
-                return
-            if base == "/character":
-                self._handle_character_command()
-                return
-            if base == "/user":
-                self._handle_user_command()
-                return
-            if base == "/tier":
-                self._handle_tier_command(text)
-                return
-            if base == "/effort":
-                self._handle_effort_command(text)
-                return
-            if base == "/compact":
-                self.run_worker(self._handle_compact_command(), exclusive=False)
-                return
-            if base == "/new":
-                self._handle_new_command()
-                return
-            if base == "/resume":
-                self.run_worker(self._handle_resume_command(), exclusive=False)
-                return
-            if base == "/permissions":
-                self._handle_permissions_command()
-                return
+        if text.startswith("/") and self._handle_slash(text):
+            return
 
         # Risk confirmation is handled exclusively by the ConfirmBar (it takes
         # focus, so the Input is not typable while an approval is pending).
@@ -429,6 +393,59 @@ class ChatApp(App):
 
         self._add_user(text)
         self.run_worker(self._run_turn(text), exclusive=False)
+
+    def _pick_slash_command(self, command: str) -> None:
+        """Enter pressed on a highlighted suggestion: execute that command."""
+        self.query_one("#input", Input).value = ""
+        self._hide_suggestions()
+        if command.startswith("/"):
+            self._handle_slash(command)
+
+    def _handle_slash(self, text: str) -> bool:
+        """Dispatch a slash command; True when the text was consumed by it."""
+        base = text.split()[0].lower()
+        if base in ("/exit", "/quit"):
+            self.exit()
+            return True
+        if base in ("/fsar", "/attic"):
+            self._add_status(
+                "00101111 01100001 01110100 01110100 01101001 01100011"
+                if base == "/fsar"
+                else (
+                    "Traceback (most recent call last):\n"
+                    '  File "<stdin>", line 1, in <module>\n'
+                    "ModuleNotFoundError: No module named 'src.core.prompt_archive'"
+                )
+            )
+            return True
+        if base == "/model":
+            self._handle_model_command()
+            return True
+        if base == "/character":
+            self._handle_character_command()
+            return True
+        if base == "/user":
+            self._handle_user_command()
+            return True
+        if base == "/tier":
+            self._handle_tier_command(text)
+            return True
+        if base == "/effort":
+            self._handle_effort_command(text)
+            return True
+        if base == "/compact":
+            self.run_worker(self._handle_compact_command(), exclusive=False)
+            return True
+        if base == "/new":
+            self._handle_new_command()
+            return True
+        if base == "/resume":
+            self.run_worker(self._handle_resume_command(), exclusive=False)
+            return True
+        if base == "/permissions":
+            self._handle_permissions_command()
+            return True
+        return False
 
     async def _run_turn(self, text: str) -> None:
         try:

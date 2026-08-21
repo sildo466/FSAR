@@ -28,10 +28,8 @@ class CommandPredictor:
             return []
 
         prefix = text.lower()
-        matches = [
+        return [
             (cmd, desc)
             for cmd, desc in COMMANDS.items()
             if cmd.startswith(prefix)
         ]
-
-        return matches[:5]

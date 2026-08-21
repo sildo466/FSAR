@@ -5,13 +5,17 @@ from __future__ import annotations
 
 from typing import Callable
 
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static
 
 
 class CommandSuggestionPopup(Static):
-    """Floating popup showing command suggestions."""
+    """Floating popup listing matching slash commands. Not focusable: the
+    Input keeps focus while ChatInput routes up/down/enter/escape to it."""
+
+    MAX_VISIBLE = 8
 
     DEFAULT_CSS = """
     CommandSuggestionPopup {
@@ -19,7 +23,7 @@ class CommandSuggestionPopup(Static):
         offset: 0 -4;
         width: 60;
         height: auto;
-        max-height: 10;
+        max-height: 12;
         background: $surface;
         border: tall $primary;
         padding: 1;
@@ -28,18 +32,79 @@ class CommandSuggestionPopup(Static):
 
     def __init__(self, suggestions: list[tuple[str, str]] | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.suggestions = suggestions or []
-        self.update(self._format_lines())
+        self.suggestions: list[tuple[str, str]] = suggestions or []
+        self.selected = 0
+        self._offset = 0
+        self._paint()
 
     def set_suggestions(self, suggestions: list[tuple[str, str]]) -> None:
-        """Replace rendered suggestions (no re-mount)."""
+        """Replace the candidate list and reset the highlight to the first item."""
         self.suggestions = suggestions
-        self.update(self._format_lines())
+        self.selected = 0
+        self._offset = 0
+        self._paint()
 
-    def _format_lines(self) -> str:
-        return "\n".join(
-            f"[bold cyan]{cmd}[/] [dim]{desc}[/]" for cmd, desc in self.suggestions
+    def selected_command(self) -> str | None:
+        """The command on the highlighted row, or None when empty."""
+        if 0 <= self.selected < len(self.suggestions):
+            return self.suggestions[self.selected][0]
+        return None
+
+    def move_cursor(self, delta: int) -> None:
+        """Move the highlight by delta (wrapping), keeping it inside the viewport."""
+        if not self.suggestions:
+            return
+        n = len(self.suggestions)
+        self.selected = (self.selected + delta) % n
+        self._offset = min(
+            max(0, self.selected - self.MAX_VISIBLE + 1),
+            max(0, n - self.MAX_VISIBLE),
         )
+        self._paint()
+
+    def _paint(self) -> None:
+        visible = self.suggestions[self._offset : self._offset + self.MAX_VISIBLE]
+        lines = []
+        for row, (cmd, desc) in enumerate(visible):
+            idx = self._offset + row
+            if idx == self.selected:
+                lines.append(f"[bold reverse]▸ {cmd}[/] [dim reverse]{desc}[/]")
+            else:
+                lines.append(f"[bold cyan]  {cmd}[/] [dim]{desc}[/]")
+        self.update("\n".join(lines))
+
+
+class ChatInput(Input):
+    """Input that drives the command-suggestion popup. While the popup is
+    visible, up/down move the highlight, Enter runs the selected command, and
+    Escape closes the popup. Keys fall through to Input normally otherwise."""
+
+    _popup: CommandSuggestionPopup | None = None
+    _on_pick: Callable[[str], None] | None = None
+    _on_dismiss: Callable[[], None] | None = None
+
+    def on_key(self, event: events.Key) -> None:
+        popup = self._popup
+        if popup is not None and popup.display and popup.suggestions:
+            if event.key == "up":
+                popup.move_cursor(-1)
+                event.stop()
+                return
+            if event.key == "down":
+                popup.move_cursor(1)
+                event.stop()
+                return
+            if event.key == "enter":
+                command = popup.selected_command()
+                if command and self._on_pick is not None:
+                    self._on_pick(command)
+                event.stop()
+                return
+            if event.key == "escape":
+                if self._on_dismiss is not None:
+                    self._on_dismiss()
+                event.stop()
+                return
 
 
 class ConfirmBar(Horizontal):
