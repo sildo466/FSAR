@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from src.cli.tui import ChatApp
-from src.cli.tui_commands import COMMANDS, CommandPredictor
+from src.cli.tui_commands import UI_COMMANDS, CommandPredictor, engine_commands
 from src.server.risk_bridge import RiskBridge
 
 
@@ -61,14 +61,17 @@ class _StubEngine:
 
 def test_predictor_lists_all_matches() -> None:
     predictor = CommandPredictor()
-    assert len(predictor.predict("/")) == len(COMMANDS)
-    assert [cmd for cmd, _ in predictor.predict("/")] == list(COMMANDS)
-    assert predictor.predict("/c") == [
-        ("/character", COMMANDS["/character"]),
-        ("/compact", COMMANDS["/compact"]),
-        ("/clear", COMMANDS["/clear"]),
-        ("/config", COMMANDS["/config"]),
-    ]
+    names = [cmd for cmd, _ in predictor.predict("/")]
+    static = len(UI_COMMANDS) + len(engine_commands())
+    assert len(names) >= static, (
+        f"all static commands must be listed, got {len(names)} < {static}"
+    )
+    for cmd in {**UI_COMMANDS, **engine_commands()}:
+        assert cmd in names, f"{cmd} should be among the suggestions"
+    assert all(cmd.startswith("/") for cmd in names)
+    assert set(cmd for cmd, _ in predictor.predict("/c")) == {
+        "/character", "/compact", "/clear", "/config",
+    }
     assert predictor.predict("hello") == []
 
 
@@ -81,10 +84,12 @@ async def test_up_down_browses_all_and_escape_closes() -> None:
         popup = app._suggestion_popup
         assert inp._popup is popup, "input must be wired to the popup"
 
-        inp.value = "/e"  # matches /exit, /effort, /exp
+        inp.value = "/e"  # matches /exit, /effort, /exp, /experiences
         await pilot.pause(0.05)
         assert popup.display, "popup should be visible while typing /"
-        assert [cmd for cmd, _ in popup.suggestions] == ["/exit", "/effort", "/exp"]
+        assert [cmd for cmd, _ in popup.suggestions] == [
+            "/exit", "/effort", "/exp", "/experiences",
+        ]
         assert popup.selected_command() == "/exit"
 
         await pilot.press("down")
@@ -97,11 +102,15 @@ async def test_up_down_browses_all_and_escape_closes() -> None:
 
         await pilot.press("down")
         await pilot.pause(0.05)
+        assert popup.selected_command() == "/experiences", "down should move the highlight"
+
+        await pilot.press("down")
+        await pilot.pause(0.05)
         assert popup.selected_command() == "/exit", "selection should wrap around"
 
         await pilot.press("up")
         await pilot.pause(0.05)
-        assert popup.selected_command() == "/exp", "up should move the highlight"
+        assert popup.selected_command() == "/experiences", "up should move the highlight"
 
         await pilot.press("escape")
         await pilot.pause(0.05)
@@ -121,7 +130,10 @@ async def test_highlight_stays_visible_scrolling_below_first_page() -> None:
         inp.value = "/"  # all commands
         await pilot.pause(0.05)
         popup = app._suggestion_popup
-        assert len(popup.suggestions) == len(COMMANDS)
+        static = len(UI_COMMANDS) + len(engine_commands())
+        assert len(popup.suggestions) >= static, (
+            "at least the static command set must be listed"
+        )
 
         for _ in range(9):
             await pilot.press("down")
