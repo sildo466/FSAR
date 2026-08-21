@@ -75,8 +75,6 @@ def skill_commands() -> dict[str, str]:
             name = (getattr(exp, "name", "") or "").strip()
             if name:
                 desc = (getattr(exp, "description", "") or "").strip()
-                if len(desc) > 48:
-                    desc = f"{desc[:48].rstrip()}…"
                 entries[f"/use {name}"] = desc or "Learned skill/experience"
         _SKILL_CACHE = entries
     except Exception:  # store unreachable — fall back to no dynamic skills

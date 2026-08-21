@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from rich.cells import cell_len
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -13,21 +14,28 @@ from textual.widgets import Button, Input, Static
 
 class CommandSuggestionPopup(Static):
     """Floating popup listing matching slash commands. Not focusable: the
-    Input keeps focus while ChatInput routes up/down/enter/escape to it."""
+    Input keeps focus while ChatInput routes up/down/enter/escape to it.
+
+    Long descriptions are truncated to a column budget (Rich cell_len counts
+    CJK as two columns), because Textual's `text-wrap: nowrap` is a no-op here:
+    the only real guarantee that each suggestion renders as exactly one row —
+    keeping the row↔selection mapping intact — is that the line be no wider
+    than the content area.
+    """
 
     MAX_VISIBLE = 8
+    CONTENT_WIDTH = 76  # popup width 80 minus border (2) and padding (2)
 
     DEFAULT_CSS = """
     CommandSuggestionPopup {
         dock: bottom;
         offset: 0 -4;
-        width: 66;
+        width: 80;
         height: auto;
         max-height: 12;
         background: $surface;
         border: tall $primary;
         padding: 1;
-        text-wrap: nowrap;
     }
     """
 
@@ -63,15 +71,31 @@ class CommandSuggestionPopup(Static):
         )
         self._paint()
 
+    def _fit(self, cmd: str, desc: str) -> str:
+        """Truncate desc in columns (not characters) so the whole row fits on
+        one line within the content width."""
+        budget = self.CONTENT_WIDTH - 3 - cell_len(cmd)  # marker (2) + gap (1)
+        if cell_len(desc) <= budget:
+            return desc
+        out = ""
+        for ch in desc:
+            if cell_len(out) + cell_len(ch) + 1 > budget:
+                break
+            out += ch
+        if out and not out.endswith("…"):
+            out += "…"
+        return out or "…"
+
     def _paint(self) -> None:
         visible = self.suggestions[self._offset : self._offset + self.MAX_VISIBLE]
         lines = []
         for row, (cmd, desc) in enumerate(visible):
             idx = self._offset + row
+            shown = self._fit(cmd, desc)
             if idx == self.selected:
-                lines.append(f"[bold reverse]▸ {cmd}[/] [dim reverse]{desc}[/]")
+                lines.append(f"[bold reverse]▸ {cmd}[/] [dim reverse]{shown}[/]")
             else:
-                lines.append(f"[bold cyan]  {cmd}[/] [dim]{desc}[/]")
+                lines.append(f"[bold cyan]  {cmd}[/] [dim]{shown}[/]")
         self.update("\n".join(lines))
 
 

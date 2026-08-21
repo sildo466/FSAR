@@ -216,6 +216,28 @@ async def test_popup_browsing_then_pick_different_row() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_rows_do_not_wrap() -> None:
+    """Long (CJK) descriptions must render as exactly one row each. Wrapping
+    desyncs the row<->selection mapping and pushed the cursor below the fold."""
+    engine = _StubEngine()
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "/use"
+        await pilot.pause(0.05)
+        popup = app._suggestion_popup
+        assert popup.suggestions, "the /use prefix must match at least /use itself"
+        non_empty = sum(
+            1
+            for row in range(popup.region.height)
+            if "".join(s.text for s in popup.render_line(row)).strip()
+        )
+        assert non_empty <= len(popup.suggestions), (
+            f"wrapped rows exceed suggestions: {non_empty} > {len(popup.suggestions)}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_normal_input_unaffected_when_popup_closed() -> None:
     engine = _StubEngine()
     app = ChatApp(engine, "agent", RiskBridge())
