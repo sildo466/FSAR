@@ -94,11 +94,20 @@ class SessionStore:
             self._ensure_conversations(conn)
             self._migrate_conversations(conn)
             self._migrate_character_binding(conn)
+            self._migrate_context_tokens(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
             )
             social_migration.run(conn)
             conn.commit()
+
+    def _migrate_context_tokens(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add context_tokens column (persisted GUI token gauge)."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "context_tokens" not in cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _migrate_character_binding(self, conn) -> None:
         """Idempotent: add character_card_id column to sessions table."""
@@ -132,6 +141,24 @@ class SessionStore:
                 (session_id,),
             ).fetchone()
         return r[0] if r and r[0] is not None else None
+
+    def set_context_tokens(self, session_id: str, used: int) -> None:
+        """Persist the conversation's last-reported context size so the GUI
+        token gauge survives restarts and conversation switches."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET context_tokens = ? WHERE id = ?",
+                (int(used or 0), session_id),
+            )
+            conn.commit()
+
+    def get_context_tokens(self, session_id: str) -> int:
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT context_tokens FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        return int(r[0] or 0) if r else 0
 
     def session_ids_for_character(self, character_id: int) -> list[str]:
         """All conversation ids bound to the given character card."""

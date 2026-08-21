@@ -1300,6 +1300,12 @@ class ChatEngine:
         tokens = getattr(self, "_conv_context_tokens", {})
         tokens[conv_id] = context_cost(messages)
         self._conv_context_tokens = tokens
+        store = getattr(self, "session_store", None)
+        if store is not None:
+            try:
+                store.set_context_tokens(conv_id, tokens[conv_id])
+            except Exception:
+                pass
 
     async def _emit_context(self, ws: Any, conv_id: str) -> None:
         """Push this conversation's live context usage (used/window tokens) to
@@ -1350,8 +1356,8 @@ class ChatEngine:
             if self._cancelled:
                 return AgentLoopResult("(Cancelled.)", "failure", tool_steps)
 
-            self._track_context(conv_id, messages)
             if not is_subagent:
+                self._track_context(conv_id, messages)
                 await self._emit_context(ws, conv_id)
 
             dynamic = self._dynamic_agent_context(

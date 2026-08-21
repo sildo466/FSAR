@@ -553,3 +553,24 @@ async def test_emit_context_broadcasts_live_gauge(tmp_path) -> None:
     assert ws.sent[-1]["conversation_id"] == "conv-1"
     assert ws.sent[-1]["used_tokens"] >= 800, ws.sent[-1]
     assert ws.sent[-1]["window_tokens"] >= 1024
+
+
+def test_context_tokens_persist_across_restart(tmp_path) -> None:
+    """The token gauge must survive a backend restart: tracked context is
+    persisted on the session row and re-read for a fresh engine."""
+    from src.server.chat_engine import ChatEngine
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+
+    engine = ChatEngine(config, RiskBridge())
+    conv = engine.new_conversation()
+    engine._track_context(conv, [{"role": "user", "content": "你" * 900}])
+
+    # Simulate a restart: a brand-new engine over the same DB.
+    engine2 = ChatEngine(config, RiskBridge())
+    used = engine2.session_store.get_context_tokens(conv)
+
+    assert used >= 900, f"persisted context must survive restart, got {used}"

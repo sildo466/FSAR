@@ -73,6 +73,19 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 "conversation_id": cid,
                 "session": row.to_dict() if row else None,
             })
+            # Restore the persisted token gauge for this conversation so the
+            # top-bar readout survives restarts and navigation.
+            try:
+                used = store.get_context_tokens(cid)
+                window = _engine._model_limits()[0]
+                await ws.send_json({
+                    "type": "chat.context",
+                    "conversation_id": cid,
+                    "used_tokens": used,
+                    "window_tokens": window,
+                })
+            except Exception:
+                logger.exception("chat.context restore failed")
             return True
 
         if t == "conversation.history":
