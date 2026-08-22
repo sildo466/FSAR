@@ -19,7 +19,7 @@ from src.core.experience_injector import ExperienceIndexInjector
 from src.core.agent_runtime import AgentLoopResult, AgentRecord, AgentRunState
 from src.core.agent_tiers import TierProfile, get_tier_profile
 from src.core.context_compaction import compact_context, context_cost
-from src.core.prompts import build_system_prompt
+from src.core.prompts import build_character_prompt, build_system_prompt
 from src.core.strategy_injector import StrategyInjector
 from src.memory import (
     DecisionLog,
@@ -39,6 +39,7 @@ from src.memory import (
     set_task_context,
 )
 from src.memory.cards import CardRepo
+from src.memory.cleanse import cleanse_memory_block
 from src.mcp import MCPManager
 from src.security import (
     RiskEngine,
@@ -357,6 +358,7 @@ class ChatEngine:
         self.config = config
         self.bridge = bridge
         self.registry: ToolRegistry = create_default_registry(config)
+        self._cleanse_cache: dict[tuple[int, str], str] = {}
         self.mcp = MCPManager(
             self.registry,
             config_path=config.get("mcp.config_path", "config/mcp_servers.yaml"),
@@ -1104,6 +1106,11 @@ class ChatEngine:
                 model_effort=self._model_thinking_effort(),
                 provider_family=self._active_provider_family(),
             )
+        elif mode == "character":
+            await self._run_character(
+                ws, message_id, client, model, conv_id,
+                content, character, char_name, provider_id,
+            )
         else:
             await self._run_agent(ws, message_id, client, model, conv_id, content, character, char_name, provider_id)
 
@@ -1513,6 +1520,21 @@ class ChatEngine:
                 depth=depth,
                 tool_calls=tool_calls,
             )
+            if runtime.character_mode:
+                for i, (call_id, name, output, is_error) in enumerate(results):
+                    if (
+                        name == "router" and not is_error
+                        and output.startswith("__UNLOCK__:")
+                    ):
+                        head, _, rest = output.partition("\n")
+                        unlocked = {
+                            t for t in head[len("__UNLOCK__:"):].split(",") if t
+                        }
+                        runtime.unlocked_tools |= unlocked
+                        self.session_store.set_unlocked_tools(
+                            conv_id, runtime.unlocked_tools,
+                        )
+                        results[i] = (call_id, name, rest, False)
             had_error = False
             for call_id, name, output, is_error in results:
                 had_error = had_error or is_error
@@ -1858,6 +1880,14 @@ class ChatEngine:
         depth: int,
         runtime: AgentRunState,
     ) -> list[dict[str, Any]]:
+        if runtime.character_mode:
+            base = ["router", "update_emotion", *sorted(runtime.unlocked_tools)]
+            schemas: list[dict[str, Any]] = []
+            for name in base:
+                tool = self.registry.get(name)
+                if tool is not None:
+                    schemas.append(tool.to_openai_schema())
+            return schemas
         tools = self.registry.get_tools_for_llm()
         if is_subagent:
             tools = [
@@ -2859,6 +2889,144 @@ class ChatEngine:
             return str(self.config.get("llm.model_thinking_effort", "off"))
         except Exception:
             return "off"
+
+    # ---------- character mode ----------
+
+    def _character_workspace_line(self) -> str:
+        default_output = str(Path.home() / "FSAR-workspace")
+        output_dir = str(self.config.get("workspace.output_dir", "") or default_output)
+        return f"Where you keep things you make: {output_dir}"
+
+    async def _build_character_prompt(
+        self, conv_id: str, user_input: str, character: Any,
+    ) -> str:
+        """Character prompt: raw memory → LLM-cleansed → persona-first assembly."""
+        user_card_id = self._session_user_override
+        user_card = (
+            self.card_repo.get_user_card(user_card_id)
+            if user_card_id is not None else None
+        )
+        if user_card is None:
+            user_card = self.card_repo.get_default_user_card()
+        raw = await asyncio.to_thread(
+            self._memory_block, user_input, character=character
+        )
+        cleaned = ""
+        if raw:
+            client, model, provider_id = self.client_and_model()
+            cleaned = await asyncio.to_thread(
+                cleanse_memory_block,
+                raw,
+                character,
+                client,
+                model,
+                provider_id,
+                cache=self._cleanse_cache,
+            )
+        return build_character_prompt(
+            character=character,
+            user_card=user_card,
+            memory_block=cleaned,
+            workspace_line=self._character_workspace_line(),
+        )
+
+    async def _run_character(
+        self, ws: WebSocket, message_id: str, client: Any,
+        model: str, conv_id: str, user_input: str,
+        character: Any = None, char_name: str | None = None,
+        provider_id: str = "",
+    ) -> None:
+        """Character mode: full persona, tool discovery via router, cleansed memory."""
+        if ws is None:
+            ws = _NoOpWebSocket()
+        profile = get_tier_profile("character")
+        system_prompt = await self._build_character_prompt(
+            conv_id, user_input, character,
+        )
+        messages: list[Any] = [{"role": "system", "content": system_prompt}]
+        self._ensure_short(conv_id)
+        context_window, max_output = self._model_limits()
+        messages.extend(self._fit_history(
+            system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
+        ))
+        task_id = f"gui_{uuid.uuid4().hex[:12]}"
+        runtime = AgentRunState(
+            root_task_id=task_id,
+            profile=profile,
+            character=character,
+            unlocked_tools=self.session_store.get_unlocked_tools(conv_id),
+            character_mode=True,
+        )
+        runtime.agents[task_id] = AgentRecord(
+            agent_id=task_id,
+            parent_id=None,
+            depth=0,
+            label="Coordinator",
+            assignment=user_input,
+            kind="main",
+        )
+        self._active_agent_runs[task_id] = runtime
+        set_task_context(task_id=task_id, session_id=conv_id)
+        await ws.send_json({
+            "type": "agent.run.started",
+            "task_id": task_id,
+            "message_id": message_id,
+            "tier": "character",
+        })
+        await self._emit_agent_status(
+            ws, runtime, task_id, "running", "Preparing task context",
+        )
+        result = AgentLoopResult("Tool execution failed.", "failure")
+        try:
+            result = await self._agent_loop(
+                ws=ws,
+                message_id=message_id,
+                client=client,
+                model=model,
+                provider_id=provider_id,
+                conv_id=conv_id,
+                user_input=user_input,
+                messages=messages,
+                base_system_prompt=system_prompt,
+                runtime=runtime,
+                agent_id=task_id,
+                depth=0,
+                is_subagent=False,
+            )
+        except asyncio.CancelledError:
+            await self._emit_agent_status(
+                ws, runtime, task_id, "cancelled", "Task cancelled",
+            )
+            raise
+        except Exception as e:
+            logger.error(f"Character run error: {e}")
+            result = AgentLoopResult(f"Tool execution failed: {e}", "failure")
+            await self._emit_agent_status(
+                ws, runtime, task_id, "failed", str(e),
+            )
+        finally:
+            clear_task_context()
+            self._active_agent_runs.pop(task_id, None)
+            for agent_id in list(runtime.agents):
+                self._task_todos.pop(agent_id, None)
+
+        terminal_status = "completed" if result.outcome == "success" else "failed"
+        await self._emit_agent_status(
+            ws, runtime, task_id, terminal_status, "Task finished",
+        )
+        await ws.send_json({
+            "type": "agent.run.finished",
+            "task_id": task_id,
+            "outcome": result.outcome,
+        })
+        if runtime.streamed_main and result.outcome == "success":
+            self._save_assistant(message_id, conv_id, result.conclusion)
+        else:
+            await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
+        await self._done(
+            ws, message_id, result.outcome, conv_id=conv_id,
+            tts_text=result.conclusion,
+        )
 
     # ---------- companion mode ----------
 

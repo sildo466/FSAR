@@ -170,6 +170,19 @@ TIER_PROFILES = {
         shared_experience_pool=True,
         runaway_cutoff=3,
     ),
+    "character": _profile(
+        "character",
+        max_tool_turns=24,
+        compact_threshold=0.75,
+        inject_strategy=False,
+        inject_experience=False,
+        semantic_recall=False,
+        recall_top_k=0,
+        injector_intensity="off",
+        thinking=True,
+        post_reflection=False,
+        slim_system_prompt=True,
+    ),
 }
 
 
