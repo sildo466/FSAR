@@ -843,6 +843,8 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     if args and args[0] in ("chat", "companion"):
         mode = "companion"
+    elif args and args[0] == "character":
+        mode = "character"
     elif args and args[0] == "agent":
         mode = "agent"
 
