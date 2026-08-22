@@ -61,6 +61,7 @@
   "errors.localeChangeFailed": "言語の切り替えに失敗しました。{previous} に戻しました。",
   "mode.agent": "Agent",
   "mode.companion": "チャット",
+  "mode.character": "なりきり",
   "chat.placeholderInput": "FSAR に何でも聞いてください…",
   "chat.stop": "停止",
   "chat.attach": "ファイルを添付",

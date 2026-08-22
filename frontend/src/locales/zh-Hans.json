@@ -61,6 +61,7 @@
   "errors.localeChangeFailed": "切换语言失败,已恢复至 {previous}。",
   "mode.agent": "Agent",
   "mode.companion": "聊天",
+  "mode.character": "本色",
   "chat.placeholderInput": "向 FSAR 提问…",
   "chat.stop": "停止",
   "chat.attach": "上传文件",

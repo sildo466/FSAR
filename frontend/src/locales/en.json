@@ -61,6 +61,7 @@
   "errors.localeChangeFailed": "Failed to switch language. Reverted to {previous}.",
   "mode.agent": "Agent",
   "mode.companion": "Chat",
+  "mode.character": "In Character",
   "chat.placeholderInput": "Ask FSAR anything…",
   "chat.stop": "Stop",
   "chat.attach": "Attach files",

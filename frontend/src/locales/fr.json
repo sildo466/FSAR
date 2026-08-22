@@ -65,6 +65,7 @@
   "errors.localeChangeFailed": "Échec du changement de langue. Revenu à {previous}.",
   "mode.agent": "Agent",
   "mode.companion": "Chat",
+  "mode.character": "En personnage",
   "nav.scheduler": "Planificateur",
   "scheduler.tab.jobs": "Mes tâches",
   "scheduler.tab.runs": "Exécutions",

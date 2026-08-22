@@ -55,7 +55,7 @@ export function Topbar() {
       <div className="glass absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full p-1 lg:flex">
         <CharacterSelector sessionId={currentId ?? ""} />
         <div className="flex rounded-full bg-[var(--chip-bg)] p-0.5">
-          {(["agent", "companion"] as const).map((item) => <button key={item} onClick={() => setMode(item)} className={`rounded-full px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wider transition ${mode === item ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}>{item === "agent" ? t("mode.agent") : t("mode.companion")}</button>)}
+          {(["agent", "companion", "character"] as const).map((item) => <button key={item} onClick={() => setMode(item)} className={`rounded-full px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wider transition ${mode === item ? "bg-[var(--button-bg)] text-[var(--button-text)] button-tex" : "text-text-muted"}`}>{t(`mode.${item}`)}</button>)}
         </div>
         <UserSelector />
       </div>

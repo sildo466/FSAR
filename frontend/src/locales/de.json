@@ -65,6 +65,7 @@
   "errors.localeChangeFailed": "Sprachwechsel fehlgeschlagen. {previous} wiederhergestellt.",
   "mode.agent": "Agent",
   "mode.companion": "Chat",
+  "mode.character": "In Rolle",
   "nav.scheduler": "Zeitplan",
   "scheduler.tab.jobs": "Meine Jobs",
   "scheduler.tab.runs": "Läufe",
