@@ -45,6 +45,8 @@ class AgentRunState:
     streamed_main: bool = False
     active_skill: str = ""
     character: Any = None
+    unlocked_tools: set[str] = field(default_factory=set)
+    character_mode: bool = False
 
     async def reserve_agent(
         self,

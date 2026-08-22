@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -95,6 +96,7 @@ class SessionStore:
             self._migrate_conversations(conn)
             self._migrate_character_binding(conn)
             self._migrate_context_tokens(conn)
+            self._migrate_unlocked_tools(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
             )
@@ -108,6 +110,35 @@ class SessionStore:
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0"
             )
+
+    def _migrate_unlocked_tools(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add unlocked_tools column (character-mode tool discovery)."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "unlocked_tools" not in cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN unlocked_tools TEXT")
+
+    def get_unlocked_tools(self, session_id: str) -> set[str]:
+        """Session-permanent character-mode unlocks. Empty set when none stored."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT unlocked_tools FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        if not row or not row[0]:
+            return set()
+        try:
+            loaded = json.loads(row[0])
+            return {str(t) for t in loaded} if isinstance(loaded, list) else set()
+        except Exception:
+            return set()
+
+    def set_unlocked_tools(self, session_id: str, tools: set[str]) -> None:
+        raw = json.dumps(sorted(tools), ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET unlocked_tools = ? WHERE id = ?",
+                (raw, session_id),
+            )
+            conn.commit()
 
     def _migrate_character_binding(self, conn) -> None:
         """Idempotent: add character_card_id column to sessions table."""
