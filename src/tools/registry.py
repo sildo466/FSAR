@@ -13,6 +13,8 @@ from src.utils.logger import logger
 class Tool(ABC):
     """Base class for all FSAR tools."""
 
+    modes: tuple[str, ...] = ("agent", "companion", "character")
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -77,9 +79,15 @@ class ToolRegistry:
         """List all registered tools."""
         return list(self._tools.values())
 
-    def get_tools_for_llm(self) -> List[dict]:
-        """Get all tools in OpenAI function calling format."""
-        return [tool.to_openai_schema() for tool in self._tools.values()]
+    def get_tools_for_llm(self, mode: str | None = None) -> List[dict]:
+        """All tools in OpenAI function calling format, optionally filtered by mode."""
+        tools = self._tools.values()
+        if mode is not None:
+            tools = [
+                t for t in tools
+                if mode in (getattr(t, "modes", None) or ("agent", "companion", "character"))
+            ]
+        return [tool.to_openai_schema() for tool in tools]
 
     def get_tool_names(self) -> List[str]:
         """Get all tool names."""

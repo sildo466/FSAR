@@ -12,6 +12,7 @@ from src.tools.builtin.experience_tools import (
     ExperienceViewTool, LearnExperienceTool, ListExperiencesTool, RememberFactTool,
 )
 from src.tools.builtin.update_emotion import UpdateEmotionTool
+from src.tools.builtin.router_tool import RouterTool
 from src.tools.builtin.skill_tool import SkillListTool, SkillReviewTool, SkillRunTool
 from src.tools.builtin.cu_tools import (
     CuScreenshotTool, CuScreenSizeTool, CuActiveWindowTool,
@@ -34,6 +35,7 @@ __all__ = [
     "ListExperiencesTool",
     "RememberFactTool",
     "UpdateEmotionTool",
+    "RouterTool",
     "SkillRunTool",
     "SkillReviewTool",
     "SkillListTool",

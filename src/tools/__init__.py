@@ -16,6 +16,7 @@ from src.tools.builtin import (
     ListExperiencesTool,
     RememberFactTool,
     UpdateEmotionTool,
+    RouterTool,
     SkillRunTool,
     SkillReviewTool,
     SkillListTool,
@@ -49,6 +50,7 @@ def create_default_registry(config: FsarConfig | None = None) -> ToolRegistry:
     registry.register(ListExperiencesTool())
     registry.register(RememberFactTool())
     registry.register(UpdateEmotionTool())
+    registry.register(RouterTool())
     registry.register(SkillRunTool(config))
     registry.register(SkillReviewTool(config))
     registry.register(SkillListTool(config))
@@ -81,6 +83,7 @@ __all__ = [
     "ListExperiencesTool",
     "RememberFactTool",
     "UpdateEmotionTool",
+    "RouterTool",
     "SkillRunTool",
     "SkillReviewTool",
     "SkillListTool",
