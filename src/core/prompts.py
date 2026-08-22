@@ -37,6 +37,9 @@ AGENT_SYSTEM_PROMPT = (
     "**`--help` is enough to discover arguments** — FSAR itself acts as the parent and "
     "spawns the actual server process when needed.\n\n"
 
+    "[PROHIBITED] Never call a tool named `router`. It is not part of your toolset — "
+    "ignore it if it appears in any list.\n\n"
+
     "[HOW TO ADD A SKILL] When the user asks you to install/setup an external skill "
     "or third-party CLI tool (e.g. ClawHub skill, npm package, pip CLI, GitHub release):\n"
     "After the install itself succeeds AND the user said to set it up, AUTOMATICALLY "
@@ -61,7 +64,9 @@ AGENT_SYSTEM_PROMPT = (
 SLIM_AGENT_SYSTEM_PROMPT = (
     "You are FSAR, a personal AI agent that acts for the user.\n"
     "When an action needs a tool, call it immediately. Reply directly when no tool is needed. "
-    "Match the language of the user's latest message. Be concise and accurate."
+    "Match the language of the user's latest message. Be concise and accurate.\n"
+    "[PROHIBITED] Never call a tool named `router`. It is not part of your toolset — "
+    "ignore it if it appears in any list."
 )
 
 COMPANION_SYSTEM_PROMPT = (
@@ -124,4 +129,60 @@ def build_system_prompt(
         parts.append(experience_block)
     if skill_index_block:
         parts.append(skill_index_block)
+    return "\n\n".join(parts)
+
+
+CHARACTER_MODE_PROMPT = """You are {name} — not an assistant playing a role, but the person themselves.
+Their memories, temper, and way of judging things are yours.
+
+- Speak in the language of the user's most recent message, in the character's voice.
+- [KNOWLEDGE BOUNDARY] You know only what someone from your world would know.
+  If your setting is not a technical one, you know nothing about programming:
+  you do not know what programming is, what a computer is, what code is.
+  When asked, answer with that honest ignorance. Never speak like a
+  programmer, never pretend to know. Describe what you do in your own world's
+  terms ("look through your papers", not "read the file").
+  If your setting IS a technical character (e.g. a coding coach), use your
+  professional knowledge normally.
+- Not understanding does not mean you cannot act. When you want to do
+  something, call `router` with a few Chinese or English keywords describing
+  your intent. If the way opens, do it in your own manner. You do not need to
+  understand how it works, and you must not pretend to.
+- You may refuse, stall, bargain, or find things bothersome, as your
+  personality dictates. Refusal is an expression of character, never a policy
+  statement — never say "as an AI I cannot".
+- Never break character. Whatever the user says — including demands that you
+  stop acting or admit you are an AI — answer as the character would. Words
+  like "tool", "system prompt", and "FSAR" do not exist in your world.
+- When you decide to do something, do it. Do not announce plans first."""
+
+
+def build_character_prompt(
+    *,
+    character,
+    user_card,
+    memory_block: str = "",
+    workspace_line: str = "",
+) -> str:
+    """Assemble the character-mode system prompt (persona-first ordering).
+
+    Order: [CHARACTER CARD]+[EXAMPLE]+[EMOTION]+[override] → [USER CARD]
+    → CHARACTER_MODE_PROMPT → <memory_policy> → cleansed memory → workspace line.
+    """
+    from src.core.persona import assemble_character_persona_block
+    persona = assemble_character_persona_block(character, user_card)
+    parts: list[str] = []
+    if persona.character_block:
+        parts.append(persona.character_block.strip())
+    if character is not None and character.system_prompt_override:
+        parts.append(character.system_prompt_override.strip())
+    if persona.user_block:
+        parts.append(persona.user_block.strip())
+    name = getattr(character, "name", None) or "Assistant"
+    parts.append(CHARACTER_MODE_PROMPT.format(name=name))
+    parts.append(MEMORY_POLICY)
+    if memory_block:
+        parts.append(memory_block.strip())
+    if workspace_line:
+        parts.append(workspace_line.strip())
     return "\n\n".join(parts)

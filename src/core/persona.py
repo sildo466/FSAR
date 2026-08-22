@@ -100,3 +100,28 @@ def assemble_persona_block(
         character_id=character.id,
         user_card_id=user_card.id if user_card else None,
     )
+
+
+@dataclass(frozen=True)
+class CharacterPersona:
+    character_block: str
+    user_block: str
+
+
+def assemble_character_persona_block(
+    character: CharacterCard | None,
+    user_card: UserCard | None,
+) -> CharacterPersona:
+    """Persona split for character mode: everything about the character first
+    (card + examples + emotion), the user card kept separate so the character
+    block can stay together at the top of the prompt."""
+    if character is None:
+        character_block = ""
+    else:
+        character_block = "".join(s for s in (
+            _character_section(character),
+            _example_section(character),
+            _emotion_section(character),
+        ) if s)
+    user_block = _user_section(user_card) if user_card is not None else ""
+    return CharacterPersona(character_block=character_block, user_block=user_block)
