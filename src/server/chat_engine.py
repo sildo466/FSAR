@@ -1223,7 +1223,7 @@ class ChatEngine:
         result = AgentLoopResult("Tool execution failed.", "failure")
         try:
             if profile.name == "ultra":
-                await self._run_ultra_startup(
+                peer_results = await self._run_ultra_startup(
                     ws=ws,
                     message_id=message_id,
                     client=client,
@@ -1233,6 +1233,22 @@ class ChatEngine:
                     user_input=user_input,
                     runtime=runtime,
                 )
+                # Hand the coordinator the peers' conclusions so its first
+                # reasoning step synthesizes them (dedup/merge per spec) —
+                # previously these were gathered and discarded.
+                peer_block = "\n\n".join(
+                    f"### Peer: {label}\n{conclusion}"
+                    for label, conclusion in peer_results
+                )
+                if peer_block:
+                    messages.append({
+                        "role": "system",
+                        "name": "fsar_peer_conclusions",
+                        "content": (
+                            "Three independent peer agents worked on this request "
+                            f"before you. Synthesize their findings:\n\n{peer_block}"
+                        ),
+                    })
             result = await self._agent_loop(
                 ws=ws,
                 message_id=message_id,
@@ -1438,11 +1454,14 @@ class ChatEngine:
             if not tool_calls:
                 if awaiting_selfcheck_response:
                     # The self-check turn confirmed completion (no gap → no
-                    # tool calls). Return the original pre-check answer instead
-                    # of the model's review-report echo.
+                    # tool calls). Continue with the pre-check candidate so it
+                    # still passes the adversarial-debate and skill gates
+                    # below instead of bypassing them (returning here made the
+                    # debate unreachable whenever a self-check budget remained).
                     awaiting_selfcheck_response = False
-                    return AgentLoopResult(pending_candidate, "success", tool_steps)
-                candidate = (message.content or "") if not isinstance(message, dict) else (message.get("content") or "")
+                    candidate = pending_candidate
+                else:
+                    candidate = (message.content or "") if not isinstance(message, dict) else (message.get("content") or "")
                 should_selfcheck = profile.verify_selfcheck and (
                     not is_subagent or profile.subagent_autonomous
                 )
@@ -2447,7 +2466,10 @@ class ChatEngine:
         conv_id: str,
         user_input: str,
         runtime: AgentRunState,
-    ) -> None:
+    ) -> list[tuple[str, str]]:
+        """Fan out three peer agents at task start. Returns [(label, conclusion)]
+        so the coordinator can synthesize their viewpoints — the spec's
+        round-debate entry point; dropping these made the fan-out pure cost."""
         assignments = [
             (
                 "Independent solver",
@@ -2469,7 +2491,7 @@ class ChatEngine:
         await self._emit_agent_status(
             ws, runtime, runtime.root_task_id, "delegating", "Starting three peer agents",
         )
-        await asyncio.gather(*(
+        conclusions = await asyncio.gather(*(
             self._dispatch_subagent(
                 ws=ws,
                 message_id=message_id,
@@ -2485,6 +2507,10 @@ class ChatEngine:
             )
             for label, assignment in assignments
         ))
+        return [
+            (label, conclusion)
+            for (label, _), conclusion in zip(assignments, conclusions)
+        ]
 
     async def _adversarial_verify(
         self,

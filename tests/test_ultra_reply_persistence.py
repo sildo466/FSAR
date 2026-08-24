@@ -152,6 +152,12 @@ class UltraLoopConclusionTests(unittest.IsolatedAsyncioTestCase):
         confirms completion. The loop must return turn 1's candidate and mark
         streamed_main=True (turn 1 did stream)."""
         engine = LoopHarness(["draft answer", "检查完成 ✅ 最终回答：draft answer"])
+        # Self-check confirmation now falls through to the adversarial gate
+        # (the fix under test) — stub the verifiers to accept.
+        async def fake_verify(**kwargs):
+            return False, ""
+
+        engine._adversarial_verify = fake_verify  # type: ignore[method-assign]
         result, runtime, ws = await run_ultra(engine)
 
         self.assertEqual(result.outcome, "success")
@@ -174,6 +180,25 @@ class UltraLoopConclusionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.outcome, "success")
         self.assertEqual(result.conclusion, "final answer v1")
+
+    async def test_selfcheck_confirmed_candidate_still_goes_through_debate(self) -> None:
+        """Regression for debate-reachability: a candidate confirmed by the
+        first self-check used to return immediately, bypassing adversarial
+        verification entirely. It must now pass through the debate gate."""
+        engine = LoopHarness(["candidate answer", "检查完成 ✅"])
+        debate_calls = []
+
+        async def fake_verify(**kwargs):
+            debate_calls.append(kwargs.get("candidate"))
+            return False, ""
+
+        engine._adversarial_verify = fake_verify  # type: ignore[method-assign]
+        result, runtime, ws = await run_ultra(engine)
+
+        self.assertEqual(result.outcome, "success")
+        self.assertEqual(result.conclusion, "candidate answer")
+        # The self-check-confirmed pre-check candidate reached the verifiers.
+        self.assertEqual(debate_calls, ["candidate answer"])
 
     async def test_ultra_adversarial_refute_redo_conclusion_corrected(self) -> None:
         """Ultra order: self-check gates debate. Debate only becomes reachable
@@ -232,6 +257,53 @@ class UltraLoopConclusionTests(unittest.IsolatedAsyncioTestCase):
         # One adversarial pass per loop (adversarial_done latch): the refuted
         # candidate was redone, and the redo's conclusion returned directly.
         self.assertEqual(state["debate"], 1)
+
+
+class UltraStartupFanOutTests(unittest.IsolatedAsyncioTestCase):
+    """_run_ultra_startup must return peer conclusions, not drop them."""
+
+    async def test_startup_returns_three_peer_conclusions(self) -> None:
+        from src.core.agent_runtime import AgentRunState
+
+        engine = LoopHarness([])
+        captured = []
+
+        async def fake_dispatch(**kwargs):
+            captured.append(kwargs["label"])
+            return f"{kwargs['label']} conclusion"
+
+        engine._dispatch_subagent = fake_dispatch  # type: ignore[method-assign]
+
+        async def noop_emit(*a, **k):
+            return None
+
+        engine._emit_agent_status = noop_emit  # type: ignore[method-assign]
+
+        profile = TIER_PROFILES["ultra"]
+        runtime = AgentRunState("root", profile)
+        results = await engine._run_ultra_startup(
+            ws=FakeWS(),
+            message_id="m",
+            client=object(),
+            model="m",
+            provider_id="p",
+            conv_id="c",
+            user_input="task",
+            runtime=runtime,
+        )
+
+        self.assertEqual(len(results), 3)
+        self.assertEqual(captured, [
+            "Independent solver", "Risk challenger", "Alternative architect",
+        ])
+        self.assertEqual(
+            [conclusion for _, conclusion in results],
+            [
+                "Independent solver conclusion",
+                "Risk challenger conclusion",
+                "Alternative architect conclusion",
+            ],
+        )
 
 
 class WrapUpEmissionTests(unittest.IsolatedAsyncioTestCase):
