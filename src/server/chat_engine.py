@@ -1428,7 +1428,11 @@ class ChatEngine:
                 stream_sink=(ws, message_id, conv_id)
                 if (not is_subagent and not awaiting_selfcheck_response) else None,
             )
-            if not is_subagent:
+            # Only mark streamed_main when this turn actually streamed. The
+            # self-check turn runs with stream_sink=None; flagging it here made
+            # the loop skip _emit_text on completion, silently dropping the
+            # final answer (never displayed, never persisted).
+            if not is_subagent and not awaiting_selfcheck_response:
                 runtime.streamed_main = True
             tool_calls = list(message.tool_calls or []) if not isinstance(message, dict) else list(message.get("tool_calls") or [])
             if not tool_calls:
