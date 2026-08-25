@@ -1688,7 +1688,9 @@ class ChatEngine:
                 self._record_thinking_tokens(
                     task_id, len(result["reasoning_content"]),
                 )
-            self._record_llm_usage(task_id, result)
+            self._record_llm_usage(
+                task_id, result, provider=provider_id, model=model,
+            )
             message = self._wrap_gemini_message(result)
             if stream_sink is not None:
                 ws, message_id, conv_id = stream_sink
@@ -1724,7 +1726,6 @@ class ChatEngine:
             provider_id=provider_id,
             **call_kwargs,
         )
-        self._record_llm_usage(task_id, response)
         return response.choices[0].message
 
     async def _stream_agent_completion(
@@ -3350,25 +3351,17 @@ class ChatEngine:
             return
         self.title_generator.schedule(conv_id, user_input)
 
-    def _record_llm_usage(self, task_id: str, resp: Any) -> None:
+    def _record_llm_usage(self, task_id: str, resp: Any, *,
+                          provider: str = "", model: str = "") -> None:
+        """Persist usage for call sites that bypass the shared factory
+        (e.g. the google-native path); the factory records its own calls."""
         try:
             usage = resp.get("usage") if isinstance(resp, dict) else getattr(resp, "usage", None)
             if usage is None:
                 return
-            get = (usage.get if isinstance(usage, dict)
-                   else lambda k, d=0: getattr(usage, k, d) or d)
-            self.decision_log.record(
-                task_id=task_id,
-                session_id=self._active_conv_id or "",
-                step_no=0,
-                chosen_tool="chat.llm",
-                args_summary="",
-                latency_ms=0,
-                success=True,
-                prompt_tokens=int(get("prompt_tokens", 0) or 0),
-                completion_tokens=int(get("completion_tokens", 0) or 0),
-                cached_tokens=int(get("cached_tokens", 0) or 0),
-            )
+            from src.utils.llm_factory import record_llm_usage as _record_usage
+
+            _record_usage(provider, model, usage)
         except Exception as e:
             logger.debug(f"usage record skipped: {e}")
 

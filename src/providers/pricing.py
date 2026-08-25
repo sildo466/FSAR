@@ -14,13 +14,14 @@ from src.memory.integrations import (
     get_model,
 )
 
-MODEL_PRICING: dict[tuple[str, str], tuple[float, float]] = {
+MODEL_PRICING: dict[tuple[str, str], tuple] = {
     ("openai", "gpt-4o-mini"): (0.15, 0.60),
     ("openai", "gpt-4o"): (2.50, 10.00),
     ("openai", "o1-mini"): (3.00, 12.00),
     ("openai", "o1-pro"): (15.00, 60.00),
-    ("anthropic", "claude-haiku-4-5-20251001"): (0.80, 4.00),
-    ("anthropic", "claude-sonnet-4-6"): (3.00, 15.00),
+    # (input, output, cache_read, cache_write) per 1M.
+    ("anthropic", "claude-haiku-4-5-20251001"): (0.80, 4.00, 0.08, 1.00),
+    ("anthropic", "claude-sonnet-4-6"): (3.00, 15.00, 0.30, 3.75),
     ("deepseek", "deepseek-chat"): (0.14, 0.28),
     ("deepseek", "deepseek-reasoner"): (0.14, 2.19),
     ("google", "gemini-1.5-flash"): (0.075, 0.30),
@@ -28,12 +29,23 @@ MODEL_PRICING: dict[tuple[str, str], tuple[float, float]] = {
 }
 
 
-def cost_usd(provider: str, model: str, input_tokens: int, output_tokens: int) -> Optional[float]:
+def cost_usd(provider: str, model: str, input_tokens: int, output_tokens: int,
+             cache_read_tokens: int = 0, cache_creation_tokens: int = 0) -> Optional[float]:
     pricing = MODEL_PRICING.get((provider, model))
     if pricing is None:
         return None
-    input_rate, output_rate = pricing
-    return input_tokens * input_rate / 1_000_000 + output_tokens * output_rate / 1_000_000
+    if len(pricing) == 4:
+        input_rate, output_rate, cache_read_rate, cache_write_rate = pricing
+    else:
+        # 2-tuple entries have no published cache rates; unknown cache cost
+        # is charged as 0 rather than guessed.
+        input_rate, output_rate = pricing
+        cache_read_rate, cache_write_rate = 0.0, 0.0
+    return (
+        input_tokens * input_rate + output_tokens * output_rate
+        + cache_read_tokens * cache_read_rate
+        + cache_creation_tokens * cache_write_rate
+    ) / 1_000_000
 
 
 def _resolve_model_node(model_id: int | None) -> ModelSpec:

@@ -48,12 +48,14 @@ class ExecutionTrace:
 
 
 def _normalise_usage(usage: Any) -> dict[str, int]:
-    if usage is None:
-        return {"input_tokens": 0, "output_tokens": 0}
-    get = usage.get if isinstance(usage, dict) else lambda key, default=0: getattr(usage, key, default)
+    from src.utils.llm_factory import normalise_usage
+
+    n = normalise_usage(usage)
     return {
-        "input_tokens": int(get("input_tokens", get("prompt_tokens", 0)) or 0),
-        "output_tokens": int(get("output_tokens", get("completion_tokens", 0)) or 0),
+        "input_tokens": n["input"],
+        "output_tokens": n["output"],
+        "cache_read_tokens": n["cache_read"],
+        "cache_creation_tokens": n["cache_creation"],
     }
 
 
@@ -110,7 +112,11 @@ def _invoke_provider(*args: Any, **kwargs: Any) -> tuple[str, dict[str, int]]:
         trace.calls += 1
         provider, model = str(args[0]), str(args[1])
         usage = result[1]
-        price = cost_usd(provider, model, usage["input_tokens"], usage["output_tokens"])
+        price = cost_usd(
+            provider, model,
+            usage["input_tokens"], usage["output_tokens"],
+            usage["cache_read_tokens"], usage["cache_creation_tokens"],
+        )
         if price is None:
             trace.total_cost_usd = None
         elif trace.total_cost_usd is not None:
@@ -121,6 +127,8 @@ def _invoke_provider(*args: Any, **kwargs: Any) -> tuple[str, dict[str, int]]:
                 model=model,
                 input_tokens=usage["input_tokens"],
                 output_tokens=usage["output_tokens"],
+                cache_read_tokens=usage["cache_read_tokens"],
+                cache_creation_tokens=usage["cache_creation_tokens"],
                 integration_run_id=_run_id_var.get(),
                 cost_usd=price,
             )

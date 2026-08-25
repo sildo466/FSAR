@@ -13,25 +13,6 @@ def _default_db() -> Path:
     return Path(__file__).resolve().parents[3] / "data" / "memory.db"
 
 
-def compute_cost(prompt_tokens: int, completion_tokens: int, pricing: dict | None) -> float:
-    """Pure: (prompt/1e6) * input_per_1m + (completion/1e6) * output_per_1m.
-
-    Pricing dict follows FsarConfig.llm.providers[].pricing shape.
-    Rate unit is USD per 1,000,000 tokens (matches what vendors publish,
-    e.g. OpenAI gpt-4o-mini = 0.15 / 0.60 per 1M). Returns 0.0 when pricing
-    is missing or has no rate fields.
-    """
-    if not pricing:
-        return 0.0
-    in_per_1m = float(pricing.get("input_per_1m", 0) or 0)
-    out_per_1m = float(pricing.get("output_per_1m", 0) or 0)
-    return round(
-        (prompt_tokens / 1_000_000.0) * in_per_1m
-        + (completion_tokens / 1_000_000.0) * out_per_1m,
-        10,
-    )
-
-
 def _resolve_db(ctx: dict[str, Any] | None) -> Path:
     if ctx and ctx.get("db_path"):
         return Path(ctx["db_path"])
@@ -41,17 +22,16 @@ def _resolve_db(ctx: dict[str, Any] | None) -> Path:
 def _build_snapshot(db_path: Path, from_ts: str, to_ts: str,
                     config: Any = None) -> dict[str, Any]:
     from src.memory.decision_log import DecisionLog
-
-    log = DecisionLog(db_path=db_path)
-    totals = log.get_token_totals()
-    rows_total = log.get_total()
-
-    total_tokens = totals["total_tokens"]
-    cached_tokens = totals["cached_tokens"]
-    cache_hit_pct = (
-        round(100.0 * cached_tokens / total_tokens, 1) if total_tokens else 0.0
+    from src.memory.integrations import (
+        get_token_usage_by_provider,
+        get_token_usage_timeline,
+        get_token_usage_totals,
     )
 
+    totals = get_token_usage_totals(from_ts=from_ts, to_ts=to_ts, db_path=db_path)
+
+    log = DecisionLog(db_path=db_path)
+    rows_total = log.get_total()
     stats = log.get_stats(min_uses=1)
     per_tool = [
         {
@@ -65,32 +45,10 @@ def _build_snapshot(db_path: Path, from_ts: str, to_ts: str,
         for s in stats
     ]
 
-    with log._connect() as conn:
-        timeline = [
-            {
-                "date": r[0],
-                "prompt_tokens": r[1] or 0,
-                "completion_tokens": r[2] or 0,
-                "cached_tokens": r[3] or 0,
-            }
-            for r in conn.execute(
-                "SELECT date(created_at), SUM(prompt_tokens), SUM(completion_tokens),"
-                " SUM(cached_tokens) FROM decision_log"
-                " WHERE date(created_at) BETWEEN date(?) AND date(?)"
-                " GROUP BY date(created_at) ORDER BY date(created_at)",
-                (from_ts, to_ts),
-            ).fetchall()
-        ]
+    timeline = get_token_usage_timeline(from_ts=from_ts, to_ts=to_ts, db_path=db_path)
 
-    pricing = None
-    if config is not None:
-        pricing = (config.get_active_provider() or {}).get("pricing")
-    estimated_cost = compute_cost(
-        totals["prompt_tokens"], totals["completion_tokens"], pricing,
-    )
     per_provider = []
     try:
-        from src.memory.integrations import get_token_usage_by_provider
         per_provider = get_token_usage_by_provider(
             from_ts=from_ts, to_ts=to_ts, db_path=db_path,
         )
@@ -99,23 +57,23 @@ def _build_snapshot(db_path: Path, from_ts: str, to_ts: str,
 
     recent = timeline[-7:]
     forecast_monthly = 0.0
-    if recent and pricing:
-        daily_cost = sum(
-            compute_cost(d["prompt_tokens"], d["completion_tokens"], pricing)
-            for d in recent
-        ) / len(recent)
-        forecast_monthly = round(daily_cost * 30, 4)
+    if recent:
+        forecast_monthly = round(
+            sum(d["cost_usd"] for d in recent) / len(recent) * 30, 4,
+        )
 
     return {
         "kpis": {
-            "total_tokens": total_tokens,
-            "prompt_tokens": totals["prompt_tokens"],
-            "completion_tokens": totals["completion_tokens"],
-            "cached_tokens": cached_tokens,
-            "cache_hit_pct": cache_hit_pct,
-            "estimated_cost_usd": estimated_cost,
+            "total_tokens": totals["total_tokens"],
+            "prompt_tokens": totals["input_tokens"],
+            "completion_tokens": totals["output_tokens"],
+            "cached_tokens": totals["cache_read_tokens"],
+            "cache_creation_tokens": totals["cache_creation_tokens"],
+            "cache_hit_pct": totals["cache_hit_pct"],
+            "estimated_cost_usd": round(totals["cost_usd"], 10),
             "forecast_monthly_usd": forecast_monthly,
             "decision_rows": rows_total,
+            "requests": totals["requests"],
             "from": from_ts,
             "to": to_ts,
         },

@@ -428,12 +428,15 @@ def finish_run(run_id: int, *, final_reply: str = "", status: str = "ok", total_
 
 
 def record_token_usage(*, provider: str, model: str, input_tokens: int, output_tokens: int,
+                       cache_read_tokens: int = 0, cache_creation_tokens: int = 0,
                        integration_run_id: int | None = None, cost_usd: float | None = None) -> int:
     conn = _conn()
     try:
         cur = conn.execute(
-            "INSERT INTO llm_token_usage(ts,integration_run_id,provider,model,input_tokens,output_tokens,cost_usd) VALUES(?,?,?,?,?,?,?)",
-            (_now(), integration_run_id, provider, model, int(input_tokens), int(output_tokens), cost_usd),
+            "INSERT INTO llm_token_usage(ts,integration_run_id,provider,model,input_tokens,output_tokens,"
+            "cache_read_tokens,cache_creation_tokens,cost_usd) VALUES(?,?,?,?,?,?,?,?,?)",
+            (_now(), integration_run_id, provider, model, int(input_tokens), int(output_tokens),
+             int(cache_read_tokens), int(cache_creation_tokens), cost_usd),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -441,29 +444,99 @@ def record_token_usage(*, provider: str, model: str, input_tokens: int, output_t
         _close_conn(conn)
 
 
+def _usage_range_cond(from_ts: str, to_ts: str) -> tuple[str, list[str]]:
+    where: list[str] = []
+    params: list[str] = []
+    if from_ts:
+        where.append("date(ts) >= date(?)")
+        params.append(from_ts)
+    if to_ts:
+        where.append("date(ts) <= date(?)")
+        params.append(to_ts)
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    return cond, params
+
+
+def get_token_usage_totals(*, from_ts: str = "", to_ts: str = "",
+                           db_path: str | Path | None = None) -> dict:
+    """Aggregate llm_token_usage totals (with cache split) for a date range."""
+    path = Path(db_path) if db_path else _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    try:
+        _ensure_schema(conn)
+        cond, params = _usage_range_cond(from_ts, to_ts)
+        row = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),"
+            " COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),"
+            " COALESCE(SUM(cost_usd), 0) FROM llm_token_usage" + cond,
+            params,
+        ).fetchone()
+    finally:
+        conn.close()
+    requests, inp, outp, cache_read, cache_creation = (int(x or 0) for x in row[:5])
+    cost = float(row[5] or 0)
+    denom = inp + cache_creation + cache_read
+    return {
+        "requests": requests,
+        "input_tokens": inp,
+        "output_tokens": outp,
+        "cache_read_tokens": cache_read,
+        "cache_creation_tokens": cache_creation,
+        "cost_usd": cost,
+        "total_tokens": inp + outp + cache_read + cache_creation,
+        "cache_hit_pct": round(100.0 * cache_read / denom, 1) if denom else 0.0,
+    }
+
+
+def get_token_usage_timeline(*, from_ts: str = "", to_ts: str = "",
+                             db_path: str | Path | None = None) -> list[dict]:
+    """Daily rollups of llm_token_usage for a date range, oldest first."""
+    path = Path(db_path) if db_path else _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    try:
+        _ensure_schema(conn)
+        cond, params = _usage_range_cond(from_ts, to_ts)
+        rows = conn.execute(
+            "SELECT date(ts), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),"
+            " COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),"
+            " COALESCE(SUM(cost_usd), 0) FROM llm_token_usage" + cond +
+            " GROUP BY date(ts) ORDER BY date(ts)",
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {
+            "date": r[0],
+            "prompt_tokens": int(r[1]),
+            "completion_tokens": int(r[2]),
+            "cache_read_tokens": int(r[3]),
+            "cache_creation_tokens": int(r[4]),
+            "cost_usd": float(r[5] or 0),
+        }
+        for r in rows
+    ]
+
+
 def get_token_usage_by_provider(*, from_ts: str = "", to_ts: str = "",
                                 db_path: str | Path | None = None) -> list[dict]:
     """Aggregate real LLM token usage per provider from llm_token_usage.
 
     Returns rows [{provider, model, prompt_tokens, completion_tokens,
-    cost_usd}] ordered by total tokens desc. `db_path` overrides the default
+    cache_read_tokens, cache_creation_tokens, cache_hit_pct, cost_usd}]
+    ordered by total tokens desc. `db_path` overrides the default
     memory DB (used by the usage handler, which resolves its own DB)."""
     path = Path(db_path) if db_path else _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     try:
         _ensure_schema(conn)
-        where: list[str] = []
-        params: list[str] = []
-        if from_ts:
-            where.append("date(ts) >= date(?)")
-            params.append(from_ts)
-        if to_ts:
-            where.append("date(ts) <= date(?)")
-            params.append(to_ts)
-        cond = (" WHERE " + " AND ".join(where)) if where else ""
+        cond, params = _usage_range_cond(from_ts, to_ts)
         rows = conn.execute(
             "SELECT provider, model, SUM(input_tokens), SUM(output_tokens),"
+            " COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),"
             " SUM(COALESCE(cost_usd, 0)) FROM llm_token_usage"
             + cond +
             " GROUP BY provider, model"
@@ -473,12 +546,14 @@ def get_token_usage_by_provider(*, from_ts: str = "", to_ts: str = "",
     finally:
         conn.close()
     merged: dict[str, dict] = {}
-    for provider, model, prompt, completion, cost in rows:
+    for provider, model, prompt, completion, cache_read, cache_creation, cost in rows:
         row = merged.get(provider) or {
             "provider": provider or "unknown",
             "model": model,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
             "cost_usd": 0.0,
             "_best": 0,
         }
@@ -486,15 +561,29 @@ def get_token_usage_by_provider(*, from_ts: str = "", to_ts: str = "",
         completion = int(completion or 0)
         row["prompt_tokens"] += prompt
         row["completion_tokens"] += completion
+        row["cache_read_tokens"] += int(cache_read or 0)
+        row["cache_creation_tokens"] += int(cache_creation or 0)
         row["cost_usd"] += float(cost or 0)
         if prompt + completion > row["_best"]:
             row["model"] = model
             row["_best"] = prompt + completion
         merged[provider] = row
-    return [
-        {k: row[k] for k in ("provider", "model", "prompt_tokens", "completion_tokens", "cost_usd")}
-        for row in merged.values() if row["_best"] > 0
-    ]
+    out: list[dict] = []
+    for row in merged.values():
+        if row["_best"] <= 0:
+            continue
+        denom = row["prompt_tokens"] + row["cache_creation_tokens"] + row["cache_read_tokens"]
+        out.append({
+            "provider": row["provider"],
+            "model": row["model"],
+            "prompt_tokens": row["prompt_tokens"],
+            "completion_tokens": row["completion_tokens"],
+            "cache_read_tokens": row["cache_read_tokens"],
+            "cache_creation_tokens": row["cache_creation_tokens"],
+            "cache_hit_pct": round(100.0 * row["cache_read_tokens"] / denom, 1) if denom else 0.0,
+            "cost_usd": row["cost_usd"],
+        })
+    return out
 
 
 __all__ = [
@@ -502,5 +591,6 @@ __all__ = [
     "list_integrations", "get_integration", "upsert_integration", "delete_integration",
     "find_default_integration", "set_default_integration", "list_models", "get_model",
     "upsert_model", "create_run", "finish_run", "record_token_usage", "_conn",
+    "get_token_usage_totals", "get_token_usage_timeline",
     "_resolve_model_for_sub", "_registered_model", "_registered_integration",
 ]

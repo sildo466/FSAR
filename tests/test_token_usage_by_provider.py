@@ -14,17 +14,20 @@ def test_get_token_usage_by_provider_aggregates(tmp_path: Path):
         "CREATE TABLE llm_token_usage ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,"
         "integration_run_id INTEGER, provider TEXT NOT NULL, model TEXT NOT NULL,"
-        "input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cost_usd REAL)"
+        "input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,"
+        "cache_read_tokens INTEGER NOT NULL DEFAULT 0,"
+        "cache_creation_tokens INTEGER NOT NULL DEFAULT 0, cost_usd REAL)"
     )
     conn.executemany(
-        "INSERT INTO llm_token_usage(ts,provider,model,input_tokens,output_tokens,cost_usd)"
-        " VALUES(?,?,?,?,?,?)",
+        "INSERT INTO llm_token_usage(ts,provider,model,input_tokens,output_tokens,"
+        "cache_read_tokens,cache_creation_tokens,cost_usd)"
+        " VALUES(?,?,?,?,?,?,?,?)",
         [
-            ("2026-08-01T10:00:00", "p1", "model-a", 100, 10, 0.01),
-            ("2026-08-02T10:00:00", "p1", "model-a", 200, 20, 0.02),
-            ("2026-08-03T10:00:00", "p2", "model-b", 50, 5, 0.005),
-            ("2026-08-04T10:00:00", "p2", "model-b", 0, 0, None),
-            ("2026-08-05T10:00:00", "p1", "model-c", 9999, 9999, 0),
+            ("2026-08-01T10:00:00", "p1", "model-a", 100, 10, 30, 5, 0.01),
+            ("2026-08-02T10:00:00", "p1", "model-a", 200, 20, 60, 10, 0.02),
+            ("2026-08-03T10:00:00", "p2", "model-b", 50, 5, 0, 0, 0.005),
+            ("2026-08-04T10:00:00", "p2", "model-b", 0, 0, 0, 0, None),
+            ("2026-08-05T10:00:00", "p1", "model-c", 9999, 9999, 0, 0, 0),
         ],
     )
     conn.commit()
@@ -34,10 +37,14 @@ def test_get_token_usage_by_provider_aggregates(tmp_path: Path):
     by = {r["provider"]: r for r in out}
     assert by["p1"]["prompt_tokens"] == 100 + 200 + 9999
     assert by["p1"]["completion_tokens"] == 10 + 20 + 9999
+    assert by["p1"]["cache_read_tokens"] == 90
+    assert by["p1"]["cache_creation_tokens"] == 15
     assert by["p1"]["model"] == "model-c"
     assert by["p1"]["cost_usd"] == 0.03
+    assert by["p1"]["cache_hit_pct"] == round(100.0 * 90 / (10299 + 15 + 90), 1)
     assert by["p2"]["prompt_tokens"] == 50
     assert by["p2"]["completion_tokens"] == 5
+    assert by["p2"]["cache_hit_pct"] == 0.0
     assert len(out) == 2
 
 

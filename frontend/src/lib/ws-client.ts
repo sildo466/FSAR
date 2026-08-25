@@ -320,7 +320,7 @@ export class WSClient {
         console.error("ws parse error", err);
       }
     };
-    this.ws.onclose = (event) => {
+    this.ws.onclose = () => {
       this.ready = false;
       this.scheduleReconnect(true);
     };

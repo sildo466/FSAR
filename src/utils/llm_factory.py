@@ -43,14 +43,41 @@ _ANTHROPIC_CLIENTS: dict[str, Any] = {}
 _FACTORY_LOCK = __import__("threading").Lock()
 
 
-def _record_global_token_usage(provider: str, model: str, response: Any) -> None:
+def normalise_usage(usage: Any) -> dict[str, int]:
+    """Normalize a provider `usage` object into canonical token counts.
+
+    Returns {input, output, cache_read, cache_creation} where `input` is the
+    fresh (non-cached) input token count. Handles Anthropic, OpenAI
+    (chat + Responses) and Gemini usageMetadata shapes.
+    """
+    if usage is None:
+        return {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    get = usage.get if isinstance(usage, dict) else lambda key, default=0: getattr(usage, key, default)
+    prompt = int(get("promptTokenCount", get("input_tokens", get("prompt_tokens", 0))) or 0)
+    output = int(get("candidatesTokenCount", get("output_tokens", get("completion_tokens", 0))) or 0)
+    cached = int(get("cachedContentTokenCount", get("cache_read_input_tokens", get("cached_input_tokens", 0))) or 0)
+    details = get("prompt_tokens_details", None)
+    if isinstance(details, dict):
+        cached = max(cached, int(details.get("cached_tokens", 0) or 0))
+    creation = int(get("cache_creation_input_tokens", 0) or 0)
+    return {
+        "input": max(0, prompt - cached),
+        "output": output,
+        "cache_read": cached,
+        "cache_creation": creation,
+    }
+
+
+def record_llm_usage(provider: str, model: str, usage: Any) -> None:
+    """Persist a raw provider `usage` object into the token usage table.
+
+    Thread-safe; safe to call from stream pump threads. Zero-usage payloads
+    are skipped so the table only holds real accounting rows.
+    """
     try:
-        usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
-        if usage is None:
+        n = normalise_usage(usage)
+        if not any((n["input"], n["output"], n["cache_read"], n["cache_creation"])):
             return
-        get = usage.get if isinstance(usage, dict) else lambda key, default=0: getattr(usage, key, default)
-        input_tokens = int(get("input_tokens", get("prompt_tokens", 0)) or 0)
-        output_tokens = int(get("output_tokens", get("completion_tokens", 0)) or 0)
         from src.memory.integrations import record_token_usage
         from src.providers.pricing import cost_usd
 
@@ -64,13 +91,42 @@ def _record_global_token_usage(provider: str, model: str, response: Any) -> None
         record_token_usage(
             provider=provider,
             model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=n["input"],
+            output_tokens=n["output"],
+            cache_read_tokens=n["cache_read"],
+            cache_creation_tokens=n["cache_creation"],
             integration_run_id=run_id,
-            cost_usd=cost_usd(provider, model, input_tokens, output_tokens),
+            cost_usd=cost_usd(
+                provider, model,
+                n["input"], n["output"], n["cache_read"], n["cache_creation"],
+            ),
         )
     except Exception as exc:
         logger.debug(f"token usage record skipped: {exc}")
+
+
+def _record_global_token_usage(provider: str, model: str, response: Any) -> None:
+    usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+    if usage is not None:
+        record_llm_usage(provider, model, usage)
+
+
+def _stream_with_usage_recording(stream: Any, provider_id: str, model: str) -> Any:
+    """Wrap an OpenAI-style stream, recording the final chunk's usage once the
+    stream is exhausted. Early-aborted streams simply lose the usage row."""
+    def _gen():
+        usage = None
+        try:
+            for chunk in stream:
+                u = getattr(chunk, "usage", None)
+                if u:
+                    usage = u
+                yield chunk
+        finally:
+            if usage is not None:
+                _record_global_token_usage(provider_id, model, {"usage": usage})
+
+    return _gen()
 
 
 def detect_provider_family(model: str = "", base_url: str = "") -> str:
@@ -319,6 +375,10 @@ def chat_completion(
     chat = client.chat.completions
     create = chat.create
     response = create(**payload)
+    if payload.get("stream") and usage_recording:
+        return _stream_with_usage_recording(
+            response, provider_id or "", str(payload.get("model", "")),
+        )
     return _with_usage(response)
 
 
@@ -521,6 +581,13 @@ def _gemini_response_to_openai_shape(response: Any, model: str) -> dict:
         text = response.text or ""
     except Exception:
         text = ""
+    usage_meta = getattr(response, "usage_metadata", None) or {}
+
+    def _um(key: str, default: int = 0) -> int:
+        if isinstance(usage_meta, dict):
+            return int(usage_meta.get(key, default) or default)
+        return int(getattr(usage_meta, key, default) or default)
+
     return {
         "id": getattr(response, "id", "") or "gemini",
         "model": getattr(response, "model", "") or model,
@@ -529,7 +596,11 @@ def _gemini_response_to_openai_shape(response: Any, model: str) -> dict:
             "finish_reason": "stop",
             "message": {"role": "assistant", "content": text, "tool_calls": None},
         }],
-        "usage": {},
+        "usage": {
+            "prompt_tokens": _um("prompt_token_count"),
+            "completion_tokens": _um("candidates_token_count"),
+            "cached_tokens": _um("cached_content_token_count"),
+        },
     }
 
 

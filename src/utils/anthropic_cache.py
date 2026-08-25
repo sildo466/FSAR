@@ -222,6 +222,13 @@ def anthropic_response_to_openai_shape(
                 },
             })
 
+    usage_obj = getattr(response, "usage", None) or {}
+
+    def _usage(key: str, default: int = 0) -> int:
+        if isinstance(usage_obj, dict):
+            return int(usage_obj.get(key, default) or default)
+        return int(getattr(usage_obj, key, default) or default)
+
     return {
         "id": getattr(response, "id", "") or "anthropic",
         "model": getattr(response, "model", "") or model,
@@ -234,7 +241,12 @@ def anthropic_response_to_openai_shape(
                 "tool_calls": tool_calls or None,
             },
         }],
-        "usage": {},
+        "usage": {
+            "input_tokens": _usage("input_tokens"),
+            "output_tokens": _usage("output_tokens"),
+            "cache_read_input_tokens": _usage("cache_read_input_tokens"),
+            "cache_creation_input_tokens": _usage("cache_creation_input_tokens"),
+        },
     }
 
 

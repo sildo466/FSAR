@@ -8,8 +8,8 @@ const MODES: ChatMode[] = ["agent", "companion", "character"];
 function loadSavedMode(): ChatMode {
   try {
     const saved = localStorage.getItem(LS_KEY);
-    if (saved === "companion" || saved === "character" || saved === "agent") {
-      return saved;
+    if (MODES.includes(saved as ChatMode)) {
+      return saved as ChatMode;
     }
   } catch {
     /* ignore */

@@ -85,7 +85,12 @@ def test_integration_call_uses_model_base_url(monkeypatch):
         "base_url": "https://relay.example/v1",
     }
     assert text == "ok"
-    assert usage == {"input_tokens": 2, "output_tokens": 1}
+    assert usage == {
+        "input_tokens": 2,
+        "output_tokens": 1,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+    }
 
 
 def test_call_provider_passes_protocol_override(monkeypatch):

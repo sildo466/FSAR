@@ -98,6 +98,19 @@ def up(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE models ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
     if "protocol" not in columns:
         conn.execute("ALTER TABLE models ADD COLUMN protocol TEXT NOT NULL DEFAULT ''")
+    usage_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(llm_token_usage)").fetchall()
+    }
+    if "cache_read_tokens" not in usage_columns:
+        conn.execute(
+            "ALTER TABLE llm_token_usage"
+            " ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0"
+        )
+    if "cache_creation_tokens" not in usage_columns:
+        conn.execute(
+            "ALTER TABLE llm_token_usage"
+            " ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0"
+        )
     conn.commit()
 
 
