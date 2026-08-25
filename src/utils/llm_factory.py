@@ -49,18 +49,57 @@ def normalise_usage(usage: Any) -> dict[str, int]:
     Returns {input, output, cache_read, cache_creation} where `input` is the
     fresh (non-cached) input token count. Handles Anthropic, OpenAI
     (chat + Responses) and Gemini usageMetadata shapes.
+
+    The upstream SDK exposes `usage` as a Pydantic object (not a dict), and
+    provider-specific fields (DeepSeek's ``prompt_cache_hit_tokens``,
+    OpenAI's ``prompt_tokens_details.cached_tokens``) live in places the
+    original implementation never inspected. This helper reads both dict and
+    object forms and every known cache field so cache reads are never lost.
     """
     if usage is None:
         return {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
-    get = usage.get if isinstance(usage, dict) else lambda key, default=0: getattr(usage, key, default)
-    prompt = int(get("promptTokenCount", get("input_tokens", get("prompt_tokens", 0))) or 0)
-    output = int(get("candidatesTokenCount", get("output_tokens", get("completion_tokens", 0))) or 0)
-    cached = int(get("cachedContentTokenCount", get("cache_read_input_tokens", get("cached_input_tokens", 0))) or 0)
-    creation = int(get("cache_creation_input_tokens", 0) or 0)
-    details = get("prompt_tokens_details", None)
-    if isinstance(details, dict):
-        cached = max(cached, int(details.get("cached_tokens", 0) or 0))
-        creation = max(creation, int(details.get("cache_write_tokens", 0) or 0))
+
+    def _val(obj: Any, key: str, default: int = 0) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _details(obj: Any, key: str) -> Any:
+        return _val(obj, key, None)
+
+    prompt = int(
+        _val(usage, "promptTokenCount",
+             _val(usage, "input_tokens",
+                  _val(usage, "prompt_tokens", 0))) or 0
+    )
+    output = int(
+        _val(usage, "candidatesTokenCount",
+             _val(usage, "output_tokens",
+                  _val(usage, "completion_tokens", 0))) or 0
+    )
+
+    cached = int(
+        _val(usage, "cachedContentTokenCount",
+             _val(usage, "cache_read_input_tokens",
+                  _val(usage, "cached_input_tokens",
+                       _val(usage, "cached_tokens", 0)))) or 0
+    )
+    # DeepSeek / OpenAI-compatible relays report prompt-cache hits here.
+    cached = max(cached, int(_val(usage, "prompt_cache_hit_tokens", 0) or 0))
+
+    creation = int(_val(usage, "cache_creation_input_tokens", 0) or 0)
+
+    for dkey in ("prompt_tokens_details", "input_tokens_details"):
+        details = _details(usage, dkey)
+        if details is None:
+            continue
+        cached = max(cached, int(_val(details, "cached_tokens", 0) or 0))
+        cached = max(cached, int(_val(details, "cache_read_tokens", 0) or 0))
+        creation = max(creation, int(_val(details, "cache_write_tokens", 0) or 0))
+        creation = max(creation, int(_val(details, "cache_creation_tokens", 0) or 0))
+
     return {
         "input": max(0, prompt - cached),
         "output": output,
