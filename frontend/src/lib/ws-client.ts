@@ -322,7 +322,7 @@ export class WSClient {
     };
     this.ws.onclose = (event) => {
       this.ready = false;
-      this.scheduleReconnect(event.code === 1008);
+      this.scheduleReconnect(true);
     };
     this.ws.onerror = () => {
       this.ws?.close();

@@ -470,7 +470,12 @@ async def ws_scheduler(websocket: WebSocket) -> None:
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     client_id = ws.client.host if ws.client else "unknown"
+    _ws_headers = dict(ws.headers)
     if _ws_auth.is_rate_limited(client_id):
+        logger.warning(
+            "ws /ws rejected (rate_limit): client={} headers={}",
+            client_id, _ws_headers,
+        )
         await ws.close(code=1008, reason="rate_limit")
         return
     allowed = _ws_auth.request_allowed(
@@ -482,6 +487,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
     )
     token = websocket_token(ws.headers.get("sec-websocket-protocol"))
     if not allowed or not _ws_auth.verify_token(token):
+        logger.warning(
+            "ws /ws rejected (auth): client={} allowed={} token_present={} "
+            "host={} origin={} referer={} fetch_site={} subprotocol={}",
+            client_id, allowed, bool(token),
+            ws.headers.get("host"), ws.headers.get("origin"),
+            ws.headers.get("referer"), ws.headers.get("sec-fetch-site"),
+            ws.headers.get("sec-websocket-protocol"),
+        )
         _ws_auth.record_failure(client_id)
         await ws.close(code=1008, reason="auth")
         return
