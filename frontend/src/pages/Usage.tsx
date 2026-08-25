@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWS } from "../stores/ws";
+
+const TokenTrendChart = lazy(() => import("../components/TokenTrendChart"));
 
 interface ToolRow {
   tool: string;
@@ -50,8 +52,6 @@ interface UsageSnapshot {
   per_provider: ProviderRow[];
   per_tool: ToolRow[];
 }
-
-const CHART_DAYS = 14;
 
 export function Usage() {
   const { t } = useTranslation();
@@ -119,7 +119,15 @@ export function Usage() {
         {timeline.length === 0 ? (
           <p className="text-text-muted text-sm">{t("usage.noUsage")}</p>
         ) : (
-          <TokenTrendChart timeline={timeline} />
+          <Suspense
+            fallback={
+              <div className="border border-border rounded p-4 text-text-muted text-sm">
+                {t("usage.noUsage")}
+              </div>
+            }
+          >
+            <TokenTrendChart timeline={timeline} />
+          </Suspense>
         )}
       </section>
 
@@ -248,112 +256,6 @@ export function Usage() {
           )}
         </div>
       </section>
-    </div>
-  );
-}
-
-function TokenTrendChart({ timeline }: { timeline: TimelineDay[] }) {
-  const { t } = useTranslation();
-  const days = timeline.slice(-CHART_DAYS);
-  if (days.length === 0) return null;
-
-  const W = 640;
-  const H = 160;
-  const PL = 44;
-  const PR = 12;
-  const PT = 12;
-  const PB = 20;
-  const innerW = W - PL - PR;
-  const innerH = H - PT - PB;
-  const maxVal = Math.max(
-    1,
-    ...days.map(
-      (d) => d.prompt_tokens + d.cache_read_tokens + d.completion_tokens,
-    ),
-  );
-  const x = (i: number) =>
-    PL + (days.length === 1 ? innerW / 2 : (i / (days.length - 1)) * innerW);
-  const y = (v: number) => PT + innerH - (v / maxVal) * innerH;
-
-  const series: Array<{
-    key: "prompt_tokens" | "cache_read_tokens" | "completion_tokens";
-    stroke: string;
-    label: string;
-  }> = [
-    { key: "prompt_tokens", stroke: "var(--text)", label: t("usage.chartInput") },
-    { key: "cache_read_tokens", stroke: "var(--success)", label: t("usage.chartCacheRead") },
-    { key: "completion_tokens", stroke: "var(--text-muted)", label: t("usage.chartOutput") },
-  ];
-
-  return (
-    <div className="border border-border rounded p-4 flex flex-col gap-3">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-          const gy = PT + innerH - f * innerH;
-          return (
-            <line
-              key={f}
-              x1={PL}
-              y1={gy}
-              x2={W - PR}
-              y2={gy}
-              stroke="var(--border)"
-              strokeDasharray="3 3"
-            />
-          );
-        })}
-        {series.map((s) => {
-          const points = days
-            .map((d, i) => `${x(i).toFixed(1)},${y(d[s.key]).toFixed(1)}`)
-            .join(" ");
-          return (
-            <polyline
-              key={s.key}
-              points={points}
-              fill="none"
-              stroke={s.stroke}
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          );
-        })}
-        {days.map((d, i) => (
-          <text
-            key={d.date}
-            x={x(i)}
-            y={H - 6}
-            textAnchor="middle"
-            className="font-mono text-text-faint"
-            style={{ fontSize: 9 }}
-          >
-            {d.date.slice(5)}
-          </text>
-        ))}
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <text
-            key={f}
-            x={PL - 6}
-            y={PT + innerH - f * innerH + 3}
-            textAnchor="end"
-            className="font-mono text-text-faint"
-            style={{ fontSize: 9 }}
-          >
-            {Math.round(maxVal * (1 - f)).toLocaleString()}
-          </text>
-        ))}
-      </svg>
-      <div className="flex items-center gap-4">
-        {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5 text-[11px] text-text-muted">
-            <span
-              className="inline-block w-2.5 h-2.5 rounded-full"
-              style={{ background: s.stroke }}
-            />
-            {s.label}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }

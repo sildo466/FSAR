@@ -1,4 +1,4 @@
-{
+﻿{
   "nav.chat": "对话",
   "nav.reflection": "反思",
   "nav.memory": "记忆",
@@ -525,6 +525,7 @@
   "usage.chartInput": "新鲜输入",
   "usage.chartCacheRead": "缓存读取",
   "usage.chartOutput": "输出",
+  "usage.chartCacheCreate": "缓存创建",
   "usage.colCacheRead": "缓存读取",
   "usage.colCacheCreate": "缓存创建",
   "usage.colHitRate": "命中率",

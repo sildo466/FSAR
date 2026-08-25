@@ -1,4 +1,4 @@
-{
+﻿{
   "nav.chat": "Chat",
   "nav.reflection": "Reflection",
   "nav.memory": "Memory",
@@ -525,6 +525,7 @@
   "usage.chartInput": "Fresh input",
   "usage.chartCacheRead": "Cache read",
   "usage.chartOutput": "Output",
+  "usage.chartCacheCreate": "Cache creation",
   "usage.colCacheRead": "Cache read",
   "usage.colCacheCreate": "Cache creation",
   "usage.colHitRate": "Hit rate",

@@ -1,4 +1,4 @@
-{
+﻿{
   "nav.chat": "チャット",
   "nav.reflection": "ふりかえり",
   "nav.memory": "記憶",
@@ -525,6 +525,7 @@
   "usage.chartInput": "新規入力",
   "usage.chartCacheRead": "キャッシュヒット",
   "usage.chartOutput": "出力",
+  "usage.chartCacheCreate": "キャッシュ作成",
   "usage.colCacheRead": "キャッシュヒット",
   "usage.colCacheCreate": "キャッシュ作成",
   "usage.colHitRate": "ヒット率",
