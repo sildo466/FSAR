@@ -1,4 +1,4 @@
-﻿{
+{
   "nav.chat": "对话",
   "nav.reflection": "反思",
   "nav.memory": "记忆",
@@ -522,7 +522,7 @@
   "usage.forecastAmount": "月度预估花费(7 天均值):${amount}",
   "usage.forecastHint": "当当前 LLM 提供商配好 input_per_1m / output_per_1m(美元 / 1M tokens)并产生用量记录后,预测才会启动。",
   "usage.tokenTrend": "Token 趋势",
-  "usage.chartInput": "新鲜输入",
+  "usage.chartInput": "无命中输入",
   "usage.chartCacheRead": "缓存读取",
   "usage.chartOutput": "输出",
   "usage.chartCacheCreate": "缓存创建",

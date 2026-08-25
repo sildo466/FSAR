@@ -1,4 +1,4 @@
-﻿{
+{
   "nav.chat": "チャット",
   "nav.reflection": "ふりかえり",
   "nav.memory": "記憶",
@@ -522,7 +522,7 @@
   "usage.forecastAmount": "月次の想定コスト(7 日平均):${amount}",
   "usage.forecastHint": "現在の LLM プロバイダーに input_per_1m / output_per_1m(USD / 1M トークン)が設定され、使用履歴が記録されると予測が有効になります。",
   "usage.tokenTrend": "トークン推移",
-  "usage.chartInput": "新規入力",
+  "usage.chartInput": "未ヒット入力",
   "usage.chartCacheRead": "キャッシュヒット",
   "usage.chartOutput": "出力",
   "usage.chartCacheCreate": "キャッシュ作成",

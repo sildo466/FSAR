@@ -1,4 +1,4 @@
-﻿{
+{
   "nav.chat": "Chat",
   "nav.reflection": "Reflection",
   "nav.memory": "Memory",
@@ -522,7 +522,7 @@
   "usage.forecastAmount": "Projected monthly cost (7-day average): ${amount}",
   "usage.forecastHint": "Forecast activates once the active LLM provider has its input_per_1m/output_per_1m rates (USD per 1M tokens) configured and usage has been recorded.",
   "usage.tokenTrend": "Token trend",
-  "usage.chartInput": "Fresh input",
+  "usage.chartInput": "Non-cached input",
   "usage.chartCacheRead": "Cache read",
   "usage.chartOutput": "Output",
   "usage.chartCacheCreate": "Cache creation",

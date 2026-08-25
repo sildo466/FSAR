@@ -28,6 +28,15 @@ function cssVar(name: string, fallback: string): string {
   return value || fallback;
 }
 
+function compactTick(value: number): string {
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+  return String(value);
+}
+
 function TrendTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
@@ -89,7 +98,14 @@ export default function TokenTrendChart({ timeline }: { timeline: TrendDay[] }) 
             fontSize={10}
             tickLine={false}
           />
-          <YAxis stroke={axis} fontSize={10} tickLine={false} width={48} />
+          <YAxis
+            stroke={axis}
+            fontSize={10}
+            tickLine={false}
+            width={44}
+            tickCount={5}
+            tickFormatter={compactTick}
+          />
           <Tooltip content={<TrendTooltip />} />
           <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
           {series.map((s) => (
