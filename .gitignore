@@ -99,3 +99,6 @@ data/skins/*
 !data/skins/minimal/
 !data/skins/minimal/skin.json
 data/skins/*/assets/
+
+#废弃的测试
+tests/cancelled test
