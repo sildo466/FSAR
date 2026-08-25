@@ -423,12 +423,15 @@ class IdleReflector:
         )
 
         try:
+            from src.utils.config import get_config
+
             model = self._model
             if not model:
-                from src.utils.config import get_config
                 model = get_config().get_active_provider().get("model", "")
+            provider_id = str(get_config().get("llm.active", ""))
             resp = chat_completion(
                 self._llm,
+                provider_id=provider_id,
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are a data analyst. Output JSON only."},
@@ -686,12 +689,15 @@ class TaskReflector:
             history_excerpt=history_excerpt[:3000],
         )
         try:
+            from src.utils.config import get_config
+
             model = self._model
             if not model:
-                from src.utils.config import get_config
                 model = get_config().get_active_provider().get("model", "")
+            provider_id = str(get_config().get("llm.active", ""))
             resp = chat_completion(
                 self._llm,
+                provider_id=provider_id,
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are a task post-mortem analyst. Output JSON only."},

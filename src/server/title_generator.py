@@ -82,7 +82,7 @@ class TitleGenerator:
 
     async def _generate(self, text: str) -> str:
         try:
-            client, model = self._client_factory()
+            client, model, provider_id = self._client_factory()
         except Exception as e:
             logger.debug(f"title: client init failed: {e}")
             return ""
@@ -92,6 +92,7 @@ class TitleGenerator:
             resp = await asyncio.to_thread(
                 chat_completion,
                 client,
+                provider_id=provider_id,
                 model=model,
                 messages=[
                     {"role": "system", "content": TITLE_SYSTEM},

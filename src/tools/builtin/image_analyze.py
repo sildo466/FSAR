@@ -84,22 +84,25 @@ class ImageAnalyzeTool(Tool):
                 b64 = base64.b64encode(img_bytes).decode("ascii")
                 image_url = f"data:{mime};base64,{b64}"
 
-            vm = config.get_vision_model()
-            if vm and vm.get("model") and vm.get("base_url"):
-                client = make_llm_client(
-                    "vision",
-                    base_url=vm.get("base_url", ""),
-                    api_key=vm.get("api_key", ""),
-                )
-                model = vm["model"]
-            else:
-                llm_config = config.get_active_provider()
-                client = make_llm_client(config.get("llm.active", ""))
-                model = llm_config.get("model", "gpt-4o")
+                vm = config.get_vision_model()
+                if vm and vm.get("model") and vm.get("base_url"):
+                    provider_id = "vision"
+                    client = make_llm_client(
+                        "vision",
+                        base_url=vm.get("base_url", ""),
+                        api_key=vm.get("api_key", ""),
+                    )
+                    model = vm["model"]
+                else:
+                    provider_id = str(config.get("llm.active", ""))
+                    llm_config = config.get_active_provider()
+                    client = make_llm_client(config.get("llm.active", ""))
+                    model = llm_config.get("model", "gpt-4o")
 
-            resp = chat_completion(
-                client,
-                model=model,
+                resp = chat_completion(
+                    client,
+                    provider_id=provider_id,
+                    model=model,
                 messages=[
                     {
                         "role": "user",

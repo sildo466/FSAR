@@ -56,10 +56,11 @@ def normalise_usage(usage: Any) -> dict[str, int]:
     prompt = int(get("promptTokenCount", get("input_tokens", get("prompt_tokens", 0))) or 0)
     output = int(get("candidatesTokenCount", get("output_tokens", get("completion_tokens", 0))) or 0)
     cached = int(get("cachedContentTokenCount", get("cache_read_input_tokens", get("cached_input_tokens", 0))) or 0)
+    creation = int(get("cache_creation_input_tokens", 0) or 0)
     details = get("prompt_tokens_details", None)
     if isinstance(details, dict):
         cached = max(cached, int(details.get("cached_tokens", 0) or 0))
-    creation = int(get("cache_creation_input_tokens", 0) or 0)
+        creation = max(creation, int(details.get("cache_write_tokens", 0) or 0))
     return {
         "input": max(0, prompt - cached),
         "output": output,

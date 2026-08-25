@@ -90,6 +90,7 @@ class PdfAnalyzeTool(Tool):
 
             resp = chat_completion(
                 client,
+                provider_id=str(config.get("llm.active", "")),
                 model=llm_config.get("model", "gpt-4o"),
                 messages=[
                     {"role": "system", "content": "You are analyzing a PDF document. Answer based on the provided text."},
