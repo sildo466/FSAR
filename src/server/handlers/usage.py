@@ -19,6 +19,30 @@ def _resolve_db(ctx: dict[str, Any] | None) -> Path:
     return _default_db()
 
 
+def compute_cost(
+    prompt_tokens: int,
+    completion_tokens: int,
+    pricing: dict[str, float] | None = None,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+) -> float:
+    """Cost in USD from per-1M token rates.
+
+    Accepts a ``pricing`` dict with ``input_per_1m`` / ``output_per_1m``
+    (and optionally ``cache_read_per_1m`` / ``cache_creation_per_1m``). Returns
+    0.0 when no pricing is supplied.
+    """
+    if not pricing:
+        return 0.0
+    get_rate = lambda key: float(pricing.get(key, 0) or 0)
+    return (
+        prompt_tokens * get_rate("input_per_1m")
+        + completion_tokens * get_rate("output_per_1m")
+        + cache_read_tokens * get_rate("cache_read_per_1m")
+        + cache_creation_tokens * get_rate("cache_creation_per_1m")
+    ) / 1_000_000
+
+
 def _build_snapshot(db_path: Path, from_ts: str, to_ts: str,
                     config: Any = None) -> dict[str, Any]:
     from src.memory.decision_log import DecisionLog

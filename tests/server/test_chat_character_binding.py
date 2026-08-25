@@ -40,6 +40,7 @@ def test_send_binds_requested_character_before_thinking_event() -> None:
     engine._active_conv_id = None
     engine._cancelled = False
     engine._conv_locks = {}
+    engine._session_character_override = None
     engine.client_and_model = lambda: (None, "", "")
 
     async def done(ws, message_id, outcome, conv_id=None):
@@ -106,6 +107,7 @@ def test_send_binds_character_before_conversation_created_event() -> None:
     engine._active_conv_id = None
     engine._cancelled = False
     engine._conv_locks = {}
+    engine._session_character_override = None
     engine.client_and_model = lambda: (None, "", "")
 
     async def done(ws, message_id, outcome, conv_id=None):
@@ -169,6 +171,7 @@ def test_regenerate_replays_last_user_prompt_without_saving_it_again() -> None:
     engine._active_conv_id = None
     engine._cancelled = False
     engine._conv_locks = {}
+    engine._session_character_override = None
     engine._short_cache = {
         "session-1": deque([
             {"role": "user", "content": "Hello"},
