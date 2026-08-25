@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-25
+
+First stable release of the 0.4.0 line, graduating from `v0.4.0-beta1`–`v0.4.0-beta3`. Highlights: a full-screen terminal TUI, an **In Character** mode, slash commands, and accurate live token + prompt-cache accounting.
+
+### Added
+
+- **Terminal TUI** — full-screen Textual UI (`fsar`) with a bottom status bar (mode + live context usage), cwd sandbox binding, and a startup runtime summary.
+- **In Character (本色) mode** — a third chat mode where the assistant fully inhabits the selected character card: personality-driven agency (may refuse / stall / bargain), intent-based tool discovery via a router meta-tool that unlocks matching abilities for the rest of the session, and per-conversation persistence of unlocked tools. Long-term memory is filtered through an LLM cleanser so characters only learn plausible facts (fail-closed).
+- **Slash commands** — interactive `/model`, `/character`, `/user`, `/tier`, `/effort`, `/compact`, `/new` (replaces `/reset`), plus `/use` for skills. Predictions are derived from the live tool/registry and browsable with the arrow keys.
+- **Live token accounting** — GUI top-bar token gauge and TUI readout report real per-conversation context usage, persisted across restarts and navigation.
+- **Prompt-cache transparency** — per-LLM-call cache token recording (cache read / cache creation) and a cache-hit-rate section in the usage view.
+- **GUI usage trend chart** — recharts-based token/cost trend chart replacing the hand-rolled one.
+- **Vision-model config** — standalone vision-model settings section with i18n labels and WS message types.
+- **Real LLM conversation compaction** — `/compact` now runs genuine compaction instead of a stub.
+
+### Fixed
+
+- **Cache reads were always 0** — `normalise_usage` only inspected a nested dict, but the OpenAI SDK returns `PromptTokensDetails` as an object and DeepSeek reports hits in top-level `prompt_cache_hit_tokens`. Both paths now resolve correctly, so cache-read tokens and the hit rate show real numbers for OpenAI / DeepSeek / Responses / Gemini.
+- Provider attribution — `provider_id` is now passed to every `chat_completion` caller so usage is billed to the right provider.
+- Agent ultra/debate — peer conclusions now reach the coordinator and the debate path is reachable; self-check turns are no longer mis-flagged on non-streaming turns.
+- GUI — persisted chat mode across navigation, compacted y-axis tick labels, renamed the fresh-input legend.
+- WS — token refreshes on any disconnect; rejected-connection diagnostics added.
+- TUI — eliminated launch/response delays, fixed popup DuplicateId errors, suggestion-row fitting for long CJK descriptions, and explicit sandbox preservation.
+
+### Changed
+
+- The `fsar` console entry now points at the terminal TUI.
+
 ## [0.3.0] - 2026-08-18
 
 ### Added
