@@ -51,6 +51,7 @@ FSAR はベンダーではなく**ユーザーに属する**ローカルファ�
 - 無料の [Exa MCP](https://mcp.exa.ai) サーバー経由で Web を検索・取得——API キー不要
 - 画像と PDF のローカル解析
 - コンピュータの操作(Computer Use / cua):スクリーンショット・クリック・入力・キーストローク——独立したリスクゲート
+- 「イン・キャラクター」チャットモード——選択したキャラクターカードに完全に入り込んで(拒否・保留・駆け引きもあり得る)、router メタツールによる意図ベースのツール発見でセッション中に該当する能力を解放
 - 新規 skill の SQLite experience 行への永続化(P6)——あるセッションの MCP インストールが次回セッションの記憶になる
 - Telegram / Feishu / WeChat のソーシャルブリッジ経由の対話
 
@@ -79,15 +80,19 @@ pip install -r requirements.txt
 
 初回起動時にフロントエンドの依存関係をインストールし(`npm install`)、UI をビルドします(`npm run build`)。2回目以降はインストールをスキップし、数秒でリビルドします。
 
-### ターミナル CLI
+### ターミナル TUI
 
 ```bash
-python main.py
+fsar                    # または `python -m src.cli.tui`;`pip install -e .` が必要
 ```
 
-ブラウザ UI なしで FSAR をターミナルで実行します——メモリ・組み込みツール・安全ゲートはすべて同一です。ターミナルのループは WebUI よりシンプルで、固定のツールターン数、能力ティア・サブエージェント・敵対的検証・マイクロリフレクション・コンテキスト圧縮はいずれもありません。対話セッションではスラッシュコマンドが使えます(`/help` で一覧表示、`/memory clear` ですべてのメモリを消去)。`pip install -e .` でインストールすると `fsar` コンソールスクリプトも利用できます。
+フルスクリーンの Textual TUI——WebUI と同じ `~/.fsar/` データ・組み込みツール・安全ゲートをブラウザなしで利用できます。下部ステータスバーはチャットモードと実際のコンテキスト使用量をリアルタイム表示。起動時にはサマリ(キャラクターカード / エージェントティア / モデル / 作業ディレクトリ)を表示し、カレントディレクトリをサンドボックス cwd としてバインドします(明示的にサンドボックスを設定済みの場合は上書きしません。GUI で選んだワークスペースは保持されます)。
 
-音声(TTS/ASR)とソーシャル連携(Telegram/Feishu/WeChat)は WebUI バックエンドでのみ動作します。ターミナルセッションはチャット・ツール・メモリ・スケジュールをカバーします。
+スラッシュコマンド(入力すると予測がポップアップし、矢印キーで選択):`/model`、`/character`、`/user`、`/tier`、`/effort`、`/compact`、`/new`(新規会話)、`/resume`、`/permissions`、`/use <skill>`、さらに `/help` と `/exit`。モード付きで直接起動も可能:`fsar character`(イン・キャラクターモード)または `fsar companion`。
+
+`python main.py` は従来の簡易 REPL として残っています。
+
+音声(TTS/ASR)とソーシャル連携(Telegram/Feishu/WeChat)は WebUI バックエンドでのみ動作します。TUI はチャット・ツール・メモリ・スケジュールをカバーします。
 
 ### 開く
 
@@ -174,6 +179,7 @@ src/
   skills/         Python skill ランタイム
   social/         Telegram / Feishu / WeChat アダプター
   providers/      LLM / TTS / ASR アダプター
+  cli/            ターミナル TUI(Textual)+ スラッシュコマンド
   utils/          ロガー、設定、migrations
 frontend/         Tauri 2 / React UI
 data/             SQLite + ChromaDB + ログ + キャッシュ

@@ -51,6 +51,7 @@ FSAR 是一個**屬於使用者**的本地優先 AI 夥伴——不屬於任何�
 - 透過免費的 [Exa MCP](https://mcp.exa.ai) 伺服器搜尋並擷取網頁——無需 API 金鑰
 - 本地分析圖片與 PDF
 - 操作你的電腦(Computer Use / cua):截圖、點擊、輸入、按鍵——具有獨立的風險層級
+- 「入戲」聊天模式——助手完全進入所選角色卡設定(可以拒絕、拖延、討價還價),透過 router 元工具按意圖解鎖工作階段內可用的能力
 - 將新 skill 持久化為 SQLite experience 記錄(P6)——本次工作階段安裝的 MCP 即為下次工作階段的回憶
 - 透過 Telegram、Feishu 或 WeChat 社交橋接進行對話
 
@@ -79,15 +80,19 @@ pip install -r requirements.txt
 
 第一次啟動會安裝前端相依套件(`npm install`)並建置 UI(`npm run build`);後續啟動會跳過安裝,重新建置僅需數秒。
 
-### 終端機 CLI
+### 終端機 TUI
 
 ```bash
-python main.py
+fsar                    # 或 `python -m src.cli.tui`;需 `pip install -e .`
 ```
 
-直接在終端機執行 FSAR——記憶、內建工具、安全閘門皆相同,僅無瀏覽器介面。終端機迴圈比 WebUI 簡單:固定工具輪數,無能力檔位、子代理、對抗式校驗、微反思與上下文壓縮。互動式工作階段中可使用斜線指令(輸入 `/help` 檢視;`/memory clear` 清除全部記憶)。以 `pip install -e .` 安裝後另有 `fsar` 主控台指令碼可用。
+全螢幕 Textual TUI——與 WebUI 同一套 `~/.fsar/` 資料、內建工具與安全閘門,不需要瀏覽器。底部狀態列即時顯示聊天模式與真實上下文佔用;啟動時列印摘要(角色卡、能力檔位、模型、工作目錄);目前目錄預設綁定為沙盒 cwd(除非已顯式設定過沙盒路徑,GUI 中選過的工作區會保留)。
 
-語音(TTS/ASR)與社交平台橋接(Telegram/飛書/微信)僅隨 WebUI 後端執行;終端機工作階段涵蓋聊天、工具、記憶與排程任務。
+斜線指令(輸入時彈出預測,方向鍵瀏覽):`/model`、`/character`、`/user`、`/tier`、`/effort`、`/compact`、`/new`(新對話)、`/resume`、`/permissions`、`/use <skill>`,以及 `/help`、`/exit`。也可帶模式直接啟動:`fsar character`(入戲模式)或 `fsar companion`。
+
+`python main.py` 仍是遺留的簡易 REPL,適合快速終端聊天。
+
+語音(TTS/ASR)與社交平台橋接(Telegram/飛書/微信)僅隨 WebUI 後端執行;TUI 涵蓋聊天、工具、記憶與排程任務。
 
 ### 開啟
 
@@ -174,6 +179,7 @@ src/
   skills/         Python skill 執行環境
   social/         Telegram / Feishu / WeChat 配接器
   providers/      LLM / TTS / ASR 配接器
+  cli/            終端機 TUI(Textual)+ 斜線指令
   utils/          日誌、組態、migrations
 frontend/         Tauri 2 / React UI
 data/             SQLite + ChromaDB + logs + cache

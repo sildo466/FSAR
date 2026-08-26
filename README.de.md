@@ -53,6 +53,7 @@ Der Name ist zugleich der Designvertrag: **F**aithful · **S**afe · **A**daptiv
 - Web suchen und abrufen über den kostenlosen [Exa-MCP](https://mcp.exa.ai)-Server — kein API-Key erforderlich
 - Bilder und PDFs lokal analysieren
 - Deinen Computer bedienen (Computer Use / cua): Screenshot, Klick, Tippen, Tastendruck — separat abgesichert
+- In-Character-Chatmodus — der Assistent schlüpft vollständig in die gewählte Charakterkarte (darf ablehnen, zögern, feilschen), mit absichtsbasiertem Tool-Discovery über ein Router-Meta-Tool, das passende Fähigkeiten für die Sitzung freischaltet
 - Neue Skills als SQLite-Experience-Zeilen (P6) speichern — die MCP-Installation einer Session ist die Erinnerung der nächsten
 - Über Telegram, Feishu oder WeChat via Social-Bridge kommunizieren
 
@@ -81,15 +82,19 @@ pip install -r requirements.txt
 
 Der erste Start installiert Frontend-Abhängigkeiten (`npm install`) und baut die UI (`npm run build`); spätere Starts überspringen die Installation und rebuilden in Sekunden.
 
-### Terminal-CLI
+### Terminal-TUI
 
 ```bash
-python main.py
+fsar                    # oder `python -m src.cli.tui`; erfordert `pip install -e .`
 ```
 
-Führt FSAR im Terminal aus — gleicher Speicher, gleiche integrierte Werkzeuge, gleiche Sicherheitsregeln, nur ohne Browser-UI. Die Loop ist einfacher als die der WebUI: festes Tool-Budget, keine Capability-Tiers, keine Subagenten, keine adversariale Verifikation, keine Mikro-Reflexion, keine Kontext-Komprimierung. In der interaktiven Sitzung funktionieren Slash-Befehle (`/help` zeigt alle; `/memory clear` löscht alle Erinnerungen). Mit `pip install -e .` gibt es außerdem das `fsar`-Konsolenskript.
+Eine Vollbild-Textual-TUI — dieselben `~/.fsar/`-Daten, integrierten Werkzeuge und Sicherheitsregeln wie die WebUI, ohne Browser. Die untere Statusleiste zeigt Chatmodus und echte Kontextnutzung live; beim Start werden eine Zusammenfassung (Charakterkarte, Agenten-Tier, Modell, Arbeitsverzeichnis) angezeigt und das aktuelle Verzeichnis als Sandbox-CWD gebunden (eine explizit konfigurierte Sandbox wird nie überschrieben, GUI-Auswahlen bleiben erhalten).
 
-Sprache (TTS/ASR) und die Social-Bridges (Telegram/Feishu/WeChat) laufen nur mit dem WebUI-Backend; die Terminalsitzung deckt Chat, Werkzeuge, Speicher und geplante Aufgaben ab.
+Slash-Befehle (Vorschläge erscheinen beim Tippen, mit Pfeiltasten durchblätterbar): `/model`, `/character`, `/user`, `/tier`, `/effort`, `/compact`, `/new` (neues Gespräch), `/resume`, `/permissions`, `/use <skill>`, dazu `/help` und `/exit`. Direkt mit Modus starten: `fsar character` (In-Character-Modus) oder `fsar companion`.
+
+`python main.py` bleibt als einfaches Legacy-REPL für schnelle Terminal-Chats erhalten.
+
+Sprache (TTS/ASR) und die Social-Bridges (Telegram/Feishu/WeChat) laufen nur mit dem WebUI-Backend; die TUI deckt Chat, Werkzeuge, Speicher und geplante Aufgaben ab.
 
 ### Öffnen
 
@@ -176,6 +181,7 @@ src/
   skills/         Python-Skill-Laufzeit
   social/         Telegram / Feishu / WeChat-Adapter
   providers/      LLM / TTS / ASR-Adapter
+  cli/            Terminal-TUI (Textual) + Slash-Befehle
   utils/          Logger, Konfiguration, Migrations
 frontend/         Tauri 2 / React-UI
 data/             SQLite + ChromaDB + Logs + Cache
