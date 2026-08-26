@@ -79,3 +79,36 @@ def test_decode_output_uses_platform_scoped_fallbacks(monkeypatch):
 
     monkeypatch.setattr(rc.sys, "platform", "win32")
     assert rc._decode_output(gbk_data) == "中文"
+
+
+def test_unwrap_strips_powershell_command_wrapper():
+    import src.tools.builtin.run_command as rc
+
+    command = r'powershell -Command "$p = Get-Process -Name WeChat | Select-Object -First 1 -ExpandProperty Path; Write-Output \"PATH=$p\""'
+    unwrapped = rc._unwrap_shell_wrapper(command, "powershell")
+    assert unwrapped.startswith("$p = Get-Process")
+    assert 'Write-Output "PATH=$p"' in unwrapped
+    assert "powershell -Command" not in unwrapped
+
+
+def test_unwrap_handles_escaped_quotes_and_env_dollar():
+    import src.tools.builtin.run_command as rc
+
+    command = r'powershell -Command "$env:X=1; Get-ChildItem \"$env:LOCALAPPDATA\Programs\" -Recurse -Include Weixin.exe"'
+    unwrapped = rc._unwrap_shell_wrapper(command, "powershell")
+    assert unwrapped == r'$env:X=1; Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Include Weixin.exe'
+
+
+def test_unwrap_leaves_plain_commands_alone():
+    import src.tools.builtin.run_command as rc
+
+    assert rc._unwrap_shell_wrapper("Get-Process -Name WeChat", "powershell") == "Get-Process -Name WeChat"
+    assert rc._unwrap_shell_wrapper(r'powershell -Command "a" && powershell -Command "b"', "powershell") == r'powershell -Command "a" && powershell -Command "b"'
+
+
+def test_unwrap_strips_bash_and_cmd_wrappers():
+    import src.tools.builtin.run_command as rc
+
+    assert rc._unwrap_shell_wrapper(r'bash -c "echo $HOME"', "bash") == "echo $HOME"
+    assert rc._unwrap_shell_wrapper(r"sh -c 'echo hi'", "bash") == "echo hi"
+    assert rc._unwrap_shell_wrapper(r'cmd /c "dir C:\Windows"', "cmd") == "dir C:\Windows"

@@ -154,6 +154,8 @@ class WorkspaceGate:
             return [PathVerdict("deny", reason, "hardline", "", root)]
         verdicts: list[PathVerdict] = []
         for token in extract_path_tokens(command, shell):
+            if _ABSOLUTE_TOKEN.match(token) and not _absolute_token_exists(token):
+                continue
             verdict = self.validate_path(
                 token, workspace_id=workspace_id, operation="execute",
                 session_id=session_id, conversation_id=conversation_id,
@@ -162,24 +164,42 @@ class WorkspaceGate:
         return verdicts
 
 
-_WINDOWS_PATH = re.compile(r"(?i)(?:[a-z]:\\[^\s|;&]+|%[A-Z_]+%\\[^\s|;&]+|\$env:[A-Z_]+\\[^\s|;&]+|(?:\.\.\\|\.\\)[^\s|;&]+)")
-_POSIX_PATH = re.compile(r"(?<![\w.-])(?:~|/|\./|\.\./)[^\s|;&]+")
-_HOME_PATH = re.compile(r"(?<![\w.-])\$HOME(?:[/\\][^\s|;&]+)?")
+_WINDOWS_DRIVE = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:\\|\$env:[A-Z_]+\\|%[A-Z_]+%\\)[^\s|;&'\"]+")
+_POSIX_PATH = re.compile(r"(?<![\w.-])(?:~|/|\./|\.\./)[^\s|;&'\"]+")
+_HOME_PATH = re.compile(r"(?<![\w.-])\$HOME(?:[/\\][^\s|;&'\"]*)?")
 _PARENT_PATH = re.compile(r"(?<![\w.])\.\.(?![\w.])")
+_QUOTED_TOKEN = re.compile(r"'([^']*)'|\"([^\"]*)\"")
+_ABSOLUTE_TOKEN = re.compile(r"(?i)^(?:[a-z]:[\\/]|%[A-Z_]+%[\\/]|\$env:[A-Z_]+[\\/])")
+
+
+def _looks_like_path(token: str) -> bool:
+    if not token:
+        return False
+    if not token.lstrip().startswith(("/", "~/", "./", "../", ".\\", "..\\", "$HOME")):
+        return bool(_ABSOLUTE_TOKEN.match(token))
+    return True
 
 
 def extract_path_tokens(command: str, shell: str) -> list[str]:
     path_source = re.sub(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s|;&]+", "", command)
-    found = (
-        _WINDOWS_PATH.findall(path_source)
-        + _POSIX_PATH.findall(path_source)
-        + _HOME_PATH.findall(path_source)
-        + _PARENT_PATH.findall(path_source)
+    found: list[str] = []
+    for match in _QUOTED_TOKEN.finditer(path_source):
+        quoted = next(g for g in match.groups() if g is not None)
+        if _looks_like_path(quoted):
+            found.append(quoted)
+    # Unquoted scans run on the quote-stripped source so a quoted path with
+    # spaces is not re-captured as a truncated fragment (e.g. `C:\Program`).
+    unquoted_source = _QUOTED_TOKEN.sub("", path_source)
+    found += (
+        _WINDOWS_DRIVE.findall(unquoted_source)
+        + _POSIX_PATH.findall(unquoted_source)
+        + _HOME_PATH.findall(unquoted_source)
+        + _PARENT_PATH.findall(unquoted_source)
     )
     try:
         for token in shlex.split(path_source, posix=shell == "bash"):
             cleaned = token.strip("'\"(),")
-            if cleaned == ".." or cleaned.startswith(("/", "~/", "./", "../", ".\\", "..\\", "$HOME")) or re.match(r"(?i)^(?:[a-z]:[\\/]|\$env:[A-Z_]+[\\/])", cleaned):
+            if cleaned == ".." or cleaned.startswith(("/", "~/", "./", "../", ".\\", "..\\", "$HOME")) or _ABSOLUTE_TOKEN.match(cleaned):
                 found.append(cleaned)
     except ValueError:
         pass
@@ -189,3 +209,17 @@ def extract_path_tokens(command: str, shell: str) -> list[str]:
         if cleaned not in result:
             result.append(cleaned)
     return result
+
+
+def _absolute_token_exists(token: str) -> bool:
+    """True when an absolute token points at something real on disk.
+
+    Keeps synthetic tokens — a space-truncated `C:\Program`, a registry
+    fragment `M:\SOFTWARE\...` — out of the gate. Relative and $-prefixed
+    tokens are resolved against the workspace at validate time and are not
+    filtered here.
+    """
+    expanded = os.path.expandvars(os.path.expanduser(token))
+    if "*" in expanded or "?" in expanded:
+        return True
+    return Path(expanded).exists()
