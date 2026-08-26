@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-26
+
+Patch release fixing tool-result redaction, shell-wrapper variable eating, PowerShell 5.1 encoding, and sandbox path mis-detection.
+
+### Fixed
+
+- **Screenshots / large tool results were silently destroyed** — the tool-result redactor truncated every string at `max_string_length` (4096 in the default config) and its bare base64-run pattern replaced the entire PNG payload with `[REDACTED:api_key_pattern]`, so `cu_screenshot` and other base64/file outputs reached the LLM as 26 bytes. Truncation is removed and binary payloads (pure base64 blobs, `data:` URIs) pass through untouched; the over-broad base64-run regex was replaced with context-anchored secret patterns (`api_key = ...`, `token: ...`).
+- **run_command ate `$` variables** — a command already wrapped as `powershell -Command "$p = ..."` was executed through another `powershell -Command` layer, so the outer shell interpolated every `$var`/`$_` to empty before the inner command ran. Redundant shell wrappers (`powershell -Command "..."`, `bash -c "..."`, `cmd /c "..."`) are now unwrapped before execution, and the tool description tells the model to pass raw scripts.
+- **PowerShell 5.1 encoding mojibake** — commands are now sent via `-EncodedCommand` (base64 UTF-16LE), so non-ASCII text and `$variables` survive 5.1's ANSI argv round-trip; `pwsh` (PowerShell 7+) is auto-detected when installed; 5.1 additionally gets UTF-8 shims (`[Console]::OutputEncoding`, `$OutputEncoding`, `$PSDefaultParameterValues['*:Encoding'] = 'utf8'`, `$ProgressPreference`) so stdout and `Out-File`/`Set-Content`/`Export-Csv` no longer emit GBK/UTF-16 garbage; output decoding sniffs UTF-8/UTF-16 BOMs before codepage fallbacks.
+- **Sandbox path extraction produced synthetic paths** — the drive-letter regex matched inside multi-letter tokens (`HKLM:\SOFTWARE\...` yielded `M:\SOFTWARE\...`), quoted paths with spaces were truncated at the first space (`'C:\Program Files\Tencent'` → `C:\Program`), and those garbage tokens could be persisted into `security.always_allow_paths` on "allow always". Extraction now keeps quoted paths whole, blocks drive letters preceded by letters, scans unquoted text with quoted regions stripped, and `command_verdicts` drops absolute tokens that do not exist on disk.
+
+### Docs
+
+- README (all six languages) and `docs-public/` updated for v0.4.0: the `fsar` full-screen Textual TUI replaces the old terminal CLI section (slash commands, live status bar, cwd sandbox binding, `fsar agent|character|companion` modes), plus the In Character chat mode bullet; new `docs-public/modules/cli.md` / `cli.en.md` pages.
+
 ## [0.4.0] - 2026-08-25
 
 First stable release of the 0.4.0 line, graduating from `v0.4.0-beta1`–`v0.4.0-beta3`. Highlights: a full-screen terminal TUI, an **In Character** mode, slash commands, and accurate live token + prompt-cache accounting.
