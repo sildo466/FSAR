@@ -81,6 +81,45 @@ def test_decode_output_uses_platform_scoped_fallbacks(monkeypatch):
     assert rc._decode_output(gbk_data) == "中文"
 
 
+def test_decode_output_sniffs_utf8_bom(monkeypatch):
+    import src.tools.builtin.run_command as rc
+
+    monkeypatch.setattr(rc.sys, "platform", "win32")
+    assert rc._decode_output("中文".encode("utf-8-sig")) == "中文"
+
+
+def test_decode_output_sniffs_utf16_bom(monkeypatch):
+    import src.tools.builtin.run_command as rc
+
+    monkeypatch.setattr(rc.sys, "platform", "win32")
+    assert rc._decode_output("中文".encode("utf-16")) == "中文"  # LE with BOM
+
+
+def test_powershell_argv_uses_encoded_command_and_roundtrips():
+    import base64
+
+    import src.tools.builtin.run_command as rc
+
+    argv = rc._powershell_argv(r"Get-ChildItem 'C:\中文夹\测试'; $i = 1; Write-Output $i", exe="powershell")
+    assert argv[0] == "powershell"
+    assert argv[1] == "-NoProfile"
+    assert argv[2] == "-EncodedCommand"
+    inner = base64.b64decode(argv[3]).decode("utf-16-le")
+    assert inner.endswith(r"Get-ChildItem 'C:\中文夹\测试'; $i = 1; Write-Output $i")
+    assert "$PSDefaultParameterValues['*:Encoding'] = 'utf8';" in inner
+    assert "[Console]::OutputEncoding" in inner
+
+
+def test_powershell_argv_prefers_pwsh_when_available(monkeypatch):
+    import src.tools.builtin.run_command as rc
+
+    monkeypatch.setattr(
+        rc.shutil, "which",
+        lambda name: "C:/Program Files/PowerShell/7/pwsh.exe" if name == "pwsh" else None,
+    )
+    assert rc._powershell_argv("echo hi")[0] == "C:/Program Files/PowerShell/7/pwsh.exe"
+
+
 def test_unwrap_strips_powershell_command_wrapper():
     import src.tools.builtin.run_command as rc
 

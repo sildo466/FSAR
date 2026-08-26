@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -87,7 +89,11 @@ def _unwrap_shell_wrapper(command: str, shell: str) -> str:
 
 
 def _decode_output(data: bytes) -> str:
-    """Decode subprocess output with Windows codepage fallbacks when needed."""
+    """Decode subprocess output with BOM sniffing and codepage fallbacks."""
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig")
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        return data.decode("utf-16")
     encodings = (
         ("utf-8", "gbk", "cp936", "latin-1")
         if sys.platform == "win32"
@@ -99,6 +105,31 @@ def _decode_output(data: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", errors="replace")
+
+
+_POWER_SHELL_SHIMS = (
+    "$ProgressPreference = 'SilentlyContinue'; "
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+    "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+    "$PSDefaultParameterValues['*:Encoding'] = 'utf8'; "
+)
+
+
+def _powershell_argv(command: str, *, exe: str | None = None) -> list[str]:
+    """Build an argv that runs `command` without codepage/quoting loss.
+
+    The command travels as -EncodedCommand (base64 UTF-16LE), so non-ASCII
+    characters and $variables survive untouched even on Windows PowerShell
+    5.1, whose -Command argv path re-encodes through the ANSI codepage.
+    pwsh (PowerShell 7+) is used when present; 5.1 gets UTF-8 shims so stdout
+    and file-writing cmdlets (Out-File/Set-Content/Export-Csv, which default
+    to UTF-16 on 5.1) produce UTF-8 instead of NUL-laden text.
+    """
+    if exe is None:
+        exe = shutil.which("pwsh") or "powershell"
+    inner = _POWER_SHELL_SHIMS + command
+    encoded = base64.b64encode(inner.encode("utf-16-le")).decode("ascii")
+    return [exe, "-NoProfile", "-EncodedCommand", encoded]
 
 
 class RunCommandTool(Tool):
@@ -164,15 +195,7 @@ class RunCommandTool(Tool):
         bat_path: Optional[str] = None
         try:
             if shell == "powershell":
-                # Windows PowerShell 5.x defaults its console output encoding to
-                # the system codepage (e.g. GBK). Force UTF-8 so non-ASCII output
-                # round-trips correctly.
-                ps_command = (
-                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                    "$OutputEncoding = [System.Text.Encoding]::UTF8; "
-                    + command
-                )
-                cmd_list = ["powershell", "-NoProfile", "-Command", ps_command]
+                cmd_list = _powershell_argv(command)
             elif shell == "cmd":
                 # Windows cmd cannot pass non-ASCII args reliably through its
                 # argv (CreateProcess ANSI path) — Chinese path components get
