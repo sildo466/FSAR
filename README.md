@@ -53,6 +53,7 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
 - Search and fetch the web via the free [Exa MCP](https://mcp.exa.ai) server — no API key required
 - Analyze images and PDFs locally
 - Operate your computer (Computer Use / cua): screenshot, click, type, keypress — gated separately
+- Chat **In Character** — a chat mode where the assistant fully inhabits the selected character card (it may refuse, stall, or bargain), with intent-based tool discovery via a router meta-tool that unlocks matching abilities for the session
 - Persist new skills as SQLite experience rows (P6) — one session's MCP install is the next session's recall
 - Talk through Telegram, Feishu, or WeChat via the social bridge
 
@@ -81,15 +82,19 @@ pip install -r requirements.txt
 
 The first launch installs frontend deps (`npm install`) and builds the UI (`npm run build`); subsequent launches skip the install step and rebuild in seconds.
 
-### Terminal CLI
+### Terminal TUI
 
 ```bash
-python main.py
+fsar                    # or `python -m src.cli.tui`; needs `pip install -e .`
 ```
 
-Runs FSAR in your terminal — same memory, built-in tools, and safety gates, no browser UI. The loop itself is simpler than the WebUI's: a fixed tool budget, with no capability tiers, subagents, adversarial verification, micro-reflection, or context compaction. The interactive session takes slash commands (type `/help`; `/memory clear` wipes all memories). Installing with `pip install -e .` also provides an `fsar` console script.
+A full-screen Textual TUI — the same `~/.fsar/` data, built-in tools, and safety gates as the WebUI, no browser. It shows a live bottom status bar (chat mode + real context-token usage), prints a startup summary (character card, agent tier, model, working directory), and binds the current directory as the sandbox cwd unless you've already picked an explicit sandbox (GUI choices are preserved).
 
-Voice (TTS / ASR) and the social-platform bridges (Telegram / Feishu / WeChat) only run with the WebUI backend; the terminal covers chat, tools, memory, and scheduled jobs.
+Slash commands (predictions pop up as you type and are browsable with the arrow keys): `/model`, `/character`, `/user`, `/tier`, `/effort`, `/compact`, `/new` (fresh conversation), `/resume`, `/permissions`, `/use <skill>`, plus `/help` and `/exit`. Start directly in a mode with `fsar character` (In Character) or `fsar companion`.
+
+`python main.py` still runs the legacy simple REPL for quick terminal chats.
+
+Voice (TTS / ASR) and the social-platform bridges (Telegram / Feishu / WeChat) only run with the WebUI backend; the TUI covers chat, tools, memory, and scheduled jobs.
 
 ### Open
 
@@ -176,6 +181,7 @@ src/
   skills/         Python skill runtime
   social/         Telegram / Feishu / WeChat adapters
   providers/      LLM / TTS / ASR adapters
+  cli/            Terminal TUI (Textual) + slash commands
   utils/          Logger, config, migrations
 frontend/         Tauri 2 / React UI
 data/             SQLite + ChromaDB + logs + cache

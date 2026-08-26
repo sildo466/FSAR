@@ -58,13 +58,13 @@ Useful `make` targets (see `Makefile`):
 | `make test` | run `pytest tests/ -x -q` |
 | `make clean` | remove build artifacts and caches |
 
-### Terminal CLI (no browser)
+### Terminal TUI (no browser)
 
 ```bash
-python main.py    # or the fsar console script (needs `pip install -e .`)
+fsar                # or `python -m src.cli.tui`; needs `pip install -e .`
 ```
 
-Runs FSAR in a terminal: the same `~/.fsar/` data, built-in tools, and safety gates; the loop itself is simpler than the WebUI's (fixed tool budget — no capability tiers, subagents, adversarial verification, micro-reflection, or context compaction). The interactive session supports every slash command (type `/help`; e.g. `/memory clear` wipes all long-term memory after a confirmation prompt).
+A full-screen Textual TUI sharing the same `~/.fsar/` data, built-in tools, and safety gates as the WebUI. The bottom status bar shows the chat mode and live context usage; startup prints a summary (character card / tier / model / CWD). The CWD is bound as the sandbox by default (an explicitly configured sandbox is never overwritten). Slash commands: `/model` `/character` `/user` `/tier` `/effort` `/compact` `/new` `/resume` `/permissions` `/use <skill>`; `/exit` quits. `python main.py` remains as a legacy REPL.
 
 ### Stop
 

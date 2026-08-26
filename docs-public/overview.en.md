@@ -32,7 +32,7 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
 | Frontend | Tauri 2 + React + TypeScript (Vite) |
 | Storage | SQLite (`memory.db` etc.) + ChromaDB (semantic vectors) |
 | Models | OpenAI / Anthropic / Google / DeepSeek / any OpenAI-compatible endpoint / Ollama / LM Studio |
-| CLI entry | `main.py` (console script `fsar`) |
+| CLI entry | `fsar` (full-screen Textual TUI); `python main.py` (legacy simple REPL) |
 
 ## Architecture at a glance
 

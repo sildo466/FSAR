@@ -58,13 +58,13 @@ pip install -r requirements.txt
 | `make test` | 运行 `pytest tests/ -x -q` |
 | `make clean` | 清理构建产物与缓存 |
 
-### 终端 CLI（无浏览器）
+### 终端 TUI（无浏览器）
 
 ```bash
-python main.py    # 或 fsar 控制台脚本（需 `pip install -e .`）
+fsar                # 或 python -m src.cli.tui;需 pip install -e .
 ```
 
-在终端运行 FSAR：同一个 `~/.fsar/` 数据、内置工具与安全闸门；循环本身比 WebUI 简单（固定工具轮数，无能力档位、子代理、对抗式校验、微反思与上下文压缩）。交互会话支持全部斜杠命令（输入 `/help` 查看；如 `/memory clear` 清空全部长期记忆，带二次确认）。
+全屏 Textual TUI,与 WebUI 共用同一套 `~/.fsar/` 数据、内置工具与安全闸门。底部状态栏实时显示模式与上下文用量,启动时打印角色卡 / 档位 / 模型 / CWD 摘要;CWD 默认绑定为沙盒(显式配置过的沙盒不会被覆盖)。斜杠命令:`/model` `/character` `/user` `/tier` `/effort` `/compact` `/new` `/resume` `/permissions` `/use <skill>`;`/exit` 退出。`python main.py` 保留为遗留 REPL。
 
 ### 停止
 

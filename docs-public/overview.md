@@ -32,7 +32,7 @@
 | 前端 | Tauri 2 + React + TypeScript（Vite） |
 | 存储 | SQLite（`memory.db` 等）+ ChromaDB（语义向量） |
 | 模型 | OpenAI / Anthropic / Google / DeepSeek / 任意 OpenAI 兼容端点 / Ollama / LM Studio |
-| CLI 入口 | `main.py`（控制台脚本 `fsar`） |
+| CLI 入口 | `fsar`（Textual 全屏 TUI）；`python main.py`（遗留简易 REPL） |
 
 ## 架构鸟瞰
 

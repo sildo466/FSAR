@@ -11,6 +11,7 @@ FSAR 后端代码位于 `src/`，前端位于 `frontend/`。本目录按模块�
 | 模块 | 定位 |
 |---|---|
 | [server](server.md) | WebSocket 服务与 GUI 聊天引擎 |
+| [cli](cli.md) | 终端 TUI（Textual）：全屏聊天应用与斜杠命令 |
 | [core](core.md) | 智能体基础设施 |
 | [memory](memory.md) | 记忆系统 |
 | [tools](tools.md) | 工具系统 |

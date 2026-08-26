@@ -11,6 +11,7 @@ FSAR's backend lives under `src/`, the frontend under `frontend/`. This director
 | Module | Role |
 |---|---|
 | [server](server.en.md) | WebSocket server & GUI chat engine |
+| [cli](cli.en.md) | Terminal TUI (Textual): full-screen chat app & slash commands |
 | [core](core.en.md) | shared agent infrastructure |
 | [memory](memory.en.md) | the memory system |
 | [tools](tools.en.md) | the tool system |
