@@ -45,11 +45,11 @@ export function AvatarCanvas({ model }: { model: string | null }) {
     );
   }
   return (
-    <Canvas camera={{ position: [0, 1.4, 2.6], fov: 30 }} style={{ width: "100%", height: "100%" }}>
+    <Canvas camera={{ position: [0, 1.5, 3.0], fov: 45 }} style={{ width: "100%", height: "100%" }}>
       <ambientLight intensity={0.6} />
       <directionalLight position={[2, 4, 3]} intensity={1.2} />
       <AvatarObject model={model} />
-      <OrbitControls enablePan={false} minDistance={1} maxDistance={5} />
+      <OrbitControls target={[0, 1.2, 0]} enablePan={false} minDistance={1.5} maxDistance={5} />
     </Canvas>
   );
 }
