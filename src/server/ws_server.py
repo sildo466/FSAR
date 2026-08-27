@@ -303,6 +303,42 @@ async def get_skin_asset(skin_id: str, file_path: str):
     raise HTTPException(status_code=404, detail="missing_asset")
 
 
+@app.get("/api/models")
+async def list_models():
+    from src.utils.fsar_home import get_fsar_home
+    root = get_fsar_home() / "data" / "models"
+    if not root.exists():
+        return {"models": []}
+    names = sorted(
+        p.name for p in root.iterdir()
+        if p.is_file() and p.suffix.lower() == ".vrm"
+    )
+    return {"models": names}
+
+
+@app.get("/api/models/{name}")
+async def get_model(name: str):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from src.utils.fsar_home import get_fsar_home
+
+    root = (get_fsar_home() / "data" / "models").resolve()
+    if not name or not name.endswith(".vrm"):
+        raise HTTPException(status_code=400, detail="bad_name")
+    target = (root / name).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad_name") from None
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="missing_model")
+    return FileResponse(
+        str(target),
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 def _allowed_origins() -> list[str]:
     configured = _config.get("security.ws_auth.allowed_origins", []) or []
     return [item for item in configured if isinstance(item, str)]
