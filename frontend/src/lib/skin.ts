@@ -204,6 +204,16 @@ export function clearSkinCss(root: HTMLElement): void {
 export interface SkinBackground {
   chatImage: string;
   chatOverlay: number;
+  liveScene?: string; // preset ("deepspace") or image:<path>
+}
+
+export const LIVE_SCENE_DEFAULT = "deepspace";
+
+export function resolveLiveScene(
+  background: Partial<SkinBackground> | undefined
+): string {
+  const s = (background?.liveScene ?? "").trim();
+  return s ? s : LIVE_SCENE_DEFAULT;
 }
 
 export interface ResolvedBackground {
