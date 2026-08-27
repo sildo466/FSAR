@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+import type * as THREE from "three";
+
 export interface EmotionState {
   affection?: number;
   trust?: number;
@@ -8,6 +10,7 @@ export interface EmotionState {
 }
 
 export interface AvatarRenderer {
+  readonly object: THREE.Object3D;
   load(url: string): Promise<void>;
   start(): void;
   stop(): void;
