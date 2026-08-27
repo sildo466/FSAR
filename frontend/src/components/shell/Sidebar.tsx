@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { NavLink } from "react-router-dom";
-import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock } from "lucide-react";
+import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
@@ -16,6 +16,7 @@ const items = [
   { to: "/usage", labelKey: "nav.usage", icon: Gauge },
   { to: "/intergration", labelKey: "nav.integration", icon: Layers3 },
   { to: "/scheduler", labelKey: "nav.scheduler", icon: Clock },
+  { to: "/live", labelKey: "nav.live", icon: Sparkles },
 ];
 
 export function Sidebar() {

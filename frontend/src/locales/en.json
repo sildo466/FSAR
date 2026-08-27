@@ -740,6 +740,7 @@
   "cards.cropEmpty": "Crop produced an empty image — please drag the crop frame first.",
   "cards.importV2Prompt": "Paste SillyTavern V2 JSON:",
   "nav.scheduler": "Scheduler",
+  "nav.live": "Live",
   "scheduler.tab.jobs": "My Jobs",
   "scheduler.tab.runs": "Runs",
   "scheduler.tab.system": "System Jobs",
