@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchModelList } from "./modelsApi";
 
 interface ModelPickerProps {
@@ -8,6 +9,7 @@ interface ModelPickerProps {
 }
 
 export function ModelPicker({ value, onSelect }: ModelPickerProps) {
+  const { t } = useTranslation();
   const [models, setModels] = useState<string[]>([]);
 
   useEffect(() => {
@@ -23,7 +25,7 @@ export function ModelPicker({ value, onSelect }: ModelPickerProps) {
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="live-model" className="text-sm text-text-muted">
-        Model
+        {t("live.lobby.model")}
       </label>
       <select
         id="live-model"
@@ -31,7 +33,7 @@ export function ModelPicker({ value, onSelect }: ModelPickerProps) {
         value={value ?? ""}
         onChange={(e) => onSelect(e.target.value || null)}
       >
-        <option value="">None (geometric)</option>
+        <option value="">{t("live.lobby.none")}</option>
         {models.map((m) => (
           <option key={m} value={m}>
             {m}

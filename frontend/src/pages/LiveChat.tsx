@@ -115,11 +115,11 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
             onToggle={voice.toggleMute}
           />
           <button
-            aria-label="Exit"
+            aria-label={t("live.exit")}
             className="rounded-full border border-border px-3 py-1 text-sm"
             onClick={onExit}
           >
-            Exit
+            {t("live.exit")}
           </button>
         </div>
       </div>

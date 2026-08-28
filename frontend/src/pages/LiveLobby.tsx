@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ModelPicker } from "../components/live/ModelPicker";
 import type { CardSummary, UserCardSummary } from "../stores/cards";
 
@@ -16,6 +17,7 @@ interface LiveLobbyProps {
 }
 
 export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
+  const { t } = useTranslation();
   const [characterId, setCharacterId] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
   const [model, setModel] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
     <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-6">
       <div className="flex flex-col gap-2">
         <label htmlFor="live-character" className="text-sm text-text-muted">
-          Character
+          {t("live.lobby.character")}
         </label>
         <select
           id="live-character"
@@ -34,7 +36,7 @@ export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
           value={characterId}
           onChange={(e) => setCharacterId(e.target.value)}
         >
-          <option value="">Select…</option>
+          <option value="">{t("live.lobby.select")}</option>
           {characters.map((c) => (
             <option key={c.id} value={String(c.id)}>
               {c.name}
@@ -45,7 +47,7 @@ export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
 
       <div className="flex flex-col gap-2">
         <label htmlFor="live-user" className="text-sm text-text-muted">
-          User
+          {t("live.lobby.user")}
         </label>
         <select
           id="live-user"
@@ -53,7 +55,7 @@ export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
         >
-          <option value="">Select…</option>
+          <option value="">{t("live.lobby.select")}</option>
           {userCards.map((c) => (
             <option key={c.id} value={String(c.id)}>
               {c.name}
@@ -75,11 +77,9 @@ export function LiveLobby({ characters, userCards, onStart }: LiveLobbyProps) {
           })
         }
       >
-        Start live session
+        {t("live.lobby.start")}
       </button>
-      <p className="text-xs text-text-faint">
-        Put your VRM model in <code>data/models/</code> to make it appear here.
-      </p>
+      <p className="text-xs text-text-faint">{t("live.lobby.hint")}</p>
     </div>
   );
 }
