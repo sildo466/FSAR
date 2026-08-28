@@ -752,6 +752,7 @@
   "live.lobby.start": "開始即時會話",
   "live.lobby.hint": "將 VRM 模型放入 data/models/ 即可在此顯示。",
   "live.lobby.none": "無（幾何模型）",
+  "live.webglUnavailable": "WebGL 不可用 — 無法渲染虛擬形象。",
   "live.micToggle.mute": "靜音麥克風",
   "live.micToggle.unmute": "取消靜音",
   "live.asrNotConfigured": "ASR 未設定 — 請在設定中啟用語音轉文字後使用語音。",

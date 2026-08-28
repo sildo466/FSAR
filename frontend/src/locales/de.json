@@ -79,6 +79,7 @@
   "live.lobby.start": "Live-Sitzung starten",
   "live.lobby.hint": "Legen Sie ein VRM-Modell in data/models/ ab, damit es hier erscheint.",
   "live.lobby.none": "Keins (geometrisch)",
+  "live.webglUnavailable": "WebGL nicht verfügbar — Avatar kann nicht gerendert werden.",
   "live.micToggle.mute": "Mikrofon stummschalten",
   "live.micToggle.unmute": "Stummschaltung aufheben",
   "live.asrNotConfigured": "ASR ist nicht konfiguriert — aktivieren Sie Sprache-zu-Text in den Einstellungen, um Sprache zu verwenden.",

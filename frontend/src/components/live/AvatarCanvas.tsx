@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Object3D } from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -37,10 +38,11 @@ function AvatarObject({ model }: AvatarObjectProps) {
 }
 
 export function AvatarCanvas({ model }: { model: string | null }) {
+  const { t } = useTranslation();
   if (!isWebGLAvailable()) {
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-text-muted">
-        WebGL unavailable — cannot render the avatar.
+        {t("live.webglUnavailable")}
       </div>
     );
   }

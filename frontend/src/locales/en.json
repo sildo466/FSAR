@@ -752,6 +752,7 @@
   "live.lobby.start": "Start live session",
   "live.lobby.hint": "Put your VRM model in data/models/ to make it appear here.",
   "live.lobby.none": "None (geometric)",
+  "live.webglUnavailable": "WebGL unavailable — cannot render the avatar.",
   "live.micToggle.mute": "Mute mic",
   "live.micToggle.unmute": "Unmute mic",
   "live.asrNotConfigured": "ASR is not configured — enable speech-to-text in Settings to use voice.",
