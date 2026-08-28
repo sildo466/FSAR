@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -642,6 +643,14 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
 _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+def _register_frontend_mime_types() -> None:
+    """Windows Python lacks MIME types for .mjs/.onnx; StaticFiles then serves
+    them as text/plain and the browser's strict ESM MIME check rejects the
+    VAD onnxruntime loader (module script .mjs)."""
+    mimetypes.add_type("text/javascript", ".mjs")
+    mimetypes.add_type("application/octet-stream", ".onnx")
+
+
 def _mount_frontend(app: FastAPI) -> None:
     """Serve frontend/dist as the same-origin GUI.
 
@@ -650,6 +659,7 @@ def _mount_frontend(app: FastAPI) -> None:
     2. /         → index.html
     3. /<path>   → SPA fallback to index.html (so React Router can take over)
     """
+    _register_frontend_mime_types()
     if not _FRONTEND_DIST.exists():
         @app.get("/", include_in_schema=False)
         async def _frontend_missing() -> dict[str, str]:
