@@ -29,6 +29,7 @@ interface SpeechState {
   toggleAutoplay: () => void;
   playText: (text: string, messageId?: string, options?: { bypassCache?: boolean; voiceOverride?: string; instructionsOverride?: string }) => Promise<void>;
   stopAudio: () => void;
+  subscribeAudioLevel: (cb: (level: number) => void) => () => void;
   transcribeAudio: (blob: Blob) => Promise<string>;
   listDownloadedModels: () => Promise<ModelCatalog>;
   downloadModel: (size: string) => Promise<void>;
@@ -37,6 +38,69 @@ interface SpeechState {
 
 let currentAudio: HTMLAudioElement | null = null;
 let finishCurrentAudio: (() => void) | null = null;
+
+// Real-time spectrum for the Live audio wave. A MediaElementAudioSourceNode
+// taps the playing <audio>, AnalyserNode reports frequency energy, and
+// subscribers get a normalized 0..1 level each animation frame.
+let audioContext: AudioContext | null = null;
+let analyserSource: MediaElementAudioSourceNode | null = null;
+let analyserRaf: number | null = null;
+const audioLevelSubscribers = new Set<(level: number) => void>();
+
+function getAudioContext(): AudioContext | null {
+  try {
+    if (!audioContext) audioContext = new AudioContext();
+    return audioContext;
+  } catch {
+    return null;
+  }
+}
+
+function notifyAudioLevel(level: number): void {
+  for (const subscriber of audioLevelSubscribers) subscriber(level);
+}
+
+function stopAnalyser(): void {
+  if (analyserRaf !== null) {
+    cancelAnimationFrame(analyserRaf);
+    analyserRaf = null;
+  }
+  if (analyserSource) {
+    try {
+      analyserSource.disconnect();
+    } catch {
+      /* ignore */
+    }
+    analyserSource = null;
+  }
+  notifyAudioLevel(0);
+}
+
+function attachAnalyser(audio: HTMLAudioElement): void {
+  const ctx = getAudioContext();
+  if (!ctx || typeof ctx.createMediaElementSource !== "function") return;
+  stopAnalyser();
+  try {
+    const source = ctx.createMediaElementSource(audio);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+    analyserSource = source;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      notifyAudioLevel(sum / data.length / 255);
+      analyserRaf = requestAnimationFrame(tick);
+    };
+    analyserRaf = requestAnimationFrame(tick);
+  } catch {
+    /* analyser is best-effort; playback must not fail because of it */
+  }
+}
 
 function speechConfig(config: Record<string, unknown> | null) {
   const tts = (config?.tts ?? {}) as Record<string, unknown>;
@@ -135,11 +199,13 @@ export const useSpeechStore = create<SpeechState>((set, get) => ({
       await new Promise<void>((resolve, reject) => {
         const audio = new Audio(`data:${result.mime};base64,${result.audio}`);
         currentAudio = audio;
+        attachAnalyser(audio);
         const finish = () => {
           if (currentAudio === audio) {
             currentAudio = null;
             finishCurrentAudio = null;
           }
+          stopAnalyser();
           resolve();
         };
         const fail = (error: unknown) => {
@@ -171,7 +237,12 @@ export const useSpeechStore = create<SpeechState>((set, get) => ({
     const finish = finishCurrentAudio;
     finishCurrentAudio = null;
     finish?.();
+    stopAnalyser();
     set({ playingMessageId: null, playbackProgress: 0 });
+  },
+  subscribeAudioLevel: (cb) => {
+    audioLevelSubscribers.add(cb);
+    return () => audioLevelSubscribers.delete(cb);
   },
   transcribeAudio: async (blob) => {
     if (!get().isAsrConfigured) return "";
