@@ -74,6 +74,7 @@ export class EnergyVad {
   private _userSpeaking = false;
   private sampleRate = 16000;
   private destroyed = false;
+  private capturePaused = false;
 
   constructor(callbacks: EnergyVadCallbacks) {
     this.callbacks = callbacks;
@@ -127,6 +128,7 @@ export class EnergyVad {
   }
 
   private pushFrame(frame: Float32Array): void {
+    if (this.capturePaused) return;
     // Copy: ScriptProcessor reuses the inputBuffer, so storing the reference
     // would leave every buffered frame pointing at the last-written data.
     this.buffer.push(new Float32Array(frame));
@@ -169,6 +171,17 @@ export class EnergyVad {
   /** Manual flush (Enter key) — sends whatever has been heard so far. */
   sendNow(): void {
     this.flush();
+  }
+
+  /** Stop buffering during ASR/chat/TTS so a reply isn't transcribed as speech. */
+  suspendCapture(): void {
+    this.capturePaused = true;
+    this.resetUtterance();
+    this._userSpeaking = false;
+  }
+
+  resumeCapture(): void {
+    this.capturePaused = false;
   }
 
   private resetUtterance(): void {

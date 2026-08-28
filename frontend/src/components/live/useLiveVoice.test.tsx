@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
     destroy: vi.fn(),
     ensureUnlocked: vi.fn(),
     sendNow: vi.fn(),
+    suspendCapture: vi.fn(),
+    resumeCapture: vi.fn(),
   } as {
     start: ReturnType<typeof vi.fn>;
     pause: ReturnType<typeof vi.fn>;
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => ({
     destroy: ReturnType<typeof vi.fn>;
     ensureUnlocked: ReturnType<typeof vi.fn>;
     sendNow: ReturnType<typeof vi.fn>;
+    suspendCapture: ReturnType<typeof vi.fn>;
+    resumeCapture: ReturnType<typeof vi.fn>;
     callbacks?: {
       onUtterance: (blob: Blob) => void;
       onSpeechStart?: () => void;

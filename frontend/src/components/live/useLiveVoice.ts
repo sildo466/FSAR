@@ -56,12 +56,16 @@ export function useLiveVoice(config: {
       if (busyRef.current || mutedRef.current) return;
       busyRef.current = true;
       setBusy(true);
+      // Pause capture while ASR runs so a reply / pause isn't transcribed as a
+      // new utterance; resume once this turn's transcript is handled.
+      vadRef.current?.suspendCapture();
       try {
         const text = await useSpeechStore.getState().transcribeAudio(blob);
         console.warn("[live-voice] transcribe result:", JSON.stringify(text));
         if (!text.trim()) {
           busyRef.current = false;
           setBusy(false);
+          vadRef.current?.resumeCapture();
           return;
         }
         const lineId = `user_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -72,10 +76,12 @@ export function useLiveVoice(config: {
           character_id: config.characterId ?? undefined,
           content: text.trim(),
         });
+        // Resume capture after the reply finishes (chat.done resets busy).
       } catch (error) {
         console.warn("[live-voice] transcribe failed:", error);
         busyRef.current = false;
         setBusy(false);
+        vadRef.current?.resumeCapture();
       }
     })();
   };
@@ -182,6 +188,7 @@ export function useLiveVoice(config: {
         .finally(() => {
           busyRef.current = false;
           setBusy(false);
+          vadRef.current?.resumeCapture();
         });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
