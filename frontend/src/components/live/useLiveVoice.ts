@@ -52,11 +52,13 @@ export function useLiveVoice(config: {
     const client = useWS.getState().client;
     if (!client) return;
     void (async () => {
+      console.warn("[live-voice] utterance blob:", blob.size, blob.type, "busy:", busyRef.current, "muted:", mutedRef.current);
       if (busyRef.current || mutedRef.current) return;
       busyRef.current = true;
       setBusy(true);
       try {
         const text = await useSpeechStore.getState().transcribeAudio(blob);
+        console.warn("[live-voice] transcribe result:", JSON.stringify(text));
         if (!text.trim()) {
           busyRef.current = false;
           setBusy(false);
@@ -70,7 +72,8 @@ export function useLiveVoice(config: {
           character_id: config.characterId ?? undefined,
           content: text.trim(),
         });
-      } catch {
+      } catch (error) {
+        console.warn("[live-voice] transcribe failed:", error);
         busyRef.current = false;
         setBusy(false);
       }

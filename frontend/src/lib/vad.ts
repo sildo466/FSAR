@@ -49,9 +49,9 @@ export function computeRmsEnergy(samples: Float32Array): number {
   return Math.sqrt(sum / samples.length);
 }
 
-const SPEECH_ENERGY_THRESHOLD = 0.012;
-const SILENCE_FLUSH_MS = 1000;
-const MIN_UTTERANCE_MS = 150;
+const SPEECH_ENERGY_THRESHOLD = 0.02;
+const SILENCE_FLUSH_MS = 700;
+const MIN_UTTERANCE_MS = 200;
 const FRAME_SAMPLES = 4096;
 
 interface EnergyVadCallbacks {
@@ -127,7 +127,9 @@ export class EnergyVad {
   }
 
   private pushFrame(frame: Float32Array): void {
-    this.buffer.push(frame);
+    // Copy: ScriptProcessor reuses the inputBuffer, so storing the reference
+    // would leave every buffered frame pointing at the last-written data.
+    this.buffer.push(new Float32Array(frame));
     const frameMs = (frame.length / this.sampleRate) * 1000;
     this.bufferedMs += frameMs;
     const energy = computeRmsEnergy(frame);
@@ -155,6 +157,9 @@ export class EnergyVad {
       return;
     }
     const samples = this.concatBuffer();
+    const durMs = (samples.length / this.sampleRate) * 1000;
+    const peak = computeRmsEnergy(samples);
+    console.warn(`[energy-vad] flush: ${samples.length} samples (~${durMs.toFixed(0)}ms), peak energy ${peak.toFixed(3)}, frames=${this.buffer.length}`);
     this.resetUtterance();
     if (samples.length > 0) {
       this.callbacks.onUtterance(encodeWavToBlob(samples));
