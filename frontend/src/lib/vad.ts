@@ -104,7 +104,7 @@ export class EnergyVad {
     this.destroy();
     this.destroyed = false;
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      audio: { channelCount: 1 },
     });
     this.stream = stream;
     const ctx = new AudioContext();
