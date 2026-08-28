@@ -4,8 +4,7 @@
 // contained RMS-threshold detector: PCM frames are buffered, and an utterance
 // is flushed after a run of low-energy frames.
 
-export function buildWavBuffer(samples: Float32Array): ArrayBuffer {
-  const sampleRate = 16000;
+export function buildWavBuffer(samples: Float32Array, sampleRate: number): ArrayBuffer {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
   const writeStr = (offset: number, s: string) => {
@@ -35,8 +34,8 @@ export function buildWavBuffer(samples: Float32Array): ArrayBuffer {
   return buffer;
 }
 
-export function encodeWavToBlob(samples: Float32Array): Blob {
-  return new Blob([buildWavBuffer(samples)], { type: "audio/wav" });
+export function encodeWavToBlob(samples: Float32Array, sampleRate: number): Blob {
+  return new Blob([buildWavBuffer(samples, sampleRate)], { type: "audio/wav" });
 }
 
 /** RMS energy of a Float32Array in [-1, 1], normalized to [0, 1]. */
@@ -164,7 +163,7 @@ export class EnergyVad {
     console.warn(`[energy-vad] flush: ${samples.length} samples (~${durMs.toFixed(0)}ms), peak energy ${peak.toFixed(3)}, frames=${this.buffer.length}`);
     this.resetUtterance();
     if (samples.length > 0) {
-      this.callbacks.onUtterance(encodeWavToBlob(samples));
+      this.callbacks.onUtterance(encodeWavToBlob(samples, this.sampleRate));
     }
   }
 

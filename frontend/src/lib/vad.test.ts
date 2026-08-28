@@ -14,18 +14,27 @@ function headerStr(buffer: ArrayBuffer, start: number, len: number): string {
 
 describe("encodeWavToBlob", () => {
   it("produces a WAV blob with a RIFF header", () => {
-    const blob = encodeWavToBlob(makeSamples());
+    const blob = encodeWavToBlob(makeSamples(), 16000);
     expect(blob.type).toBe("audio/wav");
-    const buf = buildWavBuffer(makeSamples());
+    const buf = buildWavBuffer(makeSamples(), 16000);
     expect(headerStr(buf, 0, 4)).toBe("RIFF");
     expect(headerStr(buf, 8, 4)).toBe("WAVE");
   });
 
   it("sizes the data chunk to match sample count (16-bit mono)", () => {
-    const buf = buildWavBuffer(makeSamples(1000));
+    const buf = buildWavBuffer(makeSamples(1000), 16000);
     const view = new DataView(buf);
     // data chunk length at bytes 40-43 = 1000 samples * 2 bytes
     expect(view.getUint32(40, true)).toBe(2000);
+  });
+
+  it("writes the actual sample rate into the WAV header", () => {
+    // The ScriptProcessor may capture at 48k/192k; the WAV header must match,
+    // else whisper decodes the audio as ~12x longer and times out.
+    const buf = buildWavBuffer(makeSamples(1000), 192000);
+    const view = new DataView(buf);
+    expect(view.getUint32(24, true)).toBe(192000);
+    expect(view.getUint32(28, true)).toBe(384000);
   });
 });
 
