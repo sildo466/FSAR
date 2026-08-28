@@ -73,6 +73,7 @@ export function useLiveVoice(config: {
           mode: "character",
           character_id: config.characterId ?? undefined,
           content: text.trim(),
+          live: true,
         });
         // Resume capture after the reply finishes (chat.done resets busy).
       } catch {
