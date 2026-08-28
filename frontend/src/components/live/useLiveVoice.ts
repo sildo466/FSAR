@@ -83,11 +83,6 @@ export function useLiveVoice(config: {
           }
         })();
       },
-      onError: (error) => {
-        const msg = error instanceof Error ? error.message : String(error);
-        setVadError(msg.includes("Permission") ? "mic-permission" : "vad");
-        setPermissionDenied(msg.includes("Permission"));
-      },
     });
     vadRef.current = vad;
     vad

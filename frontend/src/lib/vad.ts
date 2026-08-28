@@ -39,7 +39,6 @@ export function encodeWavToBlob(samples: Float32Array): Blob {
 
 interface LiveVadCallbacks {
   onSpeechEnd: (blob: Blob) => void;
-  onError?: (error: unknown) => void;
 }
 
 export class LiveVad {
@@ -66,7 +65,6 @@ export class LiveVad {
       model: "v5",
       baseAssetPath: VAD_ASSET_BASE_PATH,
       onnxWASMBasePath: VAD_ASSET_BASE_PATH,
-      stream: true,
       onSpeechStart: () => {
         this._userSpeaking = true;
       },
@@ -74,9 +72,6 @@ export class LiveVad {
         this._userSpeaking = false;
         if (audio.length === 0) return;
         this.callbacks.onSpeechEnd(encodeWavToBlob(audio));
-      },
-      onError: (error) => {
-        this.callbacks.onError?.(error);
       },
     });
     await this.vad.start();

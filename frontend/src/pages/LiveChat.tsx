@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
-import { useState } from "react";
-import { Mic } from "lucide-react";
+import { useMemo } from "react";
 import { AvatarCanvas } from "../components/live/AvatarCanvas";
 import { LiveBackground } from "../components/live/LiveBackground";
+import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
+import { MicToggle } from "../components/live/MicToggle";
+import { useLiveVoice } from "../components/live/useLiveVoice";
 import { useSkinStore } from "../stores/skin";
 import { resolveLiveScene } from "../lib/skin";
+import { useSessions } from "../stores/sessions";
+import { useCardsStore } from "../stores/cards";
 import type { LiveSessionConfig } from "./LiveLobby";
 
 interface LiveChatProps {
@@ -13,13 +17,36 @@ interface LiveChatProps {
 }
 
 export function LiveChat({ config, onExit }: LiveChatProps) {
-  // Stage 1: media/mic always off; enabled in Stage 2 (VAD).
-  const [muted] = useState(true);
+  const character = useCardsStore((s) =>
+    config.characterId ? s.characters.find((c) => c.id === config.characterId) : undefined
+  );
+  const voice = useLiveVoice({
+    characterId: config.characterId,
+    voiceOverride: String(character?.tts_voice ?? ""),
+    instructionsOverride: String(character?.tts_instructions ?? ""),
+  });
   const activeSkin = useSkinStore((s) => s.skins.find((x) => x.id === s.activeId));
   const scene = resolveLiveScene(activeSkin?.background);
+  const liveHistory = useSessions((s) => s.liveHistory);
 
   const modelUrl =
     config.model === null ? null : `/api/models/${encodeURIComponent(config.model)}`;
+
+  const assistantItems: SubtitleItem[] = useMemo(() => {
+    const entries = Object.entries(liveHistory);
+    if (entries.length === 0) return [];
+    const [, msgs] = entries[entries.length - 1];
+    return msgs
+      .filter((m) => m.role === "assistant")
+      .map((m) => ({
+        id: m.id,
+        role: "assistant" as const,
+        text: m.content,
+        streaming: m.streaming,
+      }));
+  }, [liveHistory]);
+
+  const items: SubtitleItem[] = [...voice.userLines, ...assistantItems];
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -28,19 +55,29 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
         <AvatarCanvas model={modelUrl} />
       </div>
 
-      <div className="relative flex items-center justify-between border-t border-border bg-bg/40 px-4 py-2 backdrop-blur">
-        <div className="min-w-0 flex-1 px-2">
-          <p className="text-xs text-text-faint">Live subtitles</p>
-          {/* Stage 2: bubble stream fills this region */}
+      {voice.asrNotConfigured && (
+        <div className="relative border-t border-border bg-bg/40 px-4 py-2 text-xs text-text-muted">
+          ASR is not configured — enable speech-to-text in Settings to use voice.
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            aria-label="Mic"
-            className="rounded-full border border-border p-2 text-text-muted disabled:opacity-40"
-            disabled={muted}
-          >
-            <Mic size={16} strokeWidth={1.5} />
+      )}
+      {voice.vadError && (
+        <div className="relative border-t border-border bg-bg/40 px-4 py-2 text-xs text-text-muted">
+          Mic unavailable — {voice.permissionDenied ? "permission denied" : voice.vadError}.{" "}
+          <button className="underline" onClick={voice.retryVad}>
+            Retry
           </button>
+        </div>
+      )}
+
+      <div className="relative flex items-center justify-between border-t border-border bg-bg/40 px-4 py-2 backdrop-blur">
+        <SubtitleOverlay items={items} />
+        <div className="flex items-center gap-2">
+          <MicToggle
+            muted={voice.muted}
+            listening={voice.listening}
+            userSpeaking={voice.userSpeaking}
+            onToggle={voice.toggleMute}
+          />
           <button
             aria-label="Exit"
             className="rounded-full border border-border px-3 py-1 text-sm"
