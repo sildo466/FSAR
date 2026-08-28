@@ -6,6 +6,7 @@ import { LiveBackground } from "../components/live/LiveBackground";
 import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
 import { MicToggle } from "../components/live/MicToggle";
 import { LevelMeter } from "../components/live/LevelMeter";
+import { AudioWave } from "../components/live/AudioWave";
 import { useLiveVoice } from "../components/live/useLiveVoice";
 import { useSkinStore } from "../stores/skin";
 import { resolveLiveScene } from "../lib/skin";
@@ -58,6 +59,7 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
     <div className="relative flex h-full flex-col overflow-hidden">
       <LiveBackground scene={scene} />
       <div className="relative min-h-0 flex-1">
+        <AudioWave className="absolute left-1/2 top-4 -translate-x-1/2" />
         <AvatarCanvas model={modelUrl} />
       </div>
 
