@@ -100,8 +100,21 @@ describe("useLiveVoice", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.transcribeAudio).toHaveBeenCalledTimes(1);
     expect(mocks.client.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "chat.send", mode: "companion" })
+      expect.objectContaining({ type: "chat.send", mode: "character" })
     );
+  });
+
+  it("interrupts a busy reply when the user starts speaking", async () => {
+    render(<Harness />);
+    await new Promise((r) => setTimeout(r, 0));
+    // Simulate a reply in flight: busy=true then speech starts.
+    mocks.vad.callbacks?.onUtterance(new Blob());
+    mocks.vad.callbacks?.onSpeechStart?.();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.client.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "chat.cancel" })
+    );
+    expect(mocks.stopAudio).toHaveBeenCalled();
   });
 
   it("toggles mute by pausing/resuming the VAD", async () => {

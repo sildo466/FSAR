@@ -158,9 +158,6 @@ export class EnergyVad {
       return;
     }
     const samples = this.concatBuffer();
-    const durMs = (samples.length / this.sampleRate) * 1000;
-    const peak = computeRmsEnergy(samples);
-    console.warn(`[energy-vad] flush: ${samples.length} samples (~${durMs.toFixed(0)}ms), peak energy ${peak.toFixed(3)}, frames=${this.buffer.length}`);
     this.resetUtterance();
     if (samples.length > 0) {
       this.callbacks.onUtterance(encodeWavToBlob(samples, this.sampleRate));

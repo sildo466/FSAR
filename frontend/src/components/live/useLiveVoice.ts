@@ -52,7 +52,6 @@ export function useLiveVoice(config: {
     const client = useWS.getState().client;
     if (!client) return;
     void (async () => {
-      console.warn("[live-voice] utterance blob:", blob.size, blob.type, "busy:", busyRef.current, "muted:", mutedRef.current);
       if (busyRef.current || mutedRef.current) return;
       busyRef.current = true;
       setBusy(true);
@@ -61,7 +60,6 @@ export function useLiveVoice(config: {
       vadRef.current?.suspendCapture();
       try {
         const text = await useSpeechStore.getState().transcribeAudio(blob);
-        console.warn("[live-voice] transcribe result:", JSON.stringify(text));
         if (!text.trim()) {
           busyRef.current = false;
           setBusy(false);
@@ -72,13 +70,12 @@ export function useLiveVoice(config: {
         setUserLines((prev) => [...prev, { id: lineId, role: "user", text: text.trim() }]);
         client.send({
           type: "chat.send",
-          mode: "companion",
+          mode: "character",
           character_id: config.characterId ?? undefined,
           content: text.trim(),
         });
         // Resume capture after the reply finishes (chat.done resets busy).
-      } catch (error) {
-        console.warn("[live-voice] transcribe failed:", error);
+      } catch {
         busyRef.current = false;
         setBusy(false);
         vadRef.current?.resumeCapture();
@@ -100,6 +97,14 @@ export function useLiveVoice(config: {
     const vad = new EnergyVad({
       onSpeechStart: () => {
         setUserSpeaking(true);
+        // User started speaking while a reply is in flight — interrupt it.
+        if (busyRef.current) {
+          client.send({ type: "chat.cancel" });
+          useSpeechStore.getState().stopAudio();
+          busyRef.current = false;
+          setBusy(false);
+          vadRef.current?.resumeCapture();
+        }
       },
       onLevel: (value) => {
         for (const subscriber of levelSubscribersRef.current) {
@@ -163,16 +168,28 @@ export function useLiveVoice(config: {
     const client = useWS.getState().client;
     if (!client) return;
     return client.on((msg) => {
-      if (msg.type !== "chat.done" || msg.outcome !== "success") return;
-      if (!msg.conversation_id) return;
+      if (msg.type !== "chat.done") return;
+      // Any terminal outcome resets busy + capture; only success speaks.
+      const reset = () => {
+        busyRef.current = false;
+        setBusy(false);
+        vadRef.current?.resumeCapture();
+      };
+      if (msg.outcome !== "success") {
+        reset();
+        return;
+      }
+      if (!msg.conversation_id) {
+        reset();
+        return;
+      }
       const convId = msg.conversation_id;
       const history = useSessions.getState().liveHistory[convId] ?? [];
       const lastAssistant = [...history]
         .reverse()
         .find((m) => m.role === "assistant");
       if (!lastAssistant || !lastAssistant.content.trim()) {
-        busyRef.current = false;
-        setBusy(false);
+        reset();
         return;
       }
       const character = useCardsStore
@@ -185,11 +202,7 @@ export function useLiveVoice(config: {
           instructionsOverride:
             config.instructionsOverride ?? String(character?.tts_instructions ?? ""),
         })
-        .finally(() => {
-          busyRef.current = false;
-          setBusy(false);
-          vadRef.current?.resumeCapture();
-        });
+        .finally(reset);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
