@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
-import { MicVAD } from "@ricky0123/vad-web";
-import { VAD_ASSET_BASE_PATH } from "./vadAssets";
+// Energy-based voice activity detection. Replaces the ONNX/wasm Silero VAD
+// (which never fired onSpeechStart reliably in this setup) with a self-
+// contained RMS-threshold detector: PCM frames are buffered, and an utterance
+// is flushed after a run of low-energy frames.
 
 export function buildWavBuffer(samples: Float32Array): ArrayBuffer {
   const sampleRate = 16000;
@@ -37,17 +39,42 @@ export function encodeWavToBlob(samples: Float32Array): Blob {
   return new Blob([buildWavBuffer(samples)], { type: "audio/wav" });
 }
 
-interface LiveVadCallbacks {
-  onSpeechEnd: (blob: Blob) => void;
+/** RMS energy of a Float32Array in [-1, 1], normalized to [0, 1]. */
+export function computeRmsEnergy(samples: Float32Array): number {
+  if (samples.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) {
+    sum += samples[i] * samples[i];
+  }
+  return Math.sqrt(sum / samples.length);
 }
 
-export class LiveVad {
-  private vad: MicVAD | null = null;
-  private callbacks: LiveVadCallbacks;
+const SPEECH_ENERGY_THRESHOLD = 0.012;
+const SILENCE_FLUSH_MS = 1000;
+const MIN_UTTERANCE_MS = 150;
+const FRAME_SAMPLES = 4096;
+
+interface EnergyVadCallbacks {
+  onUtterance: (blob: Blob) => void;
+  onSpeechStart?: () => void;
+}
+
+export class EnergyVad {
+  private callbacks: EnergyVadCallbacks;
+  private audioContext: AudioContext | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private stream: MediaStream | null = null;
+  private buffer: Float32Array[] = [];
+  private bufferedMs = 0;
+  private silenceMs = 0;
+  private speechDetected = false;
   private _listening = false;
   private _userSpeaking = false;
+  private sampleRate = 16000;
+  private destroyed = false;
 
-  constructor(callbacks: LiveVadCallbacks) {
+  constructor(callbacks: EnergyVadCallbacks) {
     this.callbacks = callbacks;
   }
 
@@ -59,44 +86,126 @@ export class LiveVad {
     return this._userSpeaking;
   }
 
+  ensureUnlocked(): void {
+    const ctx = this.audioContext;
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      void ctx.resume();
+    }
+    const silent = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    source.buffer = silent;
+    source.connect(ctx.destination);
+    source.start();
+  }
+
   async start(): Promise<void> {
     this.destroy();
-    this.vad = await MicVAD.new({
-      model: "v5",
-      baseAssetPath: VAD_ASSET_BASE_PATH,
-      onnxWASMBasePath: VAD_ASSET_BASE_PATH,
-      onSpeechStart: () => {
-        this._userSpeaking = true;
-      },
-      onSpeechEnd: (audio: Float32Array) => {
-        this._userSpeaking = false;
-        if (audio.length === 0) return;
-        this.callbacks.onSpeechEnd(encodeWavToBlob(audio));
-      },
+    this.destroyed = false;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
-    await this.vad.start();
+    this.stream = stream;
+    const ctx = new AudioContext();
+    this.audioContext = ctx;
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    this.ensureUnlocked();
+    this.sampleRate = ctx.sampleRate;
+    this.source = ctx.createMediaStreamSource(stream);
+    this.processor = ctx.createScriptProcessor(FRAME_SAMPLES, 1, 1);
+    this.processor.onaudioprocess = (event) => {
+      if (this.destroyed) return;
+      const input = event.inputBuffer.getChannelData(0);
+      this.pushFrame(input);
+    };
+    this.source.connect(this.processor);
+    this.processor.connect(ctx.destination);
     this._listening = true;
+  }
+
+  private pushFrame(frame: Float32Array): void {
+    this.buffer.push(frame);
+    const frameMs = (frame.length / this.sampleRate) * 1000;
+    this.bufferedMs += frameMs;
+    const energy = computeRmsEnergy(frame);
+    if (energy >= SPEECH_ENERGY_THRESHOLD) {
+      if (!this.speechDetected) {
+        this.speechDetected = true;
+        this._userSpeaking = true;
+        this.callbacks.onSpeechStart?.();
+      }
+      this.silenceMs = 0;
+      return;
+    }
+    if (!this.speechDetected) return;
+    this.silenceMs += frameMs;
+    if (this.silenceMs >= SILENCE_FLUSH_MS) {
+      this.flush();
+    }
+  }
+
+  /** Flush the buffered utterance (VAD silence timeout or manual Enter). */
+  flush(): void {
+    if (!this.speechDetected || this.bufferedMs < MIN_UTTERANCE_MS) {
+      this.resetUtterance();
+      return;
+    }
+    const samples = this.concatBuffer();
+    this.resetUtterance();
+    if (samples.length > 0) {
+      this.callbacks.onUtterance(encodeWavToBlob(samples));
+    }
+  }
+
+  /** Manual flush (Enter key) — sends whatever has been heard so far. */
+  sendNow(): void {
+    this.flush();
+  }
+
+  private resetUtterance(): void {
+    this.buffer = [];
+    this.bufferedMs = 0;
+    this.silenceMs = 0;
+    this.speechDetected = false;
+    this._userSpeaking = false;
+  }
+
+  private concatBuffer(): Float32Array {
+    let total = 0;
+    for (const chunk of this.buffer) total += chunk.length;
+    const out = new Float32Array(total);
+    let offset = 0;
+    for (const chunk of this.buffer) {
+      out.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return out;
   }
 
   pause(): void {
-    if (this.vad) void this.vad.pause();
     this._listening = false;
     this._userSpeaking = false;
+    this.processor?.disconnect();
+    this.processor = null;
+    this.source?.disconnect();
+    this.source = null;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
   }
 
   resume(): void {
-    if (!this.vad) return;
-    void this.vad.start();
-    this._listening = true;
+    void this.start();
   }
 
   destroy(): void {
-    if (this.vad) {
-      void this.vad.pause();
-      void this.vad.destroy();
-      this.vad = null;
+    this.destroyed = true;
+    this.pause();
+    if (this.audioContext) {
+      void this.audioContext.close();
+      this.audioContext = null;
     }
-    this._listening = false;
-    this._userSpeaking = false;
+    this.resetUtterance();
   }
 }

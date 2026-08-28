@@ -9,12 +9,16 @@ const mocks = vi.hoisted(() => ({
     pause: vi.fn(),
     resume: vi.fn(),
     destroy: vi.fn(),
+    ensureUnlocked: vi.fn(),
+    sendNow: vi.fn(),
   } as {
     start: ReturnType<typeof vi.fn>;
     pause: ReturnType<typeof vi.fn>;
     resume: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
-    callbacks?: { onSpeechEnd: (blob: Blob) => void; onError?: (e: unknown) => void };
+    ensureUnlocked: ReturnType<typeof vi.fn>;
+    sendNow: ReturnType<typeof vi.fn>;
+    callbacks?: { onUtterance: (blob: Blob) => void; onSpeechStart?: () => void };
   },
   transcribeAudio: vi.fn(async () => "hello"),
   playText: vi.fn(async () => {}),
@@ -24,7 +28,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/vad", () => ({
   encodeWavToBlob: vi.fn(() => new Blob()),
-  LiveVad: vi.fn().mockImplementation((callbacks: unknown) => {
+  EnergyVad: vi.fn().mockImplementation((callbacks: unknown) => {
     mocks.vad.callbacks = callbacks as typeof mocks.vad.callbacks;
     return mocks.vad;
   }),
@@ -62,11 +66,17 @@ function Harness() {
       <span data-testid="listening">{String(r.listening)}</span>
       <button onClick={r.toggleMute}>toggle</button>
       <button onClick={r.retryVad}>retry</button>
+      <button onClick={r.sendNow}>enter</button>
     </div>
   );
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  mocks.vad.callbacks = undefined;
+  mocks.transcribeAudio.mockClear();
+  mocks.client.send.mockClear();
+});
 
 describe("useLiveVoice", () => {
   it("starts the VAD on mount when ASR is configured", async () => {
@@ -75,10 +85,10 @@ describe("useLiveVoice", () => {
     expect(mocks.vad.start).toHaveBeenCalledTimes(1);
   });
 
-  it("transcribes on speech end and sends chat.send", async () => {
+  it("transcribes on utterance and sends chat.send", async () => {
     render(<Harness />);
     await new Promise((r) => setTimeout(r, 0));
-    mocks.vad.callbacks?.onSpeechEnd(new Blob());
+    mocks.vad.callbacks?.onUtterance(new Blob());
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.transcribeAudio).toHaveBeenCalledTimes(1);
     expect(mocks.client.send).toHaveBeenCalledWith(
@@ -89,10 +99,18 @@ describe("useLiveVoice", () => {
   it("toggles mute by pausing/resuming the VAD", async () => {
     render(<Harness />);
     await new Promise((r) => setTimeout(r, 0));
-    const button = document.querySelector("button")!;
-    button.click();
+    const buttons = document.querySelectorAll("button");
+    buttons[0].click();
     expect(mocks.vad.pause).toHaveBeenCalled();
-    button.click();
+    buttons[0].click();
     expect(mocks.vad.resume).toHaveBeenCalled();
+  });
+
+  it("sendNow flushes the current utterance", async () => {
+    render(<Harness />);
+    await new Promise((r) => setTimeout(r, 0));
+    const buttons = document.querySelectorAll("button");
+    buttons[2].click();
+    expect(mocks.vad.sendNow).toHaveBeenCalledTimes(1);
   });
 });

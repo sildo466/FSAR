@@ -76,7 +76,27 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
       )}
 
       <div className="relative flex items-center justify-between border-t border-border bg-bg/40 px-4 py-2 backdrop-blur">
-        <SubtitleOverlay items={items} />
+        <div className="min-w-0 flex-1">
+          <SubtitleOverlay items={items} />
+          <div className="flex items-center gap-2 px-2 pt-1">
+            <span
+              className={
+                voice.userSpeaking
+                  ? "inline-block h-2 w-2 rounded-full bg-accent"
+                  : "inline-block h-2 w-2 rounded-full bg-border"
+              }
+            />
+            <p className="text-[11px] text-text-faint">
+              {voice.busy
+                ? t("live.status.thinking")
+                : voice.userSpeaking
+                  ? t("live.status.speaking")
+                  : voice.listening
+                    ? t("live.status.listening")
+                    : t("live.status.idle")}
+            </p>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <MicToggle
             muted={voice.muted}
