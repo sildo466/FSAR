@@ -15,6 +15,7 @@ const liveVoice = vi.hoisted(() => ({
   userLines: [] as { id: string; role: "user"; text: string }[],
   busy: false,
   level: 0,
+  subscribeLevel: vi.fn(() => () => {}),
   toggleMute: vi.fn(),
   retryVad: vi.fn(),
   sendNow: vi.fn(),

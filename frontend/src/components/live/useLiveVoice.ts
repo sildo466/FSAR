@@ -21,7 +21,7 @@ export interface LiveVoiceResult {
   asrNotConfigured: boolean;
   userLines: UserLine[];
   busy: boolean;
-  level: number;
+  subscribeLevel: (cb: (level: number) => void) => () => void;
   toggleMute: () => void;
   retryVad: () => void;
   sendNow: () => void;
@@ -39,11 +39,11 @@ export function useLiveVoice(config: {
   const [vadError, setVadError] = useState<string | null>(null);
   const [userLines, setUserLines] = useState<UserLine[]>([]);
   const [busy, setBusy] = useState(false);
-  const [level, setLevel] = useState(0);
 
   const vadRef = useRef<EnergyVad | null>(null);
   const busyRef = useRef(false);
   const mutedRef = useRef(true);
+  const levelSubscribersRef = useRef<Set<(level: number) => void>>(new Set());
 
   const { isAsrConfigured } = useSpeechStore.getState();
   const asrNotConfigured = !isAsrConfigured;
@@ -93,8 +93,9 @@ export function useLiveVoice(config: {
         setUserSpeaking(true);
       },
       onLevel: (value) => {
-        // Throttle: avoid re-rendering on every ~85ms audio frame.
-        setLevel((prev) => (Math.abs(prev - value) < 0.005 ? prev : value));
+        for (const subscriber of levelSubscribersRef.current) {
+          subscriber(value);
+        }
       },
       onUtterance: (blob) => {
         setUserSpeaking(false);
@@ -213,7 +214,10 @@ export function useLiveVoice(config: {
     asrNotConfigured,
     userLines,
     busy,
-    level,
+    subscribeLevel: (cb) => {
+      levelSubscribersRef.current.add(cb);
+      return () => levelSubscribersRef.current.delete(cb);
+    },
     toggleMute,
     retryVad,
     sendNow: () => vadRef.current?.sendNow(),

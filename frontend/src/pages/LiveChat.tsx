@@ -5,6 +5,7 @@ import { AvatarCanvas } from "../components/live/AvatarCanvas";
 import { LiveBackground } from "../components/live/LiveBackground";
 import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
 import { MicToggle } from "../components/live/MicToggle";
+import { LevelMeter } from "../components/live/LevelMeter";
 import { useLiveVoice } from "../components/live/useLiveVoice";
 import { useSkinStore } from "../stores/skin";
 import { resolveLiveScene } from "../lib/skin";
@@ -86,23 +87,7 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
                   : "inline-block h-2 w-2 rounded-full bg-border"
               }
             />
-            <div className="flex h-3 items-end gap-[2px]" data-testid="live-level" aria-label="mic level">
-              {[0, 1, 2, 3, 4].map((bar) => {
-                const threshold = (bar + 1) / 5;
-                const on = voice.level >= threshold;
-                return (
-                  <span
-                    key={bar}
-                    className={
-                      on
-                        ? "w-[3px] rounded-sm bg-accent"
-                        : "w-[3px] rounded-sm bg-border"
-                    }
-                    style={{ height: `${(bar + 1) * 3}px` }}
-                  />
-                );
-              })}
-            </div>
+            <LevelMeter subscribe={voice.subscribeLevel} />
             <p className="text-[11px] text-text-faint">
               {voice.busy
                 ? t("live.status.thinking")
