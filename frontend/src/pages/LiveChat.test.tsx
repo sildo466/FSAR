@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { LiveChat } from "./LiveChat";
+import { initI18n } from "../lib/i18nSetup";
+import i18n from "../lib/i18nSetup";
 
 const liveVoice = vi.hoisted(() => ({
   muted: false,
@@ -34,6 +36,10 @@ vi.mock("../stores/cards", () => ({
     selector({ characters: [] }),
 }));
 
+beforeAll(async () => {
+  await initI18n("en");
+});
+
 afterEach(() => {
   cleanup();
   liveVoice.userLines = [];
@@ -46,7 +52,7 @@ const config = { characterId: 1, userCardId: null, model: null };
 describe("LiveChat", () => {
   it("shows an enabled mic toggle wired to the voice hook", () => {
     render(<LiveChat config={config} onExit={vi.fn()} />);
-    const mic = screen.getByRole("button", { name: /mute mic/i });
+    const mic = screen.getByRole("button", { name: i18n.t("live.micToggle.mute") });
     expect(mic).toBeTruthy();
     fireEvent.click(mic);
     expect(liveVoice.toggleMute).toHaveBeenCalledTimes(1);

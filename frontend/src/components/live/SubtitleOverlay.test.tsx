@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: MIT
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { SubtitleOverlay } from "./SubtitleOverlay";
+import { initI18n } from "../../lib/i18nSetup";
+import i18n from "../../lib/i18nSetup";
+
+beforeAll(async () => {
+  await initI18n("en");
+});
 
 afterEach(() => cleanup());
 
 describe("SubtitleOverlay", () => {
   it("renders empty state label when no items", () => {
     render(<SubtitleOverlay items={[]} />);
-    expect(screen.getByText(/live subtitles/i)).toBeTruthy();
+    expect(screen.getByText(i18n.t("live.subtitles"))).toBeTruthy();
   });
 
   it("renders user and assistant lines", () => {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useRef } from "react";
 import { clsx } from "clsx";
+import { useTranslation } from "react-i18next";
 
 export interface SubtitleItem {
   id: string;
@@ -10,6 +11,7 @@ export interface SubtitleItem {
 }
 
 export function SubtitleOverlay({ items }: { items: SubtitleItem[] }) {
+  const { t } = useTranslation();
   const bottomRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     // jsdom lacks scrollIntoView; guard so tests don't crash on mount.
@@ -21,7 +23,7 @@ export function SubtitleOverlay({ items }: { items: SubtitleItem[] }) {
   if (items.length === 0) {
     return (
       <div className="min-w-0 flex-1 px-2">
-        <p className="text-xs text-text-faint">Live subtitles</p>
+        <p className="text-xs text-text-faint">{t("live.subtitles")}</p>
       </div>
     );
   }

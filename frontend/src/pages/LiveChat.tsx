@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { AvatarCanvas } from "../components/live/AvatarCanvas";
 import { LiveBackground } from "../components/live/LiveBackground";
 import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
@@ -17,6 +18,7 @@ interface LiveChatProps {
 }
 
 export function LiveChat({ config, onExit }: LiveChatProps) {
+  const { t } = useTranslation();
   const character = useCardsStore((s) =>
     config.characterId ? s.characters.find((c) => c.id === config.characterId) : undefined
   );
@@ -57,14 +59,18 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
 
       {voice.asrNotConfigured && (
         <div className="relative border-t border-border bg-bg/40 px-4 py-2 text-xs text-text-muted">
-          ASR is not configured — enable speech-to-text in Settings to use voice.
+          {t("live.asrNotConfigured")}
         </div>
       )}
       {voice.vadError && (
         <div className="relative border-t border-border bg-bg/40 px-4 py-2 text-xs text-text-muted">
-          Mic unavailable — {voice.permissionDenied ? "permission denied" : voice.vadError}.{" "}
+          {t("live.micUnavailable", {
+            reason: voice.permissionDenied
+              ? t("live.micPermissionDenied")
+              : voice.vadError,
+          })}{" "}
           <button className="underline" onClick={voice.retryVad}>
-            Retry
+            {t("live.retry")}
           </button>
         </div>
       )}

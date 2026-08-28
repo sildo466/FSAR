@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { Mic, MicOff } from "lucide-react";
 import { clsx } from "clsx";
+import { useTranslation } from "react-i18next";
 
 interface MicToggleProps {
   muted: boolean;
@@ -10,7 +11,8 @@ interface MicToggleProps {
 }
 
 export function MicToggle({ muted, listening, userSpeaking, onToggle }: MicToggleProps) {
-  const label = muted ? "Unmute mic" : "Mute mic";
+  const { t } = useTranslation();
+  const label = muted ? t("live.micToggle.unmute") : t("live.micToggle.mute");
   return (
     <button
       aria-label={label}
