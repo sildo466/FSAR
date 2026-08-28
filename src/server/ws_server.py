@@ -644,11 +644,10 @@ _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def _register_frontend_mime_types() -> None:
-    """Windows Python lacks MIME types for .mjs/.onnx; StaticFiles then serves
-    them as text/plain and the browser's strict ESM MIME check rejects the
-    VAD onnxruntime loader (module script .mjs)."""
+    """Windows Python lacks a MIME type for .mjs; StaticFiles then serves it
+    as text/plain and the browser's strict ESM MIME check rejects module
+    scripts."""
     mimetypes.add_type("text/javascript", ".mjs")
-    mimetypes.add_type("application/octet-stream", ".onnx")
 
 
 def _mount_frontend(app: FastAPI) -> None:
