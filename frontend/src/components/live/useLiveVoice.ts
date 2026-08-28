@@ -21,6 +21,7 @@ export interface LiveVoiceResult {
   asrNotConfigured: boolean;
   userLines: UserLine[];
   busy: boolean;
+  level: number;
   toggleMute: () => void;
   retryVad: () => void;
   sendNow: () => void;
@@ -38,6 +39,7 @@ export function useLiveVoice(config: {
   const [vadError, setVadError] = useState<string | null>(null);
   const [userLines, setUserLines] = useState<UserLine[]>([]);
   const [busy, setBusy] = useState(false);
+  const [level, setLevel] = useState(0);
 
   const vadRef = useRef<EnergyVad | null>(null);
   const busyRef = useRef(false);
@@ -89,6 +91,10 @@ export function useLiveVoice(config: {
     const vad = new EnergyVad({
       onSpeechStart: () => {
         setUserSpeaking(true);
+      },
+      onLevel: (value) => {
+        // Throttle: avoid re-rendering on every ~85ms audio frame.
+        setLevel((prev) => (Math.abs(prev - value) < 0.005 ? prev : value));
       },
       onUtterance: (blob) => {
         setUserSpeaking(false);
@@ -207,6 +213,7 @@ export function useLiveVoice(config: {
     asrNotConfigured,
     userLines,
     busy,
+    level,
     toggleMute,
     retryVad,
     sendNow: () => vadRef.current?.sendNow(),

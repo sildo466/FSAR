@@ -57,6 +57,7 @@ const FRAME_SAMPLES = 4096;
 interface EnergyVadCallbacks {
   onUtterance: (blob: Blob) => void;
   onSpeechStart?: () => void;
+  onLevel?: (level: number) => void;
 }
 
 export class EnergyVad {
@@ -130,6 +131,7 @@ export class EnergyVad {
     const frameMs = (frame.length / this.sampleRate) * 1000;
     this.bufferedMs += frameMs;
     const energy = computeRmsEnergy(frame);
+    this.callbacks.onLevel?.(energy);
     if (energy >= SPEECH_ENERGY_THRESHOLD) {
       if (!this.speechDetected) {
         this.speechDetected = true;

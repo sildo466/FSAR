@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
     destroy: ReturnType<typeof vi.fn>;
     ensureUnlocked: ReturnType<typeof vi.fn>;
     sendNow: ReturnType<typeof vi.fn>;
-    callbacks?: { onUtterance: (blob: Blob) => void; onSpeechStart?: () => void };
+    callbacks?: {
+      onUtterance: (blob: Blob) => void;
+      onSpeechStart?: () => void;
+      onLevel?: (level: number) => void;
+    };
   },
   transcribeAudio: vi.fn(async () => "hello"),
   playText: vi.fn(async () => {}),

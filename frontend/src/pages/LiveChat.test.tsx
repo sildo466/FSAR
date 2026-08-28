@@ -14,8 +14,10 @@ const liveVoice = vi.hoisted(() => ({
   asrNotConfigured: false,
   userLines: [] as { id: string; role: "user"; text: string }[],
   busy: false,
+  level: 0,
   toggleMute: vi.fn(),
   retryVad: vi.fn(),
+  sendNow: vi.fn(),
 }));
 
 vi.mock("../components/live/AvatarCanvas", () => ({
