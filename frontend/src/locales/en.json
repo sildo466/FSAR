@@ -742,6 +742,8 @@
   "nav.scheduler": "Scheduler",
   "nav.live": "Live",
   "live.subtitles": "Live subtitles",
+  "live.subtitles.hide": "Hide subtitles",
+  "live.subtitles.show": "Show subtitles",
   "live.micToggle.mute": "Mute mic",
   "live.micToggle.unmute": "Unmute mic",
   "live.asrNotConfigured": "ASR is not configured — enable speech-to-text in Settings to use voice.",

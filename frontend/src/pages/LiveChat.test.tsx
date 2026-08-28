@@ -39,6 +39,11 @@ vi.mock("../stores/cards", () => ({
     selector({ characters: [] }),
 }));
 
+vi.mock("../stores/live-ui", () => ({
+  useLiveUi: (selector: (s: unknown) => unknown) =>
+    selector({ subtitlesVisible: true, toggleSubtitles: vi.fn() }),
+}));
+
 beforeAll(async () => {
   await initI18n("en");
 });

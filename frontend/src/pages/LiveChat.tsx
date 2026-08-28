@@ -11,6 +11,7 @@ import { useSkinStore } from "../stores/skin";
 import { resolveLiveScene } from "../lib/skin";
 import { useSessions } from "../stores/sessions";
 import { useCardsStore } from "../stores/cards";
+import { useLiveUi } from "../stores/live-ui";
 import type { LiveSessionConfig } from "./LiveLobby";
 
 interface LiveChatProps {
@@ -31,6 +32,8 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
   const activeSkin = useSkinStore((s) => s.skins.find((x) => x.id === s.activeId));
   const scene = resolveLiveScene(activeSkin?.background);
   const liveHistory = useSessions((s) => s.liveHistory);
+  const subtitlesVisible = useLiveUi((s) => s.subtitlesVisible);
+  const toggleSubtitles = useLiveUi((s) => s.toggleSubtitles);
 
   const modelUrl =
     config.model === null ? null : `/api/models/${encodeURIComponent(config.model)}`;
@@ -76,28 +79,31 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
         </div>
       )}
 
+      <SubtitleOverlay
+        items={items}
+        visible={subtitlesVisible}
+        onToggle={toggleSubtitles}
+      />
+
       <div className="relative flex items-center justify-between border-t border-border bg-bg/40 px-4 py-2 backdrop-blur">
-        <div className="min-w-0 flex-1">
-          <SubtitleOverlay items={items} />
-          <div className="flex items-center gap-2 px-2 pt-1">
-            <span
-              className={
-                voice.userSpeaking
-                  ? "inline-block h-2 w-2 rounded-full bg-accent"
-                  : "inline-block h-2 w-2 rounded-full bg-border"
-              }
-            />
-            <LevelMeter subscribe={voice.subscribeLevel} />
-            <p className="text-[11px] text-text-faint">
-              {voice.busy
-                ? t("live.status.thinking")
-                : voice.userSpeaking
-                  ? t("live.status.speaking")
-                  : voice.listening
-                    ? t("live.status.listening")
-                    : t("live.status.idle")}
-            </p>
-          </div>
+        <div className="flex items-center gap-2 px-2">
+          <span
+            className={
+              voice.userSpeaking
+                ? "inline-block h-2 w-2 rounded-full bg-accent"
+                : "inline-block h-2 w-2 rounded-full bg-border"
+            }
+          />
+          <LevelMeter subscribe={voice.subscribeLevel} />
+          <p className="text-[11px] text-text-faint">
+            {voice.busy
+              ? t("live.status.thinking")
+              : voice.userSpeaking
+                ? t("live.status.speaking")
+                : voice.listening
+                  ? t("live.status.listening")
+                  : t("live.status.idle")}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <MicToggle
