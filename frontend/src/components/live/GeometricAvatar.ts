@@ -1,12 +1,26 @@
 // SPDX-License-Identifier: MIT
 import * as THREE from "three";
 import type { AvatarRenderer, EmotionState } from "./AvatarRenderer";
+import { mapEmotionState, type ExpressionPreset } from "./VrmAvatar";
+import { getActiveLipsync } from "../../stores/speech";
+
+const EMOTION_COLORS: Record<ExpressionPreset, number> = {
+  happy: 0xd9a53a,
+  angry: 0xb3342a,
+  sad: 0x33507a,
+  relaxed: 0x3a7a5c,
+  surprised: 0x8a5ac0,
+};
 
 export class GeometricAvatar implements AvatarRenderer {
   private mesh: THREE.Mesh;
   private basePositions: Float32Array;
   private running = false;
   private raf = 0;
+  private speaking = false;
+  private mouthScale = 0;
+  private emotionPreset: ExpressionPreset = "relaxed";
+  private emotionIntensity = 0;
 
   constructor() {
     const geo = new THREE.IcosahedronGeometry(1, 5);
@@ -45,6 +59,8 @@ export class GeometricAvatar implements AvatarRenderer {
       geo.computeVertexNormals();
       this.mesh.rotation.y += 0.003;
       this.mesh.rotation.x = Math.sin(t * 0.4) * 0.15;
+      this.animateMouth();
+      this.animateEmotion();
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
@@ -55,11 +71,45 @@ export class GeometricAvatar implements AvatarRenderer {
     cancelAnimationFrame(this.raf);
   }
 
-  setEmotion(_state: EmotionState): void {}
+  speak(): void {
+    this.speaking = true;
+  }
+
+  stopSpeaking(): void {
+    this.speaking = false;
+  }
+
+  setEmotion(state: EmotionState): void {
+    const mapped = mapEmotionState(state);
+    this.emotionPreset = mapped.preset;
+    this.emotionIntensity = mapped.intensity;
+  }
 
   dispose(): void {
     this.stop();
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
+  }
+
+  private animateMouth(): void {
+    const lipsync = getActiveLipsync();
+    if (this.speaking && lipsync) {
+      const frame = lipsync.read();
+      this.mouthScale += (frame.volume - this.mouthScale) * 0.4;
+    } else {
+      this.mouthScale *= 0.8;
+      if (this.mouthScale < 0.005) this.mouthScale = 0;
+    }
+    const s = 1 + this.mouthScale * 0.12;
+    this.mesh.scale.set(s, s, s);
+  }
+
+  private animateEmotion(): void {
+    const target = new THREE.Color(EMOTION_COLORS[this.emotionPreset]).lerp(
+      new THREE.Color(0x111111),
+      1 - this.emotionIntensity,
+    );
+    const mat = this.mesh.material as THREE.MeshStandardMaterial;
+    mat.color.lerp(target, 0.05);
   }
 }

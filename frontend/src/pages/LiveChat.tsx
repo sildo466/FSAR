@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AvatarCanvas } from "../components/live/AvatarCanvas";
+import type { AvatarRenderer } from "../components/live/AvatarRenderer";
 import { LiveBackground } from "../components/live/LiveBackground";
 import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
 import { MicToggle } from "../components/live/MicToggle";
 import { LevelMeter } from "../components/live/LevelMeter";
 import { AudioWave } from "../components/live/AudioWave";
 import { useLiveVoice } from "../components/live/useLiveVoice";
+import { useLiveEmotion } from "../hooks/useLiveEmotion";
+import { useSpeechStore } from "../stores/speech";
 import { useSkinStore } from "../stores/skin";
 import { resolveLiveScene } from "../lib/skin";
 import { useSessions } from "../stores/sessions";
@@ -30,11 +33,29 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
     voiceOverride: String(character?.tts_voice ?? ""),
     instructionsOverride: String(character?.tts_instructions ?? ""),
   });
+  const emotion = useLiveEmotion(config.characterId);
   const activeSkin = useSkinStore((s) => s.skins.find((x) => x.id === s.activeId));
   const scene = resolveLiveScene(activeSkin?.background);
   const liveHistory = useSessions((s) => s.liveHistory);
   const subtitlesVisible = useLiveUi((s) => s.subtitlesVisible);
   const toggleSubtitles = useLiveUi((s) => s.toggleSubtitles);
+  const rendererRef = useRef<AvatarRenderer | null>(null);
+
+  // Drive mouth animation while the reply is spoken; relax on stop.
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const unsubscribe = useSpeechStore.getState().subscribePlaying((playing) => {
+      if (playing) renderer.speak();
+      else renderer.stopSpeaking();
+    });
+    return unsubscribe;
+  }, []);
+
+  // Feed the emotion layer into the avatar whenever it changes.
+  useEffect(() => {
+    rendererRef.current?.setEmotion(emotion);
+  }, [emotion]);
 
   const modelUrl =
     config.model === null ? null : `/api/models/${encodeURIComponent(config.model)}`;
@@ -60,7 +81,7 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
       <LiveBackground scene={scene} />
       <div className="relative min-h-0 flex-1">
         <AudioWave className="absolute left-1/2 top-4 -translate-x-1/2" />
-        <AvatarCanvas model={modelUrl} />
+        <AvatarCanvas model={modelUrl} rendererRef={rendererRef} />
       </div>
 
       {voice.asrNotConfigured && (

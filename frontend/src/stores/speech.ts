@@ -3,6 +3,9 @@ import { create } from "zustand";
 import type { ClientMsg, ServerMsg, WSClient } from "../lib/ws-client";
 import { useWS } from "./ws";
 import { stripThinkBlocks } from "../lib/thinking";
+import { VrmLipsync } from "../lib/vrm-lipsync";
+import profileJson from "../assets/lipsync/profile.json";
+import type { Profile } from "wlipsync";
 
 interface ModelCatalog {
   downloaded: string[];
@@ -30,22 +33,29 @@ interface SpeechState {
   playText: (text: string, messageId?: string, options?: { bypassCache?: boolean; voiceOverride?: string; instructionsOverride?: string }) => Promise<void>;
   stopAudio: () => void;
   subscribeAudioLevel: (cb: (level: number) => void) => () => void;
+  subscribePlaying: (cb: (playing: boolean) => void) => () => void;
   transcribeAudio: (blob: Blob) => Promise<string>;
   listDownloadedModels: () => Promise<ModelCatalog>;
   downloadModel: (size: string) => Promise<void>;
   deleteModel: (size: string) => Promise<void>;
 }
 
-let currentAudio: HTMLAudioElement | null = null;
 let finishCurrentAudio: (() => void) | null = null;
 
-// Real-time spectrum for the Live audio wave. A MediaElementAudioSourceNode
-// taps the playing <audio>, AnalyserNode reports frequency energy, and
-// subscribers get a normalized 0..1 level each animation frame.
+// Playback uses a single shared AudioContext. TTS audio is decoded into an
+// AudioBuffer and played through AudioBufferSourceNode, which is also tapped
+// into the wlipsync worklet for lip-sync and the analyser for the Live wave.
 let audioContext: AudioContext | null = null;
-let analyserSource: MediaElementAudioSourceNode | null = null;
+let activeSource: AudioBufferSourceNode | null = null;
+let analyser: AnalyserNode | null = null;
 let analyserRaf: number | null = null;
+let lipsyncRef: VrmLipsync | null = null;
 const audioLevelSubscribers = new Set<(level: number) => void>();
+const playingSubscribers = new Set<(playing: boolean) => void>();
+
+function notifyPlaying(playing: boolean): void {
+  for (const subscriber of playingSubscribers) subscriber(playing);
+}
 
 function getAudioContext(): AudioContext | null {
   try {
@@ -65,32 +75,50 @@ function stopAnalyser(): void {
     cancelAnimationFrame(analyserRaf);
     analyserRaf = null;
   }
-  if (analyserSource) {
+  if (analyser) {
     try {
-      analyserSource.disconnect();
+      analyser.disconnect();
     } catch {
       /* ignore */
     }
-    analyserSource = null;
+    analyser = null;
   }
   notifyAudioLevel(0);
 }
 
-function attachAnalyser(audio: HTMLAudioElement): void {
+/** Lazy wlipsync node shared by all live avatars while audio plays. */
+export function getActiveLipsync(): VrmLipsync | null {
+  return lipsyncRef;
+}
+
+async function ensureLipsync(): Promise<VrmLipsync | null> {
   const ctx = getAudioContext();
-  if (!ctx || typeof ctx.createMediaElementSource !== "function") return;
+  if (!ctx) return null;
+  if (lipsyncRef) return lipsyncRef;
+  try {
+    const created = await VrmLipsync.create(ctx, profileJson as Profile);
+    lipsyncRef = created;
+  } catch {
+    // Lip-sync is best-effort; audio must still play without it.
+    lipsyncRef = null;
+  }
+  return lipsyncRef;
+}
+
+function attachAnalyser(source: AudioBufferSourceNode): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
   stopAnalyser();
   try {
-    const source = ctx.createMediaElementSource(audio);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 128;
-    analyser.smoothingTimeConstant = 0.6;
-    source.connect(analyser);
-    analyser.connect(ctx.destination);
-    analyserSource = source;
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    const a = ctx.createAnalyser();
+    a.fftSize = 128;
+    a.smoothingTimeConstant = 0.6;
+    source.connect(a);
+    a.connect(ctx.destination);
+    analyser = a;
+    const data = new Uint8Array(a.frequencyBinCount);
     const tick = () => {
-      analyser.getByteFrequencyData(data);
+      a.getByteFrequencyData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i];
       notifyAudioLevel(sum / data.length / 255);
@@ -180,6 +208,7 @@ export const useSpeechStore = create<SpeechState>((set, get) => ({
     const speakable = stripThinkBlocks(text ?? "");
     if (!get().isTtsConfigured || !speakable.trim()) return;
     get().stopAudio();
+    notifyPlaying(true);
     const requestId = crypto.randomUUID();
     const playbackId = messageId ?? requestId;
     set({ playingMessageId: playbackId, playbackProgress: 0 });
@@ -197,52 +226,84 @@ export const useSpeechStore = create<SpeechState>((set, get) => ({
         (incoming): incoming is Extract<ServerMsg, { type: "tts.audio" }> => incoming.type === "tts.audio",
       );
       await new Promise<void>((resolve, reject) => {
-        const audio = new Audio(`data:${result.mime};base64,${result.audio}`);
-        currentAudio = audio;
-        attachAnalyser(audio);
-        const finish = () => {
-          if (currentAudio === audio) {
-            currentAudio = null;
-            finishCurrentAudio = null;
+        const ctx = getAudioContext();
+        if (!ctx) {
+          reject(new Error("Web Audio is unavailable"));
+          return;
+        }
+        void (async () => {
+          let source: AudioBufferSourceNode;
+          const fail = (error: unknown) => {
+            if (source && activeSource === source) {
+              activeSource = null;
+              finishCurrentAudio = null;
+            }
+            reject(error instanceof Error ? error : new Error("Audio playback failed"));
+          };
+          try {
+            const audioBuffer = await ctx.decodeAudioData(
+              await (await fetch(`data:${result.mime};base64,${result.audio}`)).arrayBuffer(),
+            );
+            source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
+            activeSource = source;
+            attachAnalyser(source);
+            const lipsync = await ensureLipsync();
+            if (lipsync) lipsync.connect(source);
+            const finish = () => {
+              if (activeSource === source) {
+                activeSource = null;
+                finishCurrentAudio = null;
+              }
+              stopAnalyser();
+              resolve();
+            };
+            finishCurrentAudio = finish;
+            const duration = audioBuffer.duration;
+            let playbackStartedAt = 0;
+            const progressTimer = window.setInterval(() => {
+              const elapsed = ctx.currentTime - playbackStartedAt;
+              if (Number.isFinite(duration) && duration > 0) {
+                set({ playbackProgress: Math.min(1, Math.max(0, elapsed) / duration) });
+              }
+            }, 100);
+            source.onended = () => {
+              window.clearInterval(progressTimer);
+              finish();
+            };
+            await ctx.resume().catch(() => undefined);
+            playbackStartedAt = ctx.currentTime;
+            source.start();
+          } catch (error) {
+            fail(error);
           }
-          stopAnalyser();
-          resolve();
-        };
-        const fail = (error: unknown) => {
-          if (currentAudio === audio) {
-            currentAudio = null;
-            finishCurrentAudio = null;
-          }
-          reject(error instanceof Error ? error : new Error("Audio playback failed"));
-        };
-        finishCurrentAudio = finish;
-        audio.ontimeupdate = () => {
-          if (Number.isFinite(audio.duration) && audio.duration > 0) {
-            set({ playbackProgress: Math.min(1, audio.currentTime / audio.duration) });
-          }
-        };
-        audio.onended = finish;
-        audio.onerror = () => fail(new Error("Audio playback failed"));
-        void audio.play().catch(fail);
+        })();
       });
     } finally {
+      notifyPlaying(false);
       if (get().playingMessageId === playbackId) {
         set({ playingMessageId: null, playbackProgress: 0 });
       }
     }
   },
   stopAudio: () => {
-    currentAudio?.pause();
-    currentAudio = null;
+    activeSource?.stop();
+    activeSource = null;
     const finish = finishCurrentAudio;
     finishCurrentAudio = null;
     finish?.();
     stopAnalyser();
+    notifyPlaying(false);
     set({ playingMessageId: null, playbackProgress: 0 });
   },
   subscribeAudioLevel: (cb) => {
     audioLevelSubscribers.add(cb);
     return () => audioLevelSubscribers.delete(cb);
+  },
+  subscribePlaying: (cb) => {
+    playingSubscribers.add(cb);
+    return () => playingSubscribers.delete(cb);
   },
   transcribeAudio: async (blob) => {
     if (!get().isAsrConfigured) return "";
