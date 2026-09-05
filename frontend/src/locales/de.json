@@ -77,7 +77,7 @@
   "live.lobby.model": "Modell",
   "live.lobby.select": "Auswählen…",
   "live.lobby.start": "Live-Sitzung starten",
-  "live.lobby.hint": "Legen Sie ein VRM-Modell in data/models/ ab, damit es hier erscheint.",
+  "live.lobby.hint": "Legen Sie ein VRM-Modell oder einen Live2D-Ordner (mit .model3.json) in data/models/ ab, damit es hier erscheint.",
   "live.lobby.none": "Keins (geometrisch)",
   "live.webglUnavailable": "WebGL nicht verfügbar — Avatar kann nicht gerendert werden.",
   "live.micToggle.mute": "Mikrofon stummschalten",
@@ -130,5 +130,7 @@
   "integration.protocol.auto": "Automatisch (Anbieter-Einstellung)",
   "integration.protocol.chat": "Chat Completions",
   "integration.protocol.responses": "Responses API",
-  "integration.protocol.anthropic": "Anthropic Messages"
+  "integration.protocol.anthropic": "Anthropic Messages",
+  "live.lobby.vrmGroup": "VRM",
+  "live.lobby.live2dGroup": "Live2D"
 }

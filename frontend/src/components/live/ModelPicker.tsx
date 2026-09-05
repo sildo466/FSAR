@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchModelList } from "./modelsApi";
+import { getModelKind } from "./modelKind";
 
 interface ModelPickerProps {
   value: string | null;
@@ -22,6 +23,9 @@ export function ModelPicker({ value, onSelect }: ModelPickerProps) {
     };
   }, []);
 
+  const vrm = models.filter((m) => getModelKind(m) === "vrm");
+  const live2d = models.filter((m) => getModelKind(m) === "live2d");
+
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="live-model" className="text-sm text-text-muted">
@@ -29,16 +33,30 @@ export function ModelPicker({ value, onSelect }: ModelPickerProps) {
       </label>
       <select
         id="live-model"
+        data-testid="live-model-select"
         className="rounded-lg glass border border-border px-2 py-1 text-sm"
         value={value ?? ""}
         onChange={(e) => onSelect(e.target.value || null)}
       >
         <option value="">{t("live.lobby.none")}</option>
-        {models.map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
-        ))}
+        {vrm.length > 0 && (
+          <optgroup label={t("live.lobby.vrmGroup")}>
+            {vrm.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {live2d.length > 0 && (
+          <optgroup label={t("live.lobby.live2dGroup")}>
+            {live2d.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </optgroup>
+        )}
       </select>
     </div>
   );

@@ -750,7 +750,7 @@
   "live.lobby.model": "モデル",
   "live.lobby.select": "選択…",
   "live.lobby.start": "ライブセッションを開始",
-  "live.lobby.hint": "VRM モデルを data/models/ に置くとここに表示されます。",
+  "live.lobby.hint": "VRMモデルまたはLive2Dフォルダ（.model3.jsonを含む）を data/models/ に置くとここに表示されます。",
   "live.lobby.none": "なし（ジオメトリ）",
   "live.webglUnavailable": "WebGL が利用できません — アバターを描画できません。",
   "live.micToggle.mute": "マイクをミュート",
@@ -838,5 +838,7 @@
   "integration.protocol.responses": "Responses API",
   "integration.protocol.anthropic": "Anthropic Messages",
   "settings.vision.incomplete": "カスタムビジョンモデルにはベースURLとモデルIDが必要です。",
-  "settings.vision.saveFailed": "ビジョンモデルの保存に失敗しました。設定を確認してください。"
+  "settings.vision.saveFailed": "ビジョンモデルの保存に失敗しました。設定を確認してください。",
+  "live.lobby.vrmGroup": "VRM",
+  "live.lobby.live2dGroup": "Live2D"
 }

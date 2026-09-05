@@ -750,7 +750,7 @@
   "live.lobby.model": "模型",
   "live.lobby.select": "選擇…",
   "live.lobby.start": "開始即時會話",
-  "live.lobby.hint": "將 VRM 模型放入 data/models/ 即可在此顯示。",
+  "live.lobby.hint": "將 VRM 模型或 Live2D 資料夾（含 .model3.json）放入 data/models/ 即可在此顯示。",
   "live.lobby.none": "無（幾何模型）",
   "live.webglUnavailable": "WebGL 不可用 — 無法渲染虛擬形象。",
   "live.micToggle.mute": "靜音麥克風",
@@ -838,5 +838,7 @@
   "integration.protocol.responses": "Responses API",
   "integration.protocol.anthropic": "Anthropic Messages",
   "settings.vision.incomplete": "自訂視覺模型需填寫介面位址和模型 ID。",
-  "settings.vision.saveFailed": "儲存視覺模型失敗，請檢查設定。"
+  "settings.vision.saveFailed": "儲存視覺模型失敗，請檢查設定。",
+  "live.lobby.vrmGroup": "VRM",
+  "live.lobby.live2dGroup": "Live2D"
 }

@@ -750,7 +750,7 @@
   "live.lobby.model": "Model",
   "live.lobby.select": "Select…",
   "live.lobby.start": "Start live session",
-  "live.lobby.hint": "Put your VRM model in data/models/ to make it appear here.",
+  "live.lobby.hint": "Put your VRM model or Live2D folder (with .model3.json) in data/models/ to make it appear here.",
   "live.lobby.none": "None (geometric)",
   "live.webglUnavailable": "WebGL unavailable — cannot render the avatar.",
   "live.micToggle.mute": "Mute mic",
@@ -838,5 +838,7 @@
   "integration.protocol.responses": "Responses API",
   "integration.protocol.anthropic": "Anthropic Messages",
   "settings.vision.incomplete": "Custom vision model requires both a base URL and a model id.",
-  "settings.vision.saveFailed": "Failed to save vision model. Check the configuration."
+  "settings.vision.saveFailed": "Failed to save vision model. Check the configuration.",
+  "live.lobby.vrmGroup": "VRM",
+  "live.lobby.live2dGroup": "Live2D"
 }
