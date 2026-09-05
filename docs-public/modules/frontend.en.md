@@ -4,8 +4,8 @@
 
 A Vite + React app (package `fsar-gui`); the Tauri desktop shell is in `frontend/src-tauri`.
 
-- **`pages/`** — top-level screens: Chat, Cards, Memory, Reflection, Insights, Library, Integration, Scheduler, Settings, SettingsWorkspace, Usage, Onboarding.
+- **`pages/`** — top-level screens: Chat, Live, Cards, Memory, Reflection, Insights, Library, Integration, Scheduler, Settings, SettingsWorkspace, Usage, Onboarding.
 - **`clients/` and `lib/ws-client.ts`** — JSON WS protocol clients (the latter is the typed mirror of `src/server/events.py`).
-- **`components/`** — grouped by feature: `chat/` (MessageList, RiskConfirm, AgentActivity, HistoryPanel, MicButton, SlashPopover, TierSwitcher, etc.), `onboarding/` (the `WizardShell` wizard: language → provider → ASR → TTS → embedding → character card → user card), `settings/` (MCP / permissions / embedding / style / advanced / provider modal), `workspace/` (sandbox-escape modal, security panels), `shell/` (sidebar / topbar).
+- **`components/`** — grouped by feature: `chat/` (MessageList, RiskConfirm, AgentActivity, HistoryPanel, MicButton, SlashPopover, TierSwitcher, etc.), `live/` (Live Companion spoken conversation: `AvatarRenderer`/`VrmAvatar`/`Live2DAvatar`/`GeometricAvatar` renderers, `useLiveVoice` orchestrator, `SubtitleOverlay`, `MicToggle`, `ModelPicker`), `onboarding/` (the `WizardShell` wizard: language → provider → ASR → TTS → embedding → character card → user card), `settings/` (MCP / permissions / embedding / style / advanced / provider modal), `workspace/` (sandbox-escape modal, security panels), `shell/` (sidebar / topbar).
 - **`stores/`** — state stores (ws, chat-ui, cards, sessions, onboarding, workspace, locale, social, etc.) with Vitest tests alongside.
 - **`locales/`** — i18n for en / zh-Hans / zh-Hant / ja / de / fr.
