@@ -98,6 +98,20 @@ fsar                    # または `python -m src.cli.tui`;`pip install -e .` �
 
 ブラウザが自動的に <http://127.0.0.1:8765> を開きます。開かない場合は手動でアクセスしてください。
 
+### Live Companion(Live2D / VRM アバター)
+
+サイドバーの **Live** エントリから、画面上のアバターと音声で会話できます:ロビーでキャラクター + ユーザーカード + モデルを選んで話しかけると、FSAR が音声を文字起こしし、返答し、その返答を読み上げます。アバターの口と表情もそれに追従します。
+
+モデルファイルは自分で用意してください。リポジトリには同梱されません。
+
+- **VRM** — `my-avatar.vrm` を `data/models/`(お使いの `~/.fsar/` データディレクトリ配下)に置きます。ロビーのモデル一覧に表示されるので選択して Start。
+- **Live2D** — `.model3.json` を含むモデル**フォルダ**を `data/models/` に置きます(例:`data/models/hiyori/hiyori.model3.json`)。選択して Start。**Live2D ランタイム(Cubism Core)はプロプライエタリなソフトウェアのため FSAR には同梱されません** — Live2D モデルを描画するには、各自で入手する必要があります:
+  1. https://www.live2d.com/download/cubism-sdk/download-web/ から Cubism SDK for Web をダウンロードします(個人・非商用は無料。商用リリースはライセンスが必要)。
+  2. `Core/live2dcubismcore.min.js` を `frontend/public/assets/live2d/live2dcubismcore.min.js` にコピーし、再ビルドします(`cd frontend && npm run build`)。
+  3. このファイルがない場合、Live2D モデルは「ランタイムがありません」と表示され、幾何学アバターにフォールバックします。
+
+モデルを選ばない場合は、内蔵の呼吸する幾何学アバターが使われます。
+
 ### macOS のみ:Computer Use の権限付与
 
 **システム設定 → プライバシーとセキュリティ → アクセシビリティ** を開き、ターミナルアプリと Python にアクセス権を付与してください。Computer Use ツール(`cu_screenshot`、`cu_click`、`cu_type`、`cu_keypress`)を使用する場合のみ必要です。

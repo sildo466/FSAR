@@ -98,6 +98,20 @@ fsar                    # 或 `python -m src.cli.tui`;需 `pip install -e .`
 
 瀏覽器會自動開啟 <http://127.0.0.1:8765>。若未自動開啟,請手動前往該網址。
 
+### Live Companion(Live2D / VRM 虛擬形象)
+
+側欄 **Live** 入口進入帶螢幕虛擬形象的語音對話:在 lobby 選角色 + 使用者卡 + 模型後開聊——FSAR 轉寫你的話、回覆、並把回覆念出來,虛擬形象的口型和表情隨之變化。
+
+模型檔案需自備,儲存庫不捆綁任何模型。
+
+- **VRM** — 把 `my-avatar.vrm` 放進 `data/models/`(你的 `~/.fsar/` 資料目錄下)。它會出現在 lobby 的模型清單裡,選中後 Start。
+- **Live2D** — 把含 `.model3.json` 的模型**資料夾**放進 `data/models/`(如 `data/models/hiyori/hiyori.model3.json`),選中後 Start。**Live2D 執行期(Cubism Core)是專有軟體,FSAR 不隨附**——要讓 Live2D 模型渲染,你必須自行提供:
+  1. 從 https://www.live2d.com/download/cubism-sdk/download-web/ 下載 Cubism SDK for Web(個人/非商業免費;商業發布需 license)。
+  2. 把 `Core/live2dcubismcore.min.js` 複製到 `frontend/public/assets/live2d/live2dcubismcore.min.js`,然後重新建置(`cd frontend && npm run build`)。
+  3. 沒有該檔案時,Live2D 模型會提示「執行期缺失」,頁面回落到幾何形象。
+
+不選模型時使用內建的呼吸幾何形象。
+
 ### 僅 macOS:授予 Computer Use 權限
 
 開啟 **系統設定 → 隱私權與安全性 → 輔助使用**,並為你的終端機與 Python 授予存取權限。僅在使用 Computer Use 工具(`cu_screenshot`、`cu_click`、`cu_type`、`cu_keypress`)時才需要。
