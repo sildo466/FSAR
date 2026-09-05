@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AvatarCanvas } from "../components/live/AvatarCanvas";
+import { buildModelUrl } from "../components/live/modelKind";
 import type { AvatarRenderer } from "../components/live/AvatarRenderer";
 import { LiveBackground } from "../components/live/LiveBackground";
 import { SubtitleOverlay, type SubtitleItem } from "../components/live/SubtitleOverlay";
@@ -57,8 +58,7 @@ export function LiveChat({ config, onExit }: LiveChatProps) {
     rendererRef.current?.setEmotion(emotion);
   }, [emotion]);
 
-  const modelUrl =
-    config.model === null ? null : `/api/models/${encodeURIComponent(config.model)}`;
+  const modelUrl = config.model === null ? null : buildModelUrl(config.model);
 
   const assistantItems: SubtitleItem[] = useMemo(() => {
     const entries = Object.entries(liveHistory);

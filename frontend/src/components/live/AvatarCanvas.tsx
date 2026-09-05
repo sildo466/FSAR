@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Object3D } from "three";
 import { Canvas } from "@react-three/fiber";
@@ -7,7 +7,9 @@ import { OrbitControls } from "@react-three/drei";
 import type { AvatarRenderer } from "./AvatarRenderer";
 import { VrmAvatar } from "./VrmAvatar";
 import { GeometricAvatar } from "./GeometricAvatar";
+import { Live2DAvatar } from "./Live2DAvatar";
 import { isWebGLAvailable } from "./webgl";
+import { getModelKind } from "./modelKind";
 
 interface AvatarObjectProps {
   model: string | null;
@@ -40,6 +42,54 @@ function AvatarObject({ model, rendererRef }: AvatarObjectProps) {
   return obj ? <primitive object={obj} /> : null;
 }
 
+// Live2D models are DOM-canvas based (pixi), not three.js scenes — they get
+// their own host node and never appear inside the R3F <Canvas>.
+function Live2DHost({ model, rendererRef }: AvatarObjectProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (model === null) return;
+    const avatar = new Live2DAvatar();
+    rendererRef.current = avatar;
+    let alive = true;
+    void avatar
+      .load(model)
+      .then(() => {
+        if (!alive || !hostRef.current) return;
+        avatar.attach(hostRef.current);
+        avatar.start();
+      })
+      .catch(() => {
+        if (!alive) return;
+        avatar.dispose();
+        if (rendererRef.current === avatar) rendererRef.current = null;
+        setFailed(true);
+      });
+    return () => {
+      alive = false;
+      avatar.stop();
+      avatar.dispose();
+      if (rendererRef.current === avatar) rendererRef.current = null;
+    };
+  }, [model, rendererRef]);
+
+  if (failed) {
+    // Load failure (e.g. Cubism Core missing) → fall back to the geometric avatar.
+    return <AvatarObject model={null} rendererRef={rendererRef} />;
+  }
+
+  return (
+    <div
+      ref={hostRef}
+      data-testid="live2d-host"
+      className="h-full w-full"
+      aria-label={t("live.avatar")}
+    />
+  );
+}
+
 export function AvatarCanvas({
   model,
   rendererRef,
@@ -48,6 +98,11 @@ export function AvatarCanvas({
   rendererRef: React.MutableRefObject<AvatarRenderer | null>;
 }) {
   const { t } = useTranslation();
+
+  if (getModelKind(model) === "live2d") {
+    return <Live2DHost model={model} rendererRef={rendererRef} />;
+  }
+
   if (!isWebGLAvailable()) {
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-text-muted">
