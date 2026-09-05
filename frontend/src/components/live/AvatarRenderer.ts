@@ -10,7 +10,7 @@ export interface EmotionState {
 }
 
 export interface AvatarRenderer {
-  readonly object: THREE.Object3D;
+  readonly object: THREE.Object3D | null;
   load(url: string): Promise<void>;
   start(): void;
   stop(): void;
