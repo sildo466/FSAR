@@ -100,6 +100,32 @@ Voice (TTS / ASR) and the social-platform bridges (Telegram / Feishu / WeChat) o
 
 Browser opens to <http://127.0.0.1:8765>. If it does not, navigate there manually.
 
+### Live Companion (Live2D / VRM avatar)
+
+The sidebar **Live** entry opens a spoken conversation with an on-screen avatar:
+pick a character + user + model in the lobby, then talk — FSAR transcribes your
+voice, replies, and speaks back while the avatar's mouth and expression follow.
+
+You bring your own model files; none are bundled.
+
+- **VRM** — drop `my-avatar.vrm` into `data/models/` (under your `~/.fsar/`
+  data dir). It appears in the lobby's model list; pick it and Start.
+- **Live2D** — drop a model *folder* containing `.model3.json` into
+  `data/models/` (e.g. `data/models/hiyori/hiyori.model3.json`). Pick it and
+  Start. **The Live2D runtime (Cubism Core) is proprietary and is not
+  shipped with FSAR** — you must supply it yourself for Live2D models to
+  render:
+  1. Download the Cubism SDK for Web from
+     https://www.live2d.com/download/cubism-sdk/download-web/ (free for
+     personal / non-commercial use; commercial release needs a license).
+  2. Copy `Core/live2dcubismcore.min.js` to
+     `frontend/public/assets/live2d/live2dcubismcore.min.js`, then rebuild
+     (`cd frontend && npm run build`).
+  3. Without that file, Live2D models show a "runtime missing" message and the
+     page falls back to the geometric avatar.
+
+No model selected uses a built-in breathing geometric avatar.
+
 ### macOS only: grant Computer Use permission
 
 Open **System Settings → Privacy & Security → Accessibility** and grant access to your terminal app and Python. Required only for the Computer Use tools (`cu_screenshot`, `cu_click`, `cu_type`, `cu_keypress`).

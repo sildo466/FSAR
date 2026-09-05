@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useWS } from "../stores/ws";
 import { useSkinStore } from "../stores/skin";
-import { applyBackgroundToCss, applySkinToCss, clearSkinCss, resolveBackground, resolveSkin, toRgba, useSkinApplication } from "./skin";
+import { applyBackgroundToCss, applySkinToCss, clearSkinCss, resolveBackground, resolveLiveScene, resolveSkin, toRgba, useSkinApplication } from "./skin";
 
 afterEach(() => cleanup());
 
@@ -177,5 +177,17 @@ describe("apply pattern tokens", () => {
     expect(root.style.getPropertyValue("--app-texture-opacity")).toBe("");
     clearSkinCss(root);
     expect(root.style.getPropertyValue("--app-texture-opacity")).toBe("");
+  });
+});
+
+describe("resolveLiveScene", () => {
+  it("defaults to deepspace when background is empty", () => {
+    expect(resolveLiveScene(undefined)).toBe("deepspace");
+    expect(resolveLiveScene({})).toBe("deepspace");
+  });
+  it("returns a custom image when provided", () => {
+    expect(resolveLiveScene({ liveScene: "image:/skin-assets/a/bg.png" })).toBe(
+      "image:/skin-assets/a/bg.png"
+    );
   });
 });

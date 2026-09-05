@@ -432,6 +432,7 @@ class ChatEngine:
         self._cancelled = False
         self._mcp_started = False
         self._command_followup: dict[str, str] | None = None
+        self._live_brief = False
 
         self._session_model_override: str | None = None
         self._session_tier_override: str | None = None
@@ -863,7 +864,9 @@ class ChatEngine:
         selected_chat_model: dict[str, Any] | None = None,
         attached_files: list[str] | None = None,
         workspace_id: int | None = None,
+        live: bool = False,
     ) -> None:
+        self._live_brief = live
         if conversation_id and self.session_store.get(conversation_id):
             conv_id = conversation_id
             created_row = None
@@ -2974,6 +2977,14 @@ class ChatEngine:
         system_prompt = await self._build_character_prompt(
             conv_id, user_input, character,
         )
+        if self._live_brief:
+            self._live_brief = False
+            system_prompt = (
+                system_prompt
+                + "\n\nThis is a live voice conversation. Reply briefly and "
+                "conversationally — one to three short sentences, like speaking "
+                "out loud. Do not narrate your thoughts or list steps."
+            )
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
         self._ensure_short(conv_id)
         context_window, max_output = self._model_limits()

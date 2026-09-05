@@ -85,6 +85,9 @@ AGENTS.md
 # 开发日志 / 设计文档
 docs/
 
+# Live2D Cubism Core runtime (developer-local until Web license registered)
+frontend/public/assets/live2d/
+
 # 根级调试日志（*.log 已覆盖 .log 后缀）
 /comparelog.txt
 /@AutomationLog.txt

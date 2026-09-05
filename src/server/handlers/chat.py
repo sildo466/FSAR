@@ -51,6 +51,7 @@ def _start_chat(ws: WebSocket, msg: dict[str, Any]) -> None:
         msg.get("selected_chat_model"),
         msg.get("attached_files"),
         msg.get("workspace_id"),
+        bool(msg.get("live")),
     ))
 
 

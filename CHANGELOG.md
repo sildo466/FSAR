@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-05
+
+Minor release delivering the **Live Companion**: a spoken, voiced conversation
+with an on-screen avatar. Reachable as the `Live` entry in the sidebar
+(`/live`), it turns the existing ASR → chat → TTS pipes into a perceived
+companion — pick a character + user + model in the lobby, then talk.
+
+### Added
+
+- **Live session lobby** — `/live` route with character / user / model
+  selectors; picking *None (geometric)* uses the built-in fallback avatar.
+- **VRM avatar rendering** — `AvatarRenderer` interface with a `VrmAvatar`
+  implementation (`three-vrm`) that loads a user-supplied `.vrm` from
+  `data/models/`, idles with procedural breath + blink, and drives the mouth
+  and expressions from live state.
+- **Geometric fallback avatar** — a breathing black icosahedron so the page
+  always has a living presence even with no model selected.
+- **Voice conversation loop** — browser mic capture with an energy-based VAD
+  (replacing the unreliable ONNX Silero detector), ASR transcription, companion
+  chat reply, and TTS playback; a **mute toggle** halts listening immediately.
+- **Live subtitles** — a right-side panel showing user and FSAR lines as they
+  stream, with a show/hide toggle and glass animation.
+- **Lip-sync + emotion-driven expression** — the avatar's mouth follows the
+  spoken reply (`wlipsync` on the TTS audio); expression blend shapes react to
+  the numeric emotion layer (mood / affection / trust / energy).
+- **Audio visualizer** — top waveform driven by the real TTS spectrum, plus a
+  mic level meter for VAD/ASR diagnostics.
+- **Live2D backend (Stage 4)** — `Live2DAvatar` behind the same
+  `AvatarRenderer` interface (`pixi-live2d-display` + Cubism Core), with a
+  VRM | Live2D grouped selector in the lobby. Live2D models are user-supplied
+  folders in `data/models/` (`.model3.json`); the Cubism Core runtime is
+  deliberately **not bundled** (see below).
+- **`/api/models` Live2D support** — the read-only model endpoint now lists and
+  serves Live2D folders recursively alongside VRM, keeping the existing
+  traversal guard.
+- **`liveScene` skin token** — a new background token (default `deepspace`, a
+  dark radial gradient with drifting motes) for the live conversation page.
+- **Character-mode replies in Live** — the voice turn reuses the character's
+  configured voice and speaks brief replies.
+
+### Docs
+
+- New `THIRD_PARTY_LICENSES/pixi.js.txt` + `pixi-live2d-display.txt` and a
+  README section documenting the Stage 4 stack. **Live2D Cubism Core is
+  proprietary and not redistributed** — users download it themselves to
+  `frontend/public/assets/live2d/`; without it, Live2D selection falls back to
+  the geometric avatar.
+- README (all six languages) and `docs-public/` updated with Live2D setup
+  instructions.
+
 ## [0.4.1] - 2026-08-26
 
 Patch release fixing tool-result redaction, shell-wrapper variable eating, PowerShell 5.1 encoding, and sandbox path mis-detection.

@@ -19,6 +19,7 @@ import { SettingsWorkspace } from "./pages/SettingsWorkspace";
 import { Onboarding } from "./pages/Onboarding";
 import { IntergrationPage } from "./pages/IntergrationPage";
 import { Scheduler } from "./pages/Scheduler";
+import { Live } from "./pages/Live";
 import { EscapeModal } from "./components/workspace/EscapeModal";
 import { useWorkspace } from "./stores/workspace";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
@@ -55,6 +56,7 @@ function AppShell() {
             <Route path="/usage" element={<Usage />} />
             <Route path="/intergration" element={<IntergrationPage />} />
             <Route path="/scheduler" element={<Scheduler />} />
+            <Route path="/live" element={<Live />} />
           </Routes>
         </main>
       </div>

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -301,6 +302,53 @@ async def get_skin_asset(skin_id: str, file_path: str):
         if target.is_relative_to(base) and target.is_file():
             return FileResponse(str(target))
     raise HTTPException(status_code=404, detail="missing_asset")
+
+
+_LIVE2D_SUFFIXES = (
+    ".model3.json", ".moc3", ".mtn", ".exp3.json", ".physics3.json",
+    ".pose3.json", ".cdi3.json", ".png", ".json",
+)
+
+
+@app.get("/api/models")
+async def list_models():
+    from src.utils.fsar_home import get_fsar_home
+    root = get_fsar_home() / "data" / "models"
+    if not root.exists():
+        return {"models": []}
+    names = sorted(
+        p.relative_to(root).as_posix() for p in root.rglob("*")
+        if p.is_file() and (
+            p.suffix.lower() == ".vrm"
+            or p.name.lower().endswith(".model3.json")
+        )
+    )
+    return {"models": names}
+
+
+@app.get("/api/models/{name:path}")
+async def get_model(name: str):
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    from src.utils.fsar_home import get_fsar_home
+
+    root = (get_fsar_home() / "data" / "models").resolve()
+    lowered = (name or "").lower()
+    allowed = lowered.endswith(".vrm") or lowered.endswith(_LIVE2D_SUFFIXES)
+    if not name or not allowed:
+        raise HTTPException(status_code=400, detail="bad_name")
+    target = (root / name).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bad_name") from None
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="missing_model")
+    return FileResponse(
+        str(target),
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _allowed_origins() -> list[str]:
@@ -606,6 +654,13 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
 _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+def _register_frontend_mime_types() -> None:
+    """Windows Python lacks a MIME type for .mjs; StaticFiles then serves it
+    as text/plain and the browser's strict ESM MIME check rejects module
+    scripts."""
+    mimetypes.add_type("text/javascript", ".mjs")
+
+
 def _mount_frontend(app: FastAPI) -> None:
     """Serve frontend/dist as the same-origin GUI.
 
@@ -614,6 +669,7 @@ def _mount_frontend(app: FastAPI) -> None:
     2. /         → index.html
     3. /<path>   → SPA fallback to index.html (so React Router can take over)
     """
+    _register_frontend_mime_types()
     if not _FRONTEND_DIST.exists():
         @app.get("/", include_in_schema=False)
         async def _frontend_missing() -> dict[str, str]:

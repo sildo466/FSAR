@@ -23,6 +23,7 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
 - Operate your computer (Computer Use / cua): screenshot, click, type, keypress — gated separately
 - Persist new skills as SQLite experience rows (install once, recall many times)
 - Talk through Telegram, Feishu (Lark), and WeChat
+- Hold a spoken conversation with an on-screen avatar (Live Companion): pick a character + model, talk, and FSAR replies aloud with lip-synced, expression-driven VRM or Live2D models (bring your own model files)
 
 ## Tech stack
 

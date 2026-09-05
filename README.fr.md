@@ -100,6 +100,20 @@ La voix (TTS/ASR) et les passerelles sociales (Telegram/Feishu/WeChat) ne foncti
 
 Le navigateur s'ouvre automatiquement sur <http://127.0.0.1:8765>. Sinon, naviguez-y manuellement.
 
+### Live Companion (avatar Live2D / VRM)
+
+L'entrée **Live** de la barre latérale ouvre une conversation vocale avec un avatar à l'écran : choisissez une personne + une carte utilisateur + un modèle dans le hall, puis parlez — FSAR transcrit votre voix, répond, et lit la réponse à voix haute pendant que la bouche et l'expression de l'avatar suivent.
+
+Vous fournissez vos propres fichiers de modèle ; aucun n'est inclus.
+
+- **VRM** — déposez `my-avatar.vrm` dans `data/models/` (sous votre répertoire de données `~/.fsar/`). Il apparaît dans la liste des modèles du hall ; sélectionnez-le et démarrez.
+- **Live2D** — déposez un *dossier* de modèle contenant `.model3.json` dans `data/models/` (ex. `data/models/hiyori/hiyori.model3.json`). Sélectionnez-le et démarrez. **Le moteur d'exécution Live2D (Cubism Core) est propriétaire et n'est pas fourni avec FSAR** — vous devez l'obtenir vous-même pour que les modèles Live2D s'affichent :
+  1. Téléchargez le Cubism SDK for Web sur https://www.live2d.com/download/cubism-sdk/download-web/ (gratuit pour un usage personnel / non commercial ; une sortie commerciale requiert une licence).
+  2. Copiez `Core/live2dcubismcore.min.js` vers `frontend/public/assets/live2d/live2dcubismcore.min.js`, puis reconstruisez (`cd frontend && npm run build`).
+  3. Sans ce fichier, les modèles Live2D affichent un message « runtime manquant » et la page revient à l'avatar géométrique.
+
+Sans modèle sélectionné, un avatar géométrique respirant intégré est utilisé.
+
 ### macOS uniquement : accorder la permission Computer Use
 
 Ouvrez **Réglages système → Confidentialité et sécurité → Accessibilité** et accordez l'accès à votre terminal et à Python. Nécessaire uniquement pour les outils Computer Use (`cu_screenshot`, `cu_click`, `cu_type`, `cu_keypress`).
