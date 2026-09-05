@@ -304,6 +304,12 @@ async def get_skin_asset(skin_id: str, file_path: str):
     raise HTTPException(status_code=404, detail="missing_asset")
 
 
+_LIVE2D_SUFFIXES = (
+    ".model3.json", ".moc3", ".mtn", ".exp3.json", ".physics3.json",
+    ".pose3.json", ".cdi3.json", ".png", ".json",
+)
+
+
 @app.get("/api/models")
 async def list_models():
     from src.utils.fsar_home import get_fsar_home
@@ -311,20 +317,25 @@ async def list_models():
     if not root.exists():
         return {"models": []}
     names = sorted(
-        p.name for p in root.iterdir()
-        if p.is_file() and p.suffix.lower() == ".vrm"
+        p.relative_to(root).as_posix() for p in root.rglob("*")
+        if p.is_file() and (
+            p.suffix.lower() == ".vrm"
+            or p.name.lower().endswith(".model3.json")
+        )
     )
     return {"models": names}
 
 
-@app.get("/api/models/{name}")
+@app.get("/api/models/{name:path}")
 async def get_model(name: str):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     from src.utils.fsar_home import get_fsar_home
 
     root = (get_fsar_home() / "data" / "models").resolve()
-    if not name or not name.endswith(".vrm"):
+    lowered = (name or "").lower()
+    allowed = lowered.endswith(".vrm") or lowered.endswith(_LIVE2D_SUFFIXES)
+    if not name or not allowed:
         raise HTTPException(status_code=400, detail="bad_name")
     target = (root / name).resolve()
     try:
