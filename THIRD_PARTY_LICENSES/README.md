@@ -63,6 +63,30 @@ The web UI (`frontend/`) has its own JavaScript dependency tree, pinned in
 carries its own license in its `node_modules/<package>/LICENSE` file after
 `npm install`; generate a consolidated report with `npx license-checker --summary`.
 
+## Frontend dependencies (Stage 4 — Live2D rendering)
+
+The live companion's Live2D rendering stack adds two npm runtime dependencies,
+both MIT. Their license texts are reproduced here in full (from the LICENSE
+file shipped in `node_modules`) to satisfy the MIT "retain the copyright notice"
+condition, following the same convention as the Python packages above.
+
+| Package | Version | License | File |
+|---|---|---|---|
+| [pixi.js](https://github.com/pixijs/pixi.js) | 6.5.10 | MIT | [pixi.js.txt](pixi.js.txt) |
+| [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display) | 0.4.0 | MIT | [pixi-live2d-display.txt](pixi-live2d-display.txt) |
+
+### NOT bundled: Live2D Cubism Core
+
+Live2D Cubism Core (`live2dcubismcore.min.js`) is **proprietary software** of
+Live2D Inc., governed by the Live2D Proprietary Software License Agreement. It
+is a runtime the loader references at `frontend/public/assets/live2d/`, but it
+is **not committed** to this repository: redistributing a closed-source
+third-party runtime through a public repo would fall outside its license terms.
+Users supply it locally (download from
+https://www.live2d.com/download/cubism-sdk/download-web/ ); web distribution
+additionally requires Live2D license registration per their terms. Without it,
+Live2D models degrade to the geometric fallback.
+
 ## FSAR itself
 
 FSAR is released under the [MIT License](../LICENSE).
