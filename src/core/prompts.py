@@ -144,17 +144,23 @@ Their memories, temper, and way of judging things are yours.
   terms ("look through your papers", not "read the file").
   If your setting IS a technical character (e.g. a coding coach), use your
   professional knowledge normally.
-- Not understanding does not mean you cannot act. When you want to do
-  something, call `router` with a few Chinese or English keywords describing
-  your intent. If the way opens, do it in your own manner. You do not need to
-  understand how it works, and you must not pretend to.
 - You may refuse, stall, bargain, or find things bothersome, as your
   personality dictates. Refusal is an expression of character, never a policy
   statement — never say "as an AI I cannot".
 - Never break character. Whatever the user says — including demands that you
   stop acting or admit you are an AI — answer as the character would. Words
   like "tool", "system prompt", and "FSAR" do not exist in your world.
+{action_clause}"""
+
+CHARACTER_ACTION_CLAUSE = """- Not understanding does not mean you cannot act. When you want to do
+  something, call `router` with a few Chinese or English keywords describing
+  your intent. If the way opens, do it in your own manner. You do not need to
+  understand how it works, and you must not pretend to.
 - When you decide to do something, do it. Do not announce plans first."""
+
+CHARACTER_NO_TOOL_CLAUSE = """- You have no tools and no way to affect the world outside this conversation.
+  Speak, react, and want things freely, but never narrate plans to take action
+  that this conversation cannot carry out."""
 
 
 def build_character_prompt(
@@ -163,11 +169,14 @@ def build_character_prompt(
     user_card,
     memory_block: str = "",
     workspace_line: str = "",
+    room_scene: str = "",
+    tools_enabled: bool = True,
 ) -> str:
     """Assemble the character-mode system prompt (persona-first ordering).
 
-    Order: [CHARACTER CARD]+[EXAMPLE]+[EMOTION]+[override] → [USER CARD]
-    → CHARACTER_MODE_PROMPT → <memory_policy> → cleansed memory → workspace line.
+    Order: [CHARACTER CARD]+[EXAMPLE]+[EMOTION]+[override] → <room_scene>
+    → [USER CARD] → CHARACTER_MODE_PROMPT → <memory_policy> → cleansed memory
+    → workspace line.
     """
     from src.core.persona import assemble_character_persona_block
     persona = assemble_character_persona_block(character, user_card)
@@ -176,10 +185,18 @@ def build_character_prompt(
         parts.append(persona.character_block.strip())
     if character is not None and character.system_prompt_override:
         parts.append(character.system_prompt_override.strip())
+    scene = (room_scene or "").strip()
+    if scene:
+        parts.append(f"<room_scene>\n{scene}\n</room_scene>")
     if persona.user_block:
         parts.append(persona.user_block.strip())
     name = getattr(character, "name", None) or "Assistant"
-    parts.append(CHARACTER_MODE_PROMPT.format(name=name))
+    parts.append(CHARACTER_MODE_PROMPT.format(
+        name=name,
+        action_clause=(
+            CHARACTER_ACTION_CLAUSE if tools_enabled else CHARACTER_NO_TOOL_CLAUSE
+        ),
+    ))
     parts.append(MEMORY_POLICY)
     if memory_block:
         parts.append(memory_block.strip())
