@@ -343,3 +343,139 @@ class GroupEngine:
             })
         results.sort(key=lambda r: r.eagerness, reverse=True)
         return results
+
+    def _speaker_names(self, room: Any) -> tuple[dict[int, str], str]:
+        chat = self.chat
+        names: dict[int, str] = {}
+        for cid in self.rooms.members(room.id):
+            character = chat.card_repo.get_character(cid)
+            if character is not None:
+                names[cid] = getattr(character, "name", "") or ""
+        user_card_id = getattr(room, "user_card_id", None)
+        card = (
+            chat.card_repo.get_user_card(user_card_id) if user_card_id else None
+        ) or chat.card_repo.get_default_user_card()
+        return names, getattr(card, "name", "") or "user"
+
+    def _history_block(self, room: Any) -> list[dict[str, str]]:
+        names, user_name = self._speaker_names(room)
+        rows = self.chat.session_store.get_session_messages(room.session_id)
+        return format_group_history(rows, names_by_id=names, user_name=user_name)
+
+    def _trigger_for(
+        self, room: Any, first_input: str | None,
+    ) -> tuple[list[dict[str, str]], str]:
+        """History for the next speaker plus the message that triggered them.
+
+        The trigger is kept out of history so nobody sees it twice. The first
+        turn uses the caller's text because it may carry attachment bodies that
+        are not persisted; later turns read the room back."""
+        block = self._history_block(room)
+        if first_input is not None:
+            if block and block[-1]["role"] == "user":
+                block = block[:-1]
+            return block, first_input
+        if not block:
+            return [], ""
+        return block[:-1], block[-1]["content"]
+
+    async def run_chain(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        user_input: str,
+        mentioned: list[int],
+        user_card: Any,
+    ) -> str:
+        """Chain rounds until nobody is eager enough or a hard cap is hit."""
+        chat = self.chat
+        chain_id = f"chain_{uuid.uuid4().hex[:12]}"
+        members = [
+            chat.card_repo.get_character(cid)
+            for cid in self.rooms.members(room.id)
+        ]
+        members = [c for c in members if c is not None]
+        self.clear_cancel(room.id)
+        if not members:
+            await self._safe_send(ws, {
+                "type": "group.error",
+                "room_id": room.id,
+                "code": "no_members",
+                "message": "This room has no characters.",
+            })
+            return "settled"
+
+        calls_used = 0
+        last_speaker: int | None = None
+        first_speaker = True
+        reason = "settled"
+
+        for round_no in range(1, MAX_CHAIN_ROUNDS + 1):
+            if MAX_CHAIN_CALLS - calls_used < len(members) + 1:
+                reason = "max_calls"
+                break
+            results = await self.elect(
+                ws,
+                room=room,
+                candidates=members,
+                history_block=self._history_block(room),
+                mentioned=mentioned if round_no == 1 else [],
+                chain_id=chain_id,
+                round_no=round_no,
+            )
+            calls_used += len(members)
+            eager = [r for r in results if r.eagerness >= EAGER_THRESHOLD]
+            if not eager:
+                break
+            chosen = [
+                r for r in eager if r.character_id != last_speaker
+            ][:SPEAKERS_PER_ROUND]
+            if not chosen:
+                break
+            await self._safe_send(ws, {
+                "type": "group.elect.decided",
+                "room_id": room.id,
+                "chain_id": chain_id,
+                "round": round_no,
+                "speakers": [r.character_id for r in chosen],
+            })
+            for result in chosen:
+                if self.is_cancelled(room.id):
+                    reason = "cancelled"
+                    break
+                if calls_used + 1 > MAX_CHAIN_CALLS:
+                    reason = "max_calls"
+                    break
+                character = next(
+                    (c for c in members if c.id == result.character_id), None,
+                )
+                if character is None:
+                    continue
+                history, trigger = self._trigger_for(
+                    room, user_input if first_speaker else None,
+                )
+                first_speaker = False
+                await self.speak(
+                    ws,
+                    room=room,
+                    character=character,
+                    user_card=user_card,
+                    history=history,
+                    user_input=trigger,
+                    should_stop=lambda: self.is_cancelled(room.id),
+                )
+                calls_used += 1
+                last_speaker = result.character_id
+            if reason in ("cancelled", "max_calls"):
+                break
+        else:
+            reason = "max_rounds"
+
+        await self._safe_send(ws, {
+            "type": "group.chain.finished",
+            "room_id": room.id,
+            "chain_id": chain_id,
+            "reason": reason,
+        })
+        return reason
