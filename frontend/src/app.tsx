@@ -5,9 +5,11 @@ import { useWS } from "./stores/ws";
 import { useCardsStore } from "./stores/cards";
 import { useSessions } from "./stores/sessions";
 import { useTokenMeter } from "./stores/token-meter";
+import { useGroup } from "./stores/group";
 import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
 import { Chat } from "./pages/Chat";
+import { Group } from "./pages/Group";
 import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
 import { Library } from "./pages/Library";
@@ -45,6 +47,7 @@ function AppShell() {
           <Routes>
             <Route path="/" element={<Chat />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/group" element={<Group />} />
             <Route path="/reflection" element={<Reflection />} />
             <Route path="/memory" element={<Memory />} />
             <Route path="/library" element={<Library />} />
@@ -75,6 +78,7 @@ export function App() {
   const initWorkspace = useWorkspace((s) => s.init);
   const initSessions = useSessions((s) => s.init);
   const initTokenMeter = useTokenMeter((s) => s.init);
+  const initGroup = useGroup((s) => s.init);
   useEffect(() => {
     if (!client) return;
     const detach = initCards(client);
@@ -98,6 +102,14 @@ export function App() {
     const detach = initTokenMeter(client);
     return () => detach();
   }, [client, initTokenMeter]);
+
+  // Rooms must stay subscribed for the whole connection too: group.updated
+  // arriving on another route would otherwise be dropped.
+  useEffect(() => {
+    if (!client) return;
+    const detach = initGroup(client);
+    return () => detach();
+  }, [client, initGroup]);
 
   useThemeApplication();
   useMotionApplication();
