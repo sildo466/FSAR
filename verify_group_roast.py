@@ -8,8 +8,10 @@ LLM provider) and the character cards are copied in read-only from the real DB,
 so nothing in ~/.fsar is modified.
 
 Usage:
-    python verify_group_roast.py            # sandbox, cleaned up afterwards
-    python verify_group_roast.py --keep     # keep the sandbox dir and print it
+    python verify_group_roast.py                      # default "roast" scene
+    python verify_group_roast.py --scene kitchen      # the everyday scene
+    python verify_group_roast.py --scene kitchen --turns 2 --rounds 3
+    python verify_group_roast.py --dry                # no provider calls
 """
 from __future__ import annotations
 
@@ -77,31 +79,54 @@ if not VERBOSE:
 
 CAST_NAMES = ["Elara", "Bran", "Lila", "Vera"]
 
-SCENARIO = (
-    "你们四个此刻同处一间休息室。Vera刚当众宣称："
-    "“这种小事也配占用我的时间？”——她一副懒得搭理任何人的样子。"
-    "在场的人都不是好脾气，谁都不会因为她傲慢就让着她。"
-)
+# Scenes are data, not code paths: the set-up states the facts and where each
+# person stands, and lets the group find its own words. Nothing here dictates
+# what anyone should say.
+SCENES: dict[str, dict] = {
+    "roast": {
+        "room_name": "休息室·喷Vera",
+        "room_desc": "临时凑起来的一间休息室，气氛很不友好。",
+        "scenario": (
+            "你们四个此刻同处一间休息室。Vera刚当众宣称："
+            "“这种小事也配占用我的时间？”——她一副懒得搭理任何人的样子。"
+            "在场的人都不是好脾气，谁都不会因为她傲慢就让着她。"
+        ),
+        # The point of this arc is that she 吃软不吃硬: pressing her does not
+        # work, being straight with her does.
+        "turns": [
+            ("Vera，你刚才那句话是什么意思？大家都听见了，别装听不见。", True),
+            ("行，你不说也行。可你刚才明明可以不说那句话，为什么还是说了？", False),
+            ("我不是要你认错。我只是觉得，你要是真觉得这事无聊，你压根不会开口。", True),
+            ("那你说吧，要怎样你才肯讲一句真的？", True),
+            ("算了，不逼你了。谢谢你至少没直接走。", True),
+        ],
+    },
+    "kitchen": {
+        "room_name": "客厅·番茄炒蛋",
+        "room_desc": "傍晚的客厅，很平常的一个晚上。",
+        "scenario": (
+            "客厅，傍晚。Elara在窗边翻一本旧笔记，Lila瘫在沙发上，"
+            "Bran靠着门框没说话。你刚开口问了Vera一件很平常的小事，"
+            "她当着一屋子人的面把你贬得一文不值，语气里全是“你也配”。"
+            "在座的人跟你相处得不算差，谁也没打算替她那份傲慢让路。"
+        ),
+        "turns": [
+            ("Vera，我在学做饭，今天想试试番茄炒蛋，火候怎么掌握？", True),
+            ("……她平时都是这么说话的吗？", False),
+            ("我不是要她道歉。我只是觉得，对一个真心问问题的人这样说话，挺没意思的。", False),
+            ("算了。我接着炒我的蛋，糊了算我自己的。", False),
+        ],
+    },
+}
 
-ROOM_NAME = "休息室·喷Vera"
-ROOM_DESC = "临时凑起来的一间休息室，气氛很不友好。"
 
-# One user message per turn, each turn running its own chain. The hard caps are
-# per chain by design, so a longer conversation means more turns, not a bigger
-# cap. The arc below mirrors how Vera's card says she actually works
-# (吃软不吃硬): press her, then stop pressing and be straight with her.
-TURNS: list[tuple[str, bool]] = [
-    ("Vera，你刚才那句话是什么意思？大家都听见了，别装听不见。", True),
-    ("行，你不说也行。可你刚才明明可以不说那句话，为什么还是说了？", False),
-    ("我不是要你认错。我只是觉得，你要是真觉得这事无聊，你压根不会开口。", True),
-    ("那你说吧，要怎样你才肯讲一句真的？", True),
-    ("算了，不逼你了。谢谢你至少没直接走。", True),
-]
+def _scene() -> dict:
+    return SCENES.get(_arg_value("--scene") or "roast", SCENES["roast"])
 
 
 def _turn_limit() -> int:
     value = _arg_value("--turns")
-    return int(value) if value.isdigit() else len(TURNS)
+    return int(value) if value.isdigit() else len(_scene()["turns"])
 
 
 def banner(text: str) -> None:
@@ -138,13 +163,26 @@ def copy_cards(src_db: Path, dst_db: Path) -> dict[str, int]:
 
 def _stub_llm() -> None:
     """--dry: replace both LLM entry points with deterministic fakes so the
-    plumbing can be exercised without spending any provider calls."""
+    plumbing can be exercised without spending any provider calls.
+
+    The election fake settles after two rounds. A stub that stayed eager
+    forever would spin until killed, because the product default is no round
+    cap — a dry run must terminate on its own."""
     from src.server import group_engine as ge_module
 
+    batches = {"n": 0}
+
     async def fake_batch(client, *, provider_id, model, prompts):
+        batches["n"] += 1
+        if batches["n"] <= 2:
+            eager = 9 if batches["n"] == 1 else 6
+        else:
+            # This batch settles the chain, so the next one starts a fresh one.
+            eager = 0
+            batches["n"] = 0
         return [
-            json.dumps({"eagerness": 9 if i % 2 == 0 else 6, "reason": "[dry run]"})
-            for i, _prompt in enumerate(prompts)
+            json.dumps({"eagerness": eager, "reason": "[dry run]"})
+            for _prompt in enumerate(prompts)
         ]
 
     ge_module.run_batch_completions = fake_batch
@@ -225,25 +263,33 @@ def transcript(rooms: RoomStore, room_id: int, names: dict[int, str]) -> None:
 
 LEAK_RE = re.compile(r"\[[^\[\]\n]{1,24}\]\s*[:：]")
 LEAK_NAMES = ["Elara", "Bran", "Lila", "Vera"]
+TOOL_MARKUP_RE = re.compile(r"</?(?:tool_call|function_call)\b", re.IGNORECASE)
 
 
 def leak_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> bool:
-    """Check the speaker-marker convention did not leak into message bodies.
+    """Check the input conventions did not leak into message bodies.
 
-    Two distinct failure modes with different status:
+    Two failure modes, both now stripped deterministically and therefore must
+    never appear:
 
     * **own marker** — the model prefixed its own reply with its own name,
-      copying the transcript convention back in and compounding it over
-      rounds. This is now stripped deterministically, so a hit is a real bug.
-    * **foreign marker** — the model wrote another character's line. Prompting
-      reduces this but cannot guarantee it, and nothing mechanical can cleanly
-      separate the two voices afterwards. Surfaced as a known limitation.
+      copying the transcript convention back in and compounding it over rounds.
+    * **tool markup** — the model wrote
+      `<tool_call>{"name":"update_emotion",...}</tool_call>` as visible text,
+      because the persona advertised a tool that a group turn does not offer.
+
+    Plus one that prompting only reduces: the model writing another
+    character's lines. Nothing mechanical can tell the two voices apart after
+    the fact, so it is surfaced as a known limitation rather than a failure.
     """
     own: list[tuple[int, str]] = []
     foreign: list[tuple[int, str]] = []
+    tools: list[int] = []
     for row in rooms.messages_with_speaker(room_id):
         if row.role != "assistant":
             continue
+        if TOOL_MARKUP_RE.search(row.content):
+            tools.append(row.id)
         speaker = (names.get(row.character_card_id or -1) or "").strip()
         for match in LEAK_RE.finditer(row.content):
             label = match.group(0)
@@ -254,11 +300,14 @@ def leak_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> bool:
 
     for row_id, label in own:
         print(f"    own-marker leak in row {row_id}: starts {label!r}")
-    ok = not own
+    for row_id in tools:
+        print(f"    tool-call markup leaked into row {row_id}")
+    ok = not own and not tools
     print(f"\n[check] own speaker-marker stripped: {'PASS' if ok else 'FAIL'}")
+    print(f"[check] tool-call markup stripped: {'PASS' if not tools else 'FAIL'}")
     if foreign:
-        print(f"[check] known limitation: {len(foreign)} message(s) also "
-              f"contain another character's marker")
+        print(f"[check] known limitation: {len(foreign)} message(s) contain "
+              f"another character's marker")
         for row_id, label in foreign:
             print(f"    row {row_id}: {label!r}")
     else:
@@ -342,10 +391,11 @@ async def main() -> int:
             print("No active chat model configured - configure one in Settings first.")
             return 2
 
+    scene = _scene()
     room = rooms.create(
-        name=ROOM_NAME,
-        description=ROOM_DESC,
-        scenario_prompt=SCENARIO,
+        name=scene["room_name"],
+        description=scene["room_desc"],
+        scenario_prompt=scene["scenario"],
         user_card_id=None,
         character_ids=cast_ids,
         max_rounds=ROUNDS,
@@ -354,14 +404,14 @@ async def main() -> int:
     print(f"\nroom #{room.id} {room.name!r} session={room.session_id}")
     print(f"round cap: {'none (keeps going until it settles)' if ROUNDS == 0 else ROUNDS}")
 
-    banner("scenario prompt")
-    print(SCENARIO)
+    banner(f"scene: {scene['room_name']}")
+    print(scene["scenario"])
 
     viola_id = copied["Vera"]
     group = GroupEngine(engine, rooms)
     user_card = engine.card_repo.get_default_user_card()
     collector = Collector()
-    turns = TURNS[:_turn_limit()]
+    turns = scene["turns"][:_turn_limit()]
 
     for index, (text, mention_viola) in enumerate(turns, start=1):
         banner(f"turn {index}/{len(turns)}  user: {text}")

@@ -59,7 +59,7 @@ def _user_section(u: UserCard) -> str:
     )
 
 
-def _emotion_section(c: CharacterCard) -> str:
+def _emotion_section(c: CharacterCard, *, tools_enabled: bool = True) -> str:
     state = c.emotion_state or {}
     if not state:
         return ""
@@ -77,8 +77,15 @@ def _emotion_section(c: CharacterCard) -> str:
         static_note = " (static; cannot be modified by you)" if key in static_keys else ""
         lines.append(f"- {key:<14} {value}{unit}  (stable){static_note}")
     lines.append("")
-    lines.append("You can use the `update_emotion` tool to record emotional shifts you "
-                 "feel during this conversation. Each call must include a `reason`.")
+    if tools_enabled:
+        lines.append("You can use the `update_emotion` tool to record emotional shifts you "
+                     "feel during this conversation. Each call must include a `reason`.")
+    else:
+        # Advertising a tool that is not offered made the model emit
+        # `<tool_call>{"name":"update_emotion",...}</tool_call>` as visible text.
+        lines.append("Your state is updated for you after each exchange, so you never "
+                     "call anything to change it. Say what you feel in your own words "
+                     "and never write tool-call syntax.")
     return "\n".join(lines) + "\n"
 
 
@@ -111,6 +118,8 @@ class CharacterPersona:
 def assemble_character_persona_block(
     character: CharacterCard | None,
     user_card: UserCard | None,
+    *,
+    tools_enabled: bool = True,
 ) -> CharacterPersona:
     """Persona split for character mode: everything about the character first
     (card + examples + emotion), the user card kept separate so the character
@@ -121,7 +130,7 @@ def assemble_character_persona_block(
         character_block = "".join(s for s in (
             _character_section(character),
             _example_section(character),
-            _emotion_section(character),
+            _emotion_section(character, tools_enabled=tools_enabled),
         ) if s)
     user_block = _user_section(user_card) if user_card is not None else ""
     return CharacterPersona(character_block=character_block, user_block=user_block)

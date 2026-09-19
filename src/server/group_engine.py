@@ -51,6 +51,30 @@ TURN_INSTRUCTION = (
 )
 
 
+_TOOL_CALL_RE = re.compile(
+    r"<tool_call>.*?</tool_call>", re.DOTALL | re.IGNORECASE,
+)
+_TOOL_CALL_UNCLOSED_RE = re.compile(
+    r"<tool_call>.*\Z", re.DOTALL | re.IGNORECASE,
+)
+_FUNCTION_CALL_RE = re.compile(
+    r"<function_call>.*?</function_call>", re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_tool_call_markup(text: str) -> str:
+    """Remove tool-call markup the model wrote into its visible reply.
+
+    A group turn offers no tools and the prompt no longer advertises any, but
+    the syntax is in the model's training data, so "do not emit this" is only a
+    probability. Strip it, and let a reply that was nothing but a tool call fall
+    through to the blank-reply path so no bubble is created."""
+    cleaned = _TOOL_CALL_RE.sub("", text)
+    cleaned = _FUNCTION_CALL_RE.sub("", cleaned)
+    cleaned = _TOOL_CALL_UNCLOSED_RE.sub("", cleaned)
+    return cleaned.strip()
+
+
 def turn_instruction(text: str, speaker: str = "") -> str:
     """Wrap the trigger as a direct instruction to this speaker.
 
@@ -307,7 +331,7 @@ class GroupEngine:
             character=character,
             char_name=char_name,
         )
-        text = strip_speaker_marker(text, char_name or "")
+        text = strip_tool_call_markup(strip_speaker_marker(text, char_name or ""))
         if not text.strip():
             # The call produced nothing, or only a speaker marker. Saving a
             # blank row would leave an empty bubble in the room and feed the

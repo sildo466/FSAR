@@ -28,6 +28,18 @@ def make_user_card() -> UserCard:
     )
 
 
+def make_emotive_character() -> CharacterCard:
+    """_emotion_section is empty without a state, so a tool-leak test needs one."""
+    return CharacterCard(
+        id=9,
+        name="Mira",
+        description="A traveling witch.",
+        personality="Calm, sharp, mildly lazy.",
+        emotion_state={"affection": 50.0},
+        emotion_schema=[{"key": "affection", "min": 0, "max": 100}],
+    )
+
+
 def test_tools_disabled_drops_router_instruction() -> None:
     prompt = build_character_prompt(
         character=make_character(), user_card=None, tools_enabled=False,
@@ -136,3 +148,33 @@ def test_group_mode_clause_sits_after_mode_prompt_and_before_memory() -> None:
     )
     assert prompt.index("You are Mira") < prompt.index("no name prefix")
     assert prompt.index("no name prefix") < prompt.index("[CLEANSED MEMORY]")
+
+
+def test_group_mode_does_not_advertise_the_emotion_tool() -> None:
+    """The persona used to tell every character it could call
+    `update_emotion`. In a group turn no tools are offered, so the model
+    resolved the contradiction by writing
+    `<tool_call>{"name":"update_emotion",...}</tool_call>` into its visible
+    reply — which then got saved and shown to the user."""
+    prompt = build_character_prompt(
+        character=make_emotive_character(),
+        user_card=None,
+        tools_enabled=False,
+        group_mode=True,
+    )
+    assert "`update_emotion`" not in prompt
+    assert "tool-call syntax" in prompt
+    assert "affection" in prompt, "the state itself should still be shown"
+
+
+def test_character_mode_still_advertises_the_emotion_tool() -> None:
+    prompt = build_character_prompt(character=make_emotive_character(), user_card=None)
+    assert "`update_emotion`" in prompt
+
+
+def test_group_mode_does_not_advertise_the_router_tool() -> None:
+    prompt = build_character_prompt(
+        character=make_emotive_character(), user_card=None,
+        tools_enabled=False, group_mode=True,
+    )
+    assert "router" not in prompt

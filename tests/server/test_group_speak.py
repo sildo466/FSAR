@@ -328,6 +328,48 @@ def test_blank_regenerate_leaves_the_original_row_alone() -> None:
     assert updates == [], "the original row must survive a failed regenerate"
 
 
+def test_speak_drops_a_reply_that_was_only_a_tool_call() -> None:
+    """Observed for real: the model answered with update_emotion markup and it
+    was saved and shown to the user as dialogue."""
+    chat = _chat()
+
+    async def tool_only_stream(ws, **kwargs):
+        return '<tool_call>{"name":"update_emotion","arguments":"{}"}</tool_call>'
+
+    chat._stream_one_reply = tool_only_stream
+    ws = FakeWebSocket()
+
+    _, text = asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+    ))
+
+    assert text == ""
+    assert chat.saved == []
+    assert ws.messages[-1]["failed"] is True
+
+
+def test_speak_keeps_the_prose_around_a_tool_call() -> None:
+    chat = _chat()
+
+    async def mixed_stream(ws, **kwargs):
+        return """<tool_call>{"name":"update_emotion"}</tool_call>
+
+我、我又没让你替我出头……"""
+
+    chat._stream_one_reply = mixed_stream
+    ws = FakeWebSocket()
+
+    asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+    ))
+
+    assert chat.saved[0]["content"] == "我、我又没让你替我出头……"
+
+
 def test_cancel_marks_room() -> None:
     engine = _engine(_chat())
     assert engine.is_cancelled(1) is False

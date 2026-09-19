@@ -6,6 +6,7 @@ from src.server.group_engine import (
     UNKNOWN_SPEAKER,
     format_group_history,
     strip_speaker_marker,
+    strip_tool_call_markup,
     turn_instruction,
 )
 
@@ -110,3 +111,28 @@ def test_strip_speaker_marker_is_a_noop_without_a_name() -> None:
 
 def test_strip_speaker_marker_leaves_clean_text_alone() -> None:
     assert strip_speaker_marker("就是字面意思。", "Vera") == "就是字面意思。"
+
+
+def test_strip_tool_call_removes_a_well_formed_block() -> None:
+    raw = '<tool_call>{"name":"update_emotion"}</tool_call>我说完了'
+    assert strip_tool_call_markup(raw) == "我说完了"
+
+
+def test_strip_tool_call_removes_a_block_in_the_middle() -> None:
+    raw = "先说一句<tool_call>{}</tool_call>再说一句"
+    assert strip_tool_call_markup(raw) == "先说一句再说一句"
+
+
+def test_strip_tool_call_removes_a_truncated_block() -> None:
+    """A cancelled stream can cut the closing tag off."""
+    raw = '正文<tool_call>{"name":"update_emotion"'
+    assert strip_tool_call_markup(raw) == "正文"
+
+
+def test_strip_tool_call_handles_function_call_tags() -> None:
+    assert strip_tool_call_markup("<function_call>x</function_call>ok") == "ok"
+
+
+def test_strip_tool_call_leaves_normal_text_alone() -> None:
+    raw = "我用了括号（笑），没别的"
+    assert strip_tool_call_markup(raw) == raw

@@ -186,7 +186,9 @@ def build_character_prompt(
     → workspace line.
     """
     from src.core.persona import assemble_character_persona_block
-    persona = assemble_character_persona_block(character, user_card)
+    persona = assemble_character_persona_block(
+        character, user_card, tools_enabled=tools_enabled,
+    )
     parts: list[str] = []
     if persona.character_block:
         parts.append(persona.character_block.strip())
