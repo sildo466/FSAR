@@ -77,13 +77,13 @@ if not VERBOSE:
     _loguru.disable("src.memory.semantic")
     _loguru.disable("src.memory.lmstudio_embed")
 
-CAST_NAMES = ["Elara", "Bran", "Lila", "Vera"]
-
 # Scenes are data, not code paths: the set-up states the facts and where each
 # person stands, and lets the group find its own words. Nothing here dictates
 # what anyone should say.
 SCENES: dict[str, dict] = {
     "roast": {
+        "cast": ["Elara", "Bran", "Lila", "Vera"],
+        "mention": "Vera",
         "room_name": "休息室·喷Vera",
         "room_desc": "临时凑起来的一间休息室，气氛很不友好。",
         "scenario": (
@@ -102,6 +102,8 @@ SCENES: dict[str, dict] = {
         ],
     },
     "kitchen": {
+        "cast": ["Elara", "Bran", "Lila", "Vera"],
+        "mention": "Vera",
         "room_name": "客厅·番茄炒蛋",
         "room_desc": "傍晚的客厅，很平常的一个晚上。",
         # {user} is filled with the room's user-card name. Second person would
@@ -118,6 +120,25 @@ SCENES: dict[str, dict] = {
             ("……她平时都是这么说话的吗？", False),
             ("我不是要她道歉。我只是觉得，对一个真心问问题的人这样说话，挺没意思的。", False),
             ("算了。我接着炒我的蛋，糊了算我自己的。", False),
+        ],
+    },
+    "duel": {
+        "cast": ["Bran", "Lila"],
+        "mention": None,
+        "room_name": "客厅·谁洗碗",
+        "room_desc": "晚饭后的客厅，桌上还堆着碗。",
+        # Only two of them are here, and the reason to dig in is petty and
+        # concrete — that is what makes two stubborn people actually lock
+        # horns instead of politely deferring.
+        "scenario": (
+            "晚饭后的客厅，桌上堆着没洗的碗。Lila说她做的饭，碗该Bran洗；"
+            "Bran说他劈了一下午柴，按规矩轮不到他。两个人谁也不打算先动，"
+            "Elara和Vera都不在。"
+        ),
+        # One line, and the user leaves: after this every turn is triggered by
+        # the previous speaker, so the room runs on its own.
+        "turns": [
+            ("我先回屋了，你们自己商量。", False),
         ],
     },
 }
@@ -150,19 +171,19 @@ def banner(text: str) -> None:
     print(f"\n{'=' * 72}\n{text}\n{'=' * 72}")
 
 
-def copy_cards(src_db: Path, dst_db: Path) -> dict[str, int]:
-    """Read-only copy of the cast's cards (and the default user card)."""
+def copy_cards(src_db: Path, dst_db: Path, cast: list[str]) -> dict[str, int]:
+    """Read-only copy of the scene's cast (plus every user card)."""
     src = sqlite3.connect(f"file:{src_db.as_posix()}?mode=ro", uri=True)
     src.row_factory = sqlite3.Row
     dst = sqlite3.connect(dst_db)
     copied: dict[str, int] = {}
     for table, where in (
-        ("character_cards", f"TRIM(name) IN ({','.join('?' * len(CAST_NAMES))})"),
+        ("character_cards", f"TRIM(name) IN ({','.join('?' * len(cast))})"),
         # Every user card, then pick one below: a default is not always set.
         ("user_cards", "1 = 1"),
     ):
         cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})").fetchall()]
-        rows = src.execute(f"SELECT * FROM {table} WHERE {where}", CAST_NAMES
+        rows = src.execute(f"SELECT * FROM {table} WHERE {where}", cast
                            if table == "character_cards" else []).fetchall()
         placeholders = ",".join("?" * len(cols))
         for row in rows:
@@ -280,7 +301,6 @@ def transcript(rooms: RoomStore, room_id: int, names: dict[int, str]) -> None:
 
 
 LEAK_RE = re.compile(r"\[[^\[\]\n]{1,24}\]\s*[:：]")
-LEAK_NAMES = ["Elara", "Bran", "Lila", "Vera"]
 TOOL_MARKUP_RE = re.compile(r"</?(?:tool_call|function_call)\b", re.IGNORECASE)
 
 
@@ -313,7 +333,7 @@ def leak_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> bool:
             label = match.group(0)
             if speaker and speaker in label:
                 own.append((row.id, label))
-            elif any(name in label for name in LEAK_NAMES) or label.startswith("[user]"):
+            elif any(n and n in label for n in names.values()) or label.startswith("[user]"):
                 foreign.append((row.id, label))
 
     for row_id, label in own:
@@ -333,35 +353,34 @@ def leak_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> bool:
     return ok
 
 
-def viola_report(rooms: RoomStore, room_id: int, viola_id: int) -> None:
-    """Show Vera's arc rather than judging it.
+def arc_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> None:
+    """Show what each character actually said, rather than judging it.
 
-    An earlier version scanned her last message for concession markers and
-    printed a verdict — and called a plainly-persuaded run "still digging in",
-    because she concedes in her own idiom ("你倒是懂什么叫见好就收") rather than
-    with the words a keyword scan expects. A wrong verdict is worse than none,
-    so this prints the arc and lets the reader decide."""
-    banner("did Vera come round?")
-    rows = [
-        row for row in rooms.messages_with_speaker(room_id)
-        if row.role == "assistant" and row.character_card_id == viola_id
-    ]
-    if not rows:
-        print("She never spoke at all.")
-        return
+    A keyword scan for concession was tried and removed: it called a
+    plainly-persuaded run unconvinced, because these characters concede in
+    their own idiom. A wrong verdict is worse than none."""
+    banner("who carried the room")
+    rows = rooms.messages_with_speaker(room_id)
+    by_card: dict[int, list[str]] = {}
+    for row in rows:
+        if row.role == "assistant" and row.character_card_id is not None:
+            by_card.setdefault(row.character_card_id, []).append(row.content)
 
-    def show(label: str, text: str) -> None:
-        print(f"{label}:")
-        for line in text.strip().splitlines():
-            print(f"    {line}")
-
-    print(f"she spoke {len(rows)} time(s).\n")
-    show("first", rows[0].content)
-    if len(rows) > 1:
+    for card_id, name in sorted(names.items(), key=lambda kv: kv[1]):
+        spoken = by_card.get(card_id, [])
+        if not spoken:
+            print()
+            print(f"{name}: never spoke")
+            continue
         print()
-        show("last", rows[-1].content)
-    print("\n(no verdict — she concedes in her own idiom, so a keyword scan "
-          "gets it wrong; read the arc above)")
+        print(f"{name}: {len(spoken)} turn(s)")
+        for line in spoken[0].strip().splitlines():
+            print(f"    first | {line}")
+        if len(spoken) > 1:
+            for line in spoken[-1].strip().splitlines():
+                print(f"    last  | {line}")
+    print()
+    print("(no verdict — read the arcs above)")
 
 
 async def main() -> int:
@@ -374,6 +393,7 @@ async def main() -> int:
         print(f"\nNo ${REAL_DB} - nothing to run against.")
         return 2
 
+    scene = _scene()
     config = FsarConfig(REAL_CONFIG)
     engine = ChatEngine(config, RiskBridge())
     if PROVIDER:
@@ -386,15 +406,15 @@ async def main() -> int:
     db_path = Path(config.memory_sqlite_path)
     rooms = RoomStore(db_path, engine.session_store)
 
-    copied = copy_cards(REAL_DB, db_path)
-    missing = [n for n in CAST_NAMES if n not in copied]
+    copied = copy_cards(REAL_DB, db_path, scene["cast"])
+    missing = [n for n in scene["cast"] if n not in copied]
     if missing:
         print(f"\nMissing character cards: {missing}")
         return 2
-    cast_ids = [copied[n] for n in CAST_NAMES]
+    cast_ids = [copied[n] for n in scene["cast"]]
 
     banner("cast")
-    for name in CAST_NAMES:
+    for name in scene["cast"]:
         card = engine.card_repo.get_character(copied[name])
         print(f"  [{card.id:>3}] {card.name} — {card.personality[:48]}")
 
@@ -409,7 +429,6 @@ async def main() -> int:
             print("No active chat model configured - configure one in Settings first.")
             return 2
 
-    scene = _scene()
     user_card = _pick_user_card(engine)
     user_name = getattr(user_card, "name", "") or "user"
     # Name the user explicitly: a shared scene cannot use "you" for them.
@@ -430,7 +449,7 @@ async def main() -> int:
     banner(f"scene: {scene['room_name']}")
     print(scenario)
 
-    viola_id = copied["Vera"]
+    mention_id = copied.get(scene["mention"]) if scene["mention"] else None
     group = GroupEngine(engine, rooms)
     collector = Collector()
     turns = scene["turns"][:_turn_limit()]
@@ -445,7 +464,7 @@ async def main() -> int:
             collector,
             room=room,
             user_input=text,
-            mentioned=[viola_id] if mention_viola else [],
+            mentioned=[mention_id] if (mention_viola and mention_id) else [],
             user_card=user_card,
         )
         turns_slice = collector.events[before:]
@@ -464,7 +483,7 @@ async def main() -> int:
 
     transcript(rooms, room.id, names)
     leak_ok = leak_report(rooms, room.id, names)
-    viola_report(rooms, room.id, viola_id)
+    arc_report(rooms, room.id, names)
 
     banner("event log summary")
     counts: dict[str, int] = {}
