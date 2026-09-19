@@ -95,6 +95,26 @@ export function MemberPanel({ room, onClose }: Props) {
         className="resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none"
       />
 
+      <label className="text-[11px] text-text-muted" htmlFor="panel-rounds">
+        {t("group.roundsLabel")}
+      </label>
+      <input
+        id="panel-rounds"
+        data-testid="panel-rounds"
+        type="number"
+        min={0}
+        value={room.max_rounds}
+        onChange={(e) =>
+          updateRoom(room.id, { max_rounds: Math.max(0, Number(e.target.value) || 0) })
+        }
+        className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none"
+      />
+      <p className="-mt-2 text-[11px] text-text-faint">
+        {room.max_rounds > 0
+          ? t("group.roundsCapped", { count: room.max_rounds })
+          : t("group.roundsUnlimited")}
+      </p>
+
       <div className="text-[11px] text-text-muted">{t("group.members")}</div>
       <div className="flex flex-col gap-2">
         {room.members.map((cid) => {

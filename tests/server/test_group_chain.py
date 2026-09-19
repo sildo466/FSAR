@@ -25,9 +25,10 @@ def _members() -> list[CharacterCard]:
     ]
 
 
-def _room() -> SimpleNamespace:
+def _room(max_rounds: int = 0) -> SimpleNamespace:
     return SimpleNamespace(
         id=1, session_id="s1", scenario_prompt="", name="R", user_card_id=None,
+        max_rounds=max_rounds,
     )
 
 
@@ -73,9 +74,10 @@ def _patch(monkeypatch, *, eager: int, spoken: list[str]):
     monkeypatch.setattr(GroupEngine, "speak", fake_speak)
 
 
-def _run(engine, ws=None, **kw):
+def _run(engine, ws=None, *, max_rounds: int = 0, **kw):
     return asyncio.run(GroupEngine.run_chain(
-        engine, ws or FakeWebSocket(), room=_room(), user_input="hi",
+        engine, ws or FakeWebSocket(), room=_room(max_rounds),
+        user_input="hi",
         mentioned=kw.pop("mentioned", []), user_card=None, **kw,
     ))
 
@@ -118,41 +120,91 @@ def test_chain_speaks_when_eagerness_meets_threshold(monkeypatch) -> None:
     spoken: list[str] = []
     _patch(monkeypatch, eager=ge.EAGER_THRESHOLD, spoken=spoken)
 
-    reason = _run(_engine(chat, members))
+    reason = _run(_engine(chat, members), max_rounds=1)
 
     assert reason == "max_rounds"
     assert spoken[0] == "Mira"
 
 
-def test_chain_stops_at_max_rounds(monkeypatch) -> None:
+def test_chain_stops_at_the_configured_round_limit(monkeypatch) -> None:
     members = _members()
     chat = _chat(members)
     spoken: list[str] = []
     _patch(monkeypatch, eager=10, spoken=spoken)
 
-    reason = _run(_engine(chat, members))
+    reason = _run(_engine(chat, members), max_rounds=4)
 
     assert reason == "max_rounds"
     # Round 1 picks both (no previous speaker yet), then the anti-monologue
     # rule limits every later round to the single other member.
-    assert len(spoken) == ge.SPEAKERS_PER_ROUND + (ge.MAX_CHAIN_ROUNDS - 1)
+    assert len(spoken) == ge.SPEAKERS_PER_ROUND + 3
 
 
-def test_chain_stops_at_max_calls(monkeypatch) -> None:
-    members = [
-        CharacterCard(id=100 + i, name=f"C{i}", description="d", personality="p")
-        for i in range(6)
-    ]
+def test_uncapped_chain_runs_past_four_rounds_until_it_settles(monkeypatch) -> None:
+    """No cap means the group decides when to stop; the old 4-round ceiling is
+    gone, so an open-ended debate is possible."""
+    members = _members()
     chat = _chat(members)
     spoken: list[str] = []
-    _patch(monkeypatch, eager=10, spoken=spoken)
+    rounds = {"n": 0}
+
+    async def elect(self, ws, **kwargs):
+        rounds["n"] += 1
+        eager = 10 if rounds["n"] <= 6 else 0
+        return [
+            ge.ElectResult(character_id=c.id, character_name=c.name,
+                           eagerness=eager, reason="r")
+            for c in kwargs["candidates"]
+        ]
+
+    monkeypatch.setattr(GroupEngine, "elect", elect)
+
+    async def fake_speak(self, ws, **kwargs):
+        spoken.append(getattr(kwargs["character"], "name", ""))
+        return f"group_{len(spoken)}", "line"
+
+    monkeypatch.setattr(GroupEngine, "speak", fake_speak)
 
     reason = _run(_engine(chat, members))
 
-    assert reason == "max_calls"
-    # 6 members: each round costs 6 election calls plus up to 2 speeches, so
-    # the 24-call budget runs out inside round 3.
-    assert len(spoken) == 6
+    assert reason == "settled"
+    assert rounds["n"] == 7
+    assert len(spoken) == ge.SPEAKERS_PER_ROUND + 5
+
+
+def test_cancel_between_rounds_is_caught_before_the_next_election(
+    monkeypatch,
+) -> None:
+    """On an uncapped chain the per-round check is what keeps Stop responsive:
+    without it the loop would start another election after the last speaker."""
+    members = _members()
+    chat = _chat(members)
+    spoken: list[str] = []
+    elections = {"n": 0}
+
+    async def elect(self, ws, **kwargs):
+        elections["n"] += 1
+        return [
+            ge.ElectResult(character_id=c.id, character_name=c.name,
+                           eagerness=10, reason="r")
+            for c in kwargs["candidates"]
+        ]
+
+    monkeypatch.setattr(GroupEngine, "elect", elect)
+
+    async def speak_then_cancel_on_the_last(self, ws, **kwargs):
+        spoken.append(getattr(kwargs["character"], "name", ""))
+        if len(spoken) == 2:  # the last speaker of round one
+            GroupEngine.cancel(self, kwargs["room"].id)
+        return f"group_{len(spoken)}", "line"
+
+    monkeypatch.setattr(GroupEngine, "speak", speak_then_cancel_on_the_last)
+
+    reason = _run(_engine(chat, members))
+
+    assert reason == "cancelled"
+    assert elections["n"] == 1, "round two must not start after a cancel"
+    assert len(spoken) == ge.SPEAKERS_PER_ROUND
 
 
 def test_same_character_cannot_speak_twice_in_a_row(monkeypatch) -> None:
@@ -195,7 +247,7 @@ def test_new_chain_clears_a_stale_cancel(monkeypatch) -> None:
     engine = _engine(chat, members)
     GroupEngine.cancel(engine, 1)
 
-    _run(engine)
+    _run(engine, max_rounds=1)
 
     assert spoken
     assert engine.is_cancelled(1) is False
@@ -220,7 +272,7 @@ def test_chain_decided_event_lists_speakers(monkeypatch) -> None:
     _patch(monkeypatch, eager=10, spoken=[])
     ws = FakeWebSocket()
 
-    _run(_engine(chat, members), ws)
+    _run(_engine(chat, members), ws, max_rounds=1)
 
     decided = next(m for m in ws.messages if m["type"] == "group.elect.decided")
     assert decided["speakers"] == [7, 8]
@@ -265,7 +317,7 @@ def test_mentions_only_apply_to_the_first_round(monkeypatch) -> None:
 
     monkeypatch.setattr(GroupEngine, "speak", fake_speak)
 
-    _run(_engine(chat, members), mentioned=[7])
+    _run(_engine(chat, members), max_rounds=2, mentioned=[7])
 
     assert rounds[0] == [7]
     assert all(r == [] for r in rounds[1:])
@@ -304,7 +356,7 @@ def test_history_excludes_the_trigger_message(monkeypatch) -> None:
 
     monkeypatch.setattr(GroupEngine, "speak", fake_speak)
 
-    _run(_engine(chat, members))
+    _run(_engine(chat, members), max_rounds=1)
 
     first = captured[0]
     # The user's own message is the trigger, so it stays out of the history.

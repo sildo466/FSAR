@@ -87,6 +87,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     int(msg["user_card_id"]) if msg.get("user_card_id") else None
                 ),
                 character_ids=character_ids,
+                max_rounds=int(msg.get("max_rounds") or 0),
             )
             await ws.send_json({
                 "type": "group.created",
@@ -104,6 +105,10 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 scenario_prompt=msg.get("scenario_prompt"),
                 user_card_id=msg.get("user_card_id"),
                 pinned=msg.get("pinned"),
+                max_rounds=(
+                    int(msg["max_rounds"]) if msg.get("max_rounds") is not None
+                    else None
+                ),
             )
             if room is not None:
                 await ws.send_json({

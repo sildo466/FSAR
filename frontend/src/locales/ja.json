@@ -864,5 +864,8 @@
   "group.cancel": "キャンセル",
   "group.election": "選考",
   "group.electionAria": "選考結果",
-  "group.placeholderInput": "グループに話しかける…"
+  "group.placeholderInput": "グループに話しかける…",
+  "group.roundsLabel": "議論のラウンド数",
+  "group.roundsUnlimited": "無制限 — 自然に収まるか、あなたが停止するまで続きます。",
+  "group.roundsCapped": "{{count}} ラウンドで停止します。"
 }

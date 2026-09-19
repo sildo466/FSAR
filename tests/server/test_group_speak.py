@@ -252,6 +252,82 @@ def test_speak_survives_a_dead_socket() -> None:
     assert chat.saved[0]["character_id"] == 7
 
 
+def test_speak_drops_a_blank_reply(monkeypatch) -> None:
+    """An empty call must not leave a blank bubble or an empty memory turn."""
+    chat = _chat()
+    emotions: list = []
+    chat._post_turn_emotion_pass = lambda conv_id, char_id=None: (
+        emotions.append(char_id) or None
+    )
+
+    async def blank_stream(ws, **kwargs):
+        return ""
+
+    chat._stream_one_reply = blank_stream
+    ws = FakeWebSocket()
+
+    message_id, text = asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+    ))
+
+    assert text == ""
+    assert chat.saved == [], "a blank reply must not be persisted"
+    assert emotions == [], "no generation means no emotion update"
+    assert chat.tts == [], "nothing to speak"
+    done = ws.messages[-1]
+    assert done["type"] == "group.speaker.done"
+    assert done["failed"] is True
+
+
+def test_speak_drops_a_reply_that_is_only_the_speaker_marker() -> None:
+    chat = _chat()
+
+    async def marker_only_stream(ws, **kwargs):
+        return "[Mira]:   "
+
+    chat._stream_one_reply = marker_only_stream
+    ws = FakeWebSocket()
+
+    _, text = asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+    ))
+
+    assert text == ""
+    assert chat.saved == []
+    assert ws.messages[-1]["failed"] is True
+
+
+def test_blank_regenerate_leaves_the_original_row_alone() -> None:
+    """Losing a good reply to a failed regeneration would be worse than
+    leaving the old text in place."""
+    chat = _chat()
+    updates: list = []
+    chat.session_store = SimpleNamespace(
+        update_message=lambda row_id, content, character_card_id=None: (
+            updates.append(content) or True
+        ),
+    )
+
+    async def blank_stream(ws, **kwargs):
+        return ""
+
+    chat._stream_one_reply = blank_stream
+    ws = FakeWebSocket()
+
+    asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+        message_id="42", replace_row_id=42,
+    ))
+
+    assert updates == [], "the original row must survive a failed regenerate"
+
+
 def test_cancel_marks_room() -> None:
     engine = _engine(_chat())
     assert engine.is_cancelled(1) is False

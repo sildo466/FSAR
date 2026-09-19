@@ -96,8 +96,8 @@ export type ClientMsg =
   | { type: "sandbox_audit.list"; since?: string; conversation_id?: string; limit?: number }
   | { type: "tool.sandbox.escape_decision"; request_id: string; decision: "deny" | "allow_once" | "allow_session" | "allow_always" }
   | { type: "group.list" }
-  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[] }
-  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean }
+  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number }
+  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number }
   | { type: "group.delete"; room_id: number }
   | { type: "group.members.add"; room_id: number; character_ids: number[] }
   | { type: "group.members.remove"; room_id: number; character_id: number }
@@ -183,6 +183,9 @@ export interface RoomSummary {
   session_id: string;
   user_card_id: number | null;
   pinned: boolean;
+  /** 0 means the chain has no round cap and debates until it settles or the
+   *  user stops it. */
+  max_rounds: number;
   created_at: string;
   updated_at: string;
   members: number[];
@@ -336,8 +339,8 @@ export type ServerMsg =
   | { type: "group.speaker.start"; room_id: number; message_id: string; character_id?: number | null; character_name?: string | null }
   | { type: "group.speaker.delta"; room_id: number; message_id: string; content: string }
   | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
-  | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; emotion_state?: Record<string, number> | null }
-  | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "max_calls" | "cancelled" }
+  | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; failed?: boolean; emotion_state?: Record<string, number> | null }
+  | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "cancelled" | "error" }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }

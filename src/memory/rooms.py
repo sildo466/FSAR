@@ -20,6 +20,7 @@ class Room:
     session_id: str = ""
     user_card_id: int | None = None
     pinned: bool = False
+    max_rounds: int = 0
     created_at: str = ""
     updated_at: str = ""
 
@@ -32,6 +33,7 @@ class Room:
             "session_id": self.session_id,
             "user_card_id": self.user_card_id,
             "pinned": self.pinned,
+            "max_rounds": self.max_rounds,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -63,11 +65,13 @@ class RoomStore:
                 session_id      TEXT NOT NULL,
                 user_card_id    INTEGER,
                 pinned          INTEGER NOT NULL DEFAULT 0,
+                max_rounds      INTEGER NOT NULL DEFAULT 0,
                 created_at      TEXT NOT NULL,
                 updated_at      TEXT NOT NULL
             )
             """
         )
+        self._migrate_room_columns(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS room_members (
@@ -85,6 +89,15 @@ class RoomStore:
         )
         conn.commit()
 
+    def _migrate_room_columns(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add columns the initial rooms table did not have."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(rooms)").fetchall()]
+        if "max_rounds" not in cols:
+            conn.execute(
+                "ALTER TABLE rooms ADD COLUMN max_rounds INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.commit()
+
     @staticmethod
     def _row_to_room(r: sqlite3.Row) -> Room:
         return Room(
@@ -95,6 +108,7 @@ class RoomStore:
             session_id=r["session_id"],
             user_card_id=r["user_card_id"],
             pinned=bool(r["pinned"]),
+            max_rounds=int(r["max_rounds"] or 0),
             created_at=r["created_at"],
             updated_at=r["updated_at"],
         )
@@ -107,6 +121,7 @@ class RoomStore:
         scenario_prompt: str = "",
         user_card_id: int | None = None,
         character_ids: list[int],
+        max_rounds: int = 0,
     ) -> Room:
         now = datetime.now().isoformat()
         session = self.session_store.create(kind="group")
@@ -114,10 +129,10 @@ class RoomStore:
             cur = conn.execute(
                 "INSERT INTO rooms "
                 "(name, description, scenario_prompt, session_id, user_card_id, "
-                "pinned, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+                "pinned, max_rounds, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
                 (name, description, scenario_prompt, session.id,
-                 user_card_id, now, now),
+                 user_card_id, max(0, int(max_rounds)), now, now),
             )
             room_id = cur.lastrowid
             for cid in character_ids:
@@ -154,6 +169,7 @@ class RoomStore:
         scenario_prompt: str | None = None,
         user_card_id: int | None = None,
         pinned: bool | None = None,
+        max_rounds: int | None = None,
     ) -> Room | None:
         current = self.get(room_id)
         if current is None:
@@ -161,13 +177,16 @@ class RoomStore:
         with self._connect() as conn:
             conn.execute(
                 "UPDATE rooms SET name = ?, description = ?, scenario_prompt = ?, "
-                "user_card_id = ?, pinned = ?, updated_at = ? WHERE id = ?",
+                "user_card_id = ?, pinned = ?, max_rounds = ?, updated_at = ? "
+                "WHERE id = ?",
                 (
                     current.name if name is None else name,
                     current.description if description is None else description,
                     current.scenario_prompt if scenario_prompt is None else scenario_prompt,
                     current.user_card_id if user_card_id is None else user_card_id,
                     int(current.pinned if pinned is None else pinned),
+                    int(current.max_rounds if max_rounds is None
+                        else max(0, int(max_rounds))),
                     datetime.now().isoformat(),
                     room_id,
                 ),

@@ -51,6 +51,10 @@ def _arg_value(flag: str) -> str:
 
 
 PROVIDER = _arg_value("--provider")
+# The product default is 0 (uncapped). A verification run may set a bound the
+# same way a user would, so the harness never depends on killing the process.
+_rounds_arg = _arg_value("--rounds")
+ROUNDS = int(_rounds_arg) if _rounds_arg.isdigit() else 0
 SANDBOX = Path(tempfile.mkdtemp(prefix="fsar-group-e2e-"))
 os.environ["FSAR_HOME"] = str(SANDBOX)
 os.environ["FSAR_CONFIG_PATH"] = str(REAL_CONFIG)
@@ -81,6 +85,23 @@ SCENARIO = (
 
 ROOM_NAME = "休息室·喷Vera"
 ROOM_DESC = "临时凑起来的一间休息室，气氛很不友好。"
+
+# One user message per turn, each turn running its own chain. The hard caps are
+# per chain by design, so a longer conversation means more turns, not a bigger
+# cap. The arc below mirrors how Vera's card says she actually works
+# (吃软不吃硬): press her, then stop pressing and be straight with her.
+TURNS: list[tuple[str, bool]] = [
+    ("Vera，你刚才那句话是什么意思？大家都听见了，别装听不见。", True),
+    ("行，你不说也行。可你刚才明明可以不说那句话，为什么还是说了？", False),
+    ("我不是要你认错。我只是觉得，你要是真觉得这事无聊，你压根不会开口。", True),
+    ("那你说吧，要怎样你才肯讲一句真的？", True),
+    ("算了，不逼你了。谢谢你至少没直接走。", True),
+]
+
+
+def _turn_limit() -> int:
+    value = _arg_value("--turns")
+    return int(value) if value.isdigit() else len(TURNS)
 
 
 def banner(text: str) -> None:
@@ -245,6 +266,37 @@ def leak_report(rooms: RoomStore, room_id: int, names: dict[int, str]) -> bool:
     return ok
 
 
+def viola_report(rooms: RoomStore, room_id: int, viola_id: int) -> None:
+    """Show Vera's arc rather than judging it.
+
+    An earlier version scanned her last message for concession markers and
+    printed a verdict — and called a plainly-persuaded run "still digging in",
+    because she concedes in her own idiom ("你倒是懂什么叫见好就收") rather than
+    with the words a keyword scan expects. A wrong verdict is worse than none,
+    so this prints the arc and lets the reader decide."""
+    banner("did Vera come round?")
+    rows = [
+        row for row in rooms.messages_with_speaker(room_id)
+        if row.role == "assistant" and row.character_card_id == viola_id
+    ]
+    if not rows:
+        print("She never spoke at all.")
+        return
+
+    def show(label: str, text: str) -> None:
+        print(f"{label}:")
+        for line in text.strip().splitlines():
+            print(f"    {line}")
+
+    print(f"she spoke {len(rows)} time(s).\n")
+    show("first", rows[0].content)
+    if len(rows) > 1:
+        print()
+        show("last", rows[-1].content)
+    print("\n(no verdict — she concedes in her own idiom, so a keyword scan "
+          "gets it wrong; read the arc above)")
+
+
 async def main() -> int:
     banner("sandbox")
     print(f"real home   : {REAL_HOME}")
@@ -296,30 +348,51 @@ async def main() -> int:
         scenario_prompt=SCENARIO,
         user_card_id=None,
         character_ids=cast_ids,
+        max_rounds=ROUNDS,
     )
     names = {cid: engine.card_repo.get_character(cid).name for cid in cast_ids}
     print(f"\nroom #{room.id} {room.name!r} session={room.session_id}")
+    print(f"round cap: {'none (keeps going until it settles)' if ROUNDS == 0 else ROUNDS}")
 
     banner("scenario prompt")
     print(SCENARIO)
 
-    opening = "Vera，你刚才那句话是什么意思？大家都听见了，别装听不见。"
-    mentioned = [copied["Vera"]]
-    banner(f"user: {opening}")
-    print(f"(@mention short-circuits the election for Vera -> {mentioned})")
-    engine.session_store.append_message(room.session_id, "user", opening)
-
+    viola_id = copied["Vera"]
+    group = GroupEngine(engine, rooms)
+    user_card = engine.card_repo.get_default_user_card()
     collector = Collector()
-    await GroupEngine(engine, rooms).run_chain(
-        collector,
-        room=room,
-        user_input=opening,
-        mentioned=mentioned,
-        user_card=engine.card_repo.get_default_user_card(),
-    )
+    turns = TURNS[:_turn_limit()]
+
+    for index, (text, mention_viola) in enumerate(turns, start=1):
+        banner(f"turn {index}/{len(turns)}  user: {text}")
+        if mention_viola:
+            print("(@mention: Vera is short-circuited into this round)")
+        engine.session_store.append_message(room.session_id, "user", text)
+        before = len(collector.events)
+        await group.run_chain(
+            collector,
+            room=room,
+            user_input=text,
+            mentioned=[viola_id] if mention_viola else [],
+            user_card=user_card,
+        )
+        turns_slice = collector.events[before:]
+        # speaker.done carries no name; speaker.start does.
+        spoke = [
+            (e.get("character_name") or "?").strip() for e in turns_slice
+            if e["type"] == "group.speaker.start"
+        ]
+        finished = next(
+            (e["reason"] for e in turns_slice
+             if e["type"] == "group.chain.finished"),
+            "?",
+        )
+        print(f"  [turn {index} summary] {len(spoke)} speeches "
+              f"({finished}): {spoke}")
 
     transcript(rooms, room.id, names)
     leak_ok = leak_report(rooms, room.id, names)
+    viola_report(rooms, room.id, viola_id)
 
     banner("event log summary")
     counts: dict[str, int] = {}

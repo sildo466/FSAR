@@ -864,5 +864,8 @@
   "group.cancel": "取消",
   "group.election": "競選",
   "group.electionAria": "競選結果",
-  "group.placeholderInput": "對群聊說點什麼…"
+  "group.placeholderInput": "對群聊說點什麼…",
+  "group.roundsLabel": "辯論輪數",
+  "group.roundsUnlimited": "不限 —— 群聊會一直進行到自然停下，或你手動停止。",
+  "group.roundsCapped": "最多 {{count}} 輪後停止。"
 }

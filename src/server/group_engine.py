@@ -21,8 +21,10 @@ if TYPE_CHECKING:
 
 UNKNOWN_SPEAKER = "Unknown"
 
-MAX_CHAIN_ROUNDS = 4
-MAX_CHAIN_CALLS = 24
+# A chain has no round cap of its own: it runs until the group settles or the
+# user stops it, so a room can hold an open-ended debate. Set rooms.max_rounds
+# to a positive number when a particular room wants a bound.
+UNLIMITED_ROUNDS = 0
 EAGER_THRESHOLD = 5
 SPEAKERS_PER_ROUND = 2
 MENTIONED_EAGERNESS = 10
@@ -306,6 +308,19 @@ class GroupEngine:
             char_name=char_name,
         )
         text = strip_speaker_marker(text, char_name or "")
+        if not text.strip():
+            # The call produced nothing, or only a speaker marker. Saving a
+            # blank row would leave an empty bubble in the room and feed the
+            # character's memory an empty turn. On a regenerate this also leaves
+            # the original reply intact, which is the right trade.
+            await self._safe_send(ws, {
+                "type": "group.speaker.done",
+                "room_id": room.id,
+                "message_id": message_id,
+                "failed": True,
+                "content": "",
+            })
+            return message_id, ""
         row_id = replace_row_id
         if replace_row_id is not None:
             if chat.session_store.update_message(
@@ -498,15 +513,22 @@ class GroupEngine:
             })
             return "settled"
 
-        calls_used = 0
         last_speaker: int | None = None
         first_speaker = True
         reason = "settled"
+        max_rounds = max(0, int(getattr(room, "max_rounds", 0) or 0))
+        round_no = 0
 
         try:
-            for round_no in range(1, MAX_CHAIN_ROUNDS + 1):
-                if MAX_CHAIN_CALLS - calls_used < len(members) + 1:
-                    reason = "max_calls"
+            while True:
+                # Checked once per round so Stop stays responsive on a long
+                # chain, not just between speakers.
+                if self.is_cancelled(room.id):
+                    reason = "cancelled"
+                    break
+                round_no += 1
+                if max_rounds and round_no > max_rounds:
+                    reason = "max_rounds"
                     break
                 results = await self.elect(
                     ws,
@@ -517,14 +539,15 @@ class GroupEngine:
                     chain_id=chain_id,
                     round_no=round_no,
                 )
-                calls_used += len(members)
                 eager = [r for r in results if r.eagerness >= EAGER_THRESHOLD]
                 if not eager:
+                    reason = "settled"
                     break
                 chosen = [
                     r for r in eager if r.character_id != last_speaker
                 ][:SPEAKERS_PER_ROUND]
                 if not chosen:
+                    reason = "settled"
                     break
                 await self._safe_send(ws, {
                     "type": "group.elect.decided",
@@ -536,9 +559,6 @@ class GroupEngine:
                 for result in chosen:
                     if self.is_cancelled(room.id):
                         reason = "cancelled"
-                        break
-                    if calls_used + 1 > MAX_CHAIN_CALLS:
-                        reason = "max_calls"
                         break
                     character = next(
                         (c for c in members if c.id == result.character_id), None,
@@ -559,12 +579,9 @@ class GroupEngine:
                         should_stop=lambda: self.is_cancelled(room.id),
                         trigger_speaker=trigger_speaker,
                     )
-                    calls_used += 1
                     last_speaker = result.character_id
-                if reason in ("cancelled", "max_calls"):
+                if reason == "cancelled":
                     break
-            else:
-                reason = "max_rounds"
         except asyncio.CancelledError:
             reason = "cancelled"
             raise

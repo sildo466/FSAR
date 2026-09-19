@@ -124,6 +124,64 @@ def test_members_of_unknown_room_is_empty() -> None:
     assert rooms.members(4242) == []
 
 
+def test_rooms_default_to_no_round_cap() -> None:
+    """0 means the chain has no cap, so a room can hold an open-ended debate."""
+    rooms = _store()
+    room = rooms.create(name="R", character_ids=[1])
+    assert room.max_rounds == 0
+    assert rooms.get(room.id).max_rounds == 0
+
+
+def test_create_persists_a_round_cap() -> None:
+    rooms = _store()
+    room = rooms.create(name="R", character_ids=[1], max_rounds=6)
+    assert rooms.get(room.id).max_rounds == 6
+
+
+def test_negative_round_cap_is_clamped_to_unlimited() -> None:
+    rooms = _store()
+    room = rooms.create(name="R", character_ids=[1], max_rounds=-3)
+    assert rooms.get(room.id).max_rounds == 0
+
+
+def test_update_sets_and_clears_the_round_cap() -> None:
+    rooms = _store()
+    room = rooms.create(name="R", character_ids=[1])
+    assert rooms.update(room.id, max_rounds=8).max_rounds == 8
+    assert rooms.update(room.id, max_rounds=0).max_rounds == 0
+
+
+def test_update_leaves_the_round_cap_alone_when_omitted() -> None:
+    rooms = _store()
+    room = rooms.create(name="R", character_ids=[1], max_rounds=3)
+    rooms.update(room.id, name="R2")
+    assert rooms.get(room.id).max_rounds == 3
+
+
+def test_max_rounds_migration_is_idempotent_on_an_old_table() -> None:
+    import sqlite3
+    import tempfile
+    from pathlib import Path as _Path
+
+    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    db = _Path(tmp.name) / "old.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE rooms ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, "
+            "description TEXT NOT NULL DEFAULT '', scenario_prompt TEXT NOT NULL DEFAULT '', "
+            "session_id TEXT NOT NULL, user_card_id INTEGER, "
+            "pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL)"
+        )
+        conn.commit()
+
+    store = RoomStore(db, SessionStore(db))
+    store._ensure_tables(store._connect())
+    room = store.create(name="R", character_ids=[1], max_rounds=5)
+    assert store.get(room.id).max_rounds == 5
+
+
 def test_messages_with_speaker_delegates_to_session() -> None:
     rooms = _store()
     room = rooms.create(name="R", character_ids=[7])

@@ -156,5 +156,8 @@
   "group.cancel": "Abbrechen",
   "group.election": "Wahl",
   "group.electionAria": "Wahlergebnisse",
-  "group.placeholderInput": "Sag etwas zur Gruppe…"
+  "group.placeholderInput": "Sag etwas zur Gruppe…",
+  "group.roundsLabel": "Debattenrunden",
+  "group.roundsUnlimited": "Keine Obergrenze — die Gruppe läuft weiter, bis sie sich beruhigt oder du sie stoppst.",
+  "group.roundsCapped": "Endet nach {{count}} Runden."
 }

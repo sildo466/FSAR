@@ -137,6 +137,17 @@ describe("applyGroupEvent", () => {
     expect(next[0].content).toBe("hello there");
   });
 
+  it("drops the bubble when the speaker produced nothing", () => {
+    const live = [{ ...assistant("m1", 7, "Mira"), streaming: true }];
+    const next = applyGroupEvent(live, {
+      type: "group.speaker.done",
+      room_id: 1,
+      message_id: "m1",
+      failed: true,
+    });
+    expect(next).toHaveLength(0);
+  });
+
   it("ignores unrelated events", () => {
     const live = [assistant("m1", 7, "Mira")];
     const next = applyGroupEvent(live, { type: "heartbeat", ts: 0 });
@@ -161,6 +172,7 @@ describe("useGroup store", () => {
           session_id: "s1",
           user_card_id: null,
           pinned: false,
+          max_rounds: 0,
           created_at: "",
           updated_at: "",
           members: [7],
@@ -181,6 +193,7 @@ describe("useGroup store", () => {
         session_id: "s5",
         user_card_id: null,
         pinned: false,
+        max_rounds: 0,
         created_at: "",
         updated_at: "",
         members: [7, 8],
@@ -201,6 +214,7 @@ describe("useGroup store", () => {
           session_id: "s3",
           user_card_id: null,
           pinned: false,
+          max_rounds: 0,
           created_at: "",
           updated_at: "",
           members: [7],
@@ -228,6 +242,7 @@ describe("useGroup store", () => {
           session_id: "s4",
           user_card_id: null,
           pinned: false,
+          max_rounds: 0,
           created_at: "",
           updated_at: "",
           members: [7],
@@ -244,6 +259,7 @@ describe("useGroup store", () => {
         session_id: "s4",
         user_card_id: null,
         pinned: true,
+        max_rounds: 0,
         created_at: "",
         updated_at: "",
         members: [7, 8],

@@ -864,5 +864,8 @@
   "group.cancel": "Cancel",
   "group.election": "Election",
   "group.electionAria": "Election results",
-  "group.placeholderInput": "Say something to the group…"
+  "group.placeholderInput": "Say something to the group…",
+  "group.roundsLabel": "Debate rounds",
+  "group.roundsUnlimited": "No cap — the group keeps going until it settles or you stop it.",
+  "group.roundsCapped": "Stops after {{count}} rounds."
 }

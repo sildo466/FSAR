@@ -27,6 +27,7 @@ interface GroupState {
     scenario_prompt?: string;
     user_card_id?: number | null;
     character_ids: number[];
+    max_rounds?: number;
   }) => void;
   updateRoom: (
     roomId: number,
@@ -36,6 +37,8 @@ interface GroupState {
       scenario_prompt?: string;
       user_card_id?: number | null;
       pinned?: boolean;
+      /** 0 clears the cap, so the room debates until it settles. */
+      max_rounds?: number;
     }
   ) => void;
   deleteRoom: (roomId: number) => void;
@@ -89,6 +92,8 @@ export function applyGroupEvent(
           : m
       );
     case "group.speaker.done":
+      // A call that produced nothing leaves no bubble at all.
+      if (msg.failed) return live.filter((m) => m.id !== msg.message_id);
       return live.map((m) =>
         m.id === msg.message_id
           ? {
