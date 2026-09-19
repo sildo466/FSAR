@@ -159,5 +159,6 @@
   "group.placeholderInput": "Sag etwas zur Gruppe…",
   "group.roundsLabel": "Debattenrunden",
   "group.roundsUnlimited": "Keine Obergrenze — die Gruppe läuft weiter, bis sie sich beruhigt oder du sie stoppst.",
-  "group.roundsCapped": "Endet nach {{count}} Runden."
+  "group.roundsCapped": "Endet nach {{count}} Runden.",
+  "group.scenarioHint": "Wird von allen geteilt. Schreib es als Erzählung — nenne den Nutzer beim Namen statt „du“ zu sagen."
 }

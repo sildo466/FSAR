@@ -45,9 +45,11 @@ Return ONLY this JSON, nothing else:
 _EAGERNESS_RE = re.compile(r'\{[^{}]*"eagerness"[^{}]*\}', re.DOTALL)
 
 TURN_INSTRUCTION = (
-    "{speaker} has just said this in the group chat:\n"
+    "{speaker} has just spoken in the group chat:\n"
     "{text}\n\n"
-    "Reply now, in character, with only your own next line."
+    "It is your turn. Say only your own line, in character, with no name "
+    "prefix — and only if you actually have something to add. That remark was "
+    "not necessarily aimed at you."
 )
 
 
@@ -79,7 +81,10 @@ def turn_instruction(text: str, speaker: str = "") -> str:
     """Wrap the trigger as a direct instruction to this speaker.
 
     A bare transcript line reads as more script for the model to continue,
-    which makes it write the other characters' lines too."""
+    which makes it write the other characters' lines too. The wording stays
+    neutral about the addressee: "reply now" let whoever was picked to speak
+    assume the preceding remark had been aimed at them, so a character who was
+    only a bystander would answer as the injured party."""
     if not speaker:
         return text
     return TURN_INSTRUCTION.format(speaker=speaker, text=text)

@@ -107,8 +107,11 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
           value={scenario}
           onChange={(e) => setScenario(e.target.value)}
           placeholder={t("group.scenarioPlaceholder")}
-          className="mb-3 w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none"
+          className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none"
         />
+        <p className="mb-3 mt-1 text-[11px] text-text-faint">
+          {t("group.scenarioHint")}
+        </p>
 
         <div className="mb-1 text-[11px] text-text-muted">{t("group.members")}</div>
         <div className="mb-4 flex flex-wrap gap-2">

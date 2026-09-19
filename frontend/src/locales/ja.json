@@ -867,5 +867,6 @@
   "group.placeholderInput": "グループに話しかける…",
   "group.roundsLabel": "議論のラウンド数",
   "group.roundsUnlimited": "無制限 — 自然に収まるか、あなたが停止するまで続きます。",
-  "group.roundsCapped": "{{count}} ラウンドで停止します。"
+  "group.roundsCapped": "{{count}} ラウンドで停止します。",
+  "group.scenarioHint": "全員で共有されます。地の文として書き、ユーザーは「あなた」ではなく名前で書いてください。"
 }

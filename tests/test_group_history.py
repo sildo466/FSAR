@@ -74,7 +74,7 @@ def test_turn_instruction_wraps_a_third_party_trigger() -> None:
     out = turn_instruction("watch out", "Kai")
     assert "Kai" in out
     assert "watch out" in out
-    assert "only your own next line" in out
+    assert "only your own line" in out
 
 
 def test_turn_instruction_passes_the_opening_line_through() -> None:
@@ -136,3 +136,11 @@ def test_strip_tool_call_handles_function_call_tags() -> None:
 def test_strip_tool_call_leaves_normal_text_alone() -> None:
     raw = "我用了括号（笑），没别的"
     assert strip_tool_call_markup(raw) == raw
+
+
+def test_turn_instruction_does_not_imply_the_remark_was_aimed_at_you() -> None:
+    """Bystanders answered as the injured party because "Reply now" framed the
+    preceding remark as addressed to whoever was picked to speak."""
+    out = turn_instruction("你这人真无聊", "Vera")
+    assert "not necessarily aimed at you" in out
+    assert "Reply now" not in out

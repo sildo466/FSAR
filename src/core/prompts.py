@@ -162,6 +162,13 @@ CHARACTER_NO_TOOL_CLAUSE = """- You have no tools and no way to affect the world
   Speak, react, and want things freely, but never narrate plans to take action
   that this conversation cannot carry out."""
 
+ROOM_SCENE_PREAMBLE = (
+    "The scene below is shared by everyone in this room, so read it as "
+    "narration. Where it says \"you\", it means the user — not you; you are "
+    "{name}. Someone else may be the one being addressed or described, so "
+    "check the names before assuming it is about you."
+)
+
 GROUP_SPEAKING_CLAUSE = """- You are in a group chat: several other characters are present, and the
   transcript marks each utterance with its speaker as "[Name]: ...". That
   marking is how you tell voices apart — it is NOT a format for your own
@@ -194,12 +201,19 @@ def build_character_prompt(
         parts.append(persona.character_block.strip())
     if character is not None and character.system_prompt_override:
         parts.append(character.system_prompt_override.strip())
+    name = getattr(character, "name", None) or "Assistant"
     scene = (room_scene or "").strip()
     if scene:
-        parts.append(f"<room_scene>\n{scene}\n</room_scene>")
+        # Every member receives the same scene text, and the persona tells each
+        # of them "you are <name>". So a scene written in the second person
+        # ("you just asked Vera and she belittled you") is read by every
+        # character as being about themselves — the wronged party drifts from
+        # the user onto whoever happens to speak next.
+        header = ROOM_SCENE_PREAMBLE.format(name=name) if group_mode else ""
+        body = f"{header}\n\n{scene}" if header else scene
+        parts.append(f"<room_scene>\n{body}\n</room_scene>")
     if persona.user_block:
         parts.append(persona.user_block.strip())
-    name = getattr(character, "name", None) or "Assistant"
     parts.append(CHARACTER_MODE_PROMPT.format(
         name=name,
         action_clause=(

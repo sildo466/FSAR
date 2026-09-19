@@ -104,11 +104,14 @@ SCENES: dict[str, dict] = {
     "kitchen": {
         "room_name": "客厅·番茄炒蛋",
         "room_desc": "傍晚的客厅，很平常的一个晚上。",
+        # {user} is filled with the room's user-card name. Second person would
+        # be ambiguous here: the scene is shared, so "you" is read by each
+        # character as themselves and the wronged party drifts off the user.
         "scenario": (
             "客厅，傍晚。Elara在窗边翻一本旧笔记，Lila瘫在沙发上，"
-            "Bran靠着门框没说话。你刚开口问了Vera一件很平常的小事，"
-            "她当着一屋子人的面把你贬得一文不值，语气里全是“你也配”。"
-            "在座的人跟你相处得不算差，谁也没打算替她那份傲慢让路。"
+            "Bran靠着门框没说话。{user}刚开口问了Vera一件很平常的小事，"
+            "Vera当着一屋子人的面把{user}贬得一文不值，语气里全是“你也配”。"
+            "在座的人跟{user}相处得不算差，谁也没打算替她那份傲慢让路。"
         ),
         "turns": [
             ("Vera，我在学做饭，今天想试试番茄炒蛋，火候怎么掌握？", True),
@@ -118,6 +121,20 @@ SCENES: dict[str, dict] = {
         ],
     },
 }
+
+
+def _pick_user_card(engine):
+    """The room needs an explicit identity: a default user card is not always
+    set, and without one every utterance is attributed to a nameless "user"."""
+    repo = engine.card_repo
+    card = repo.get_default_user_card()
+    if card is not None:
+        return card
+    cards = [c for c in repo.list_user_cards() if c.name != "default-user"]
+    if not cards:
+        return None
+    cards.sort(key=lambda c: (c.updated_at or "", c.id or 0))
+    return cards[-1]
 
 
 def _scene() -> dict:
@@ -141,7 +158,8 @@ def copy_cards(src_db: Path, dst_db: Path) -> dict[str, int]:
     copied: dict[str, int] = {}
     for table, where in (
         ("character_cards", f"TRIM(name) IN ({','.join('?' * len(CAST_NAMES))})"),
-        ("user_cards", "is_default = 1"),
+        # Every user card, then pick one below: a default is not always set.
+        ("user_cards", "1 = 1"),
     ):
         cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})").fetchall()]
         rows = src.execute(f"SELECT * FROM {table} WHERE {where}", CAST_NAMES
@@ -392,24 +410,28 @@ async def main() -> int:
             return 2
 
     scene = _scene()
+    user_card = _pick_user_card(engine)
+    user_name = getattr(user_card, "name", "") or "user"
+    # Name the user explicitly: a shared scene cannot use "you" for them.
+    scenario = scene["scenario"].replace("{user}", user_name)
     room = rooms.create(
         name=scene["room_name"],
         description=scene["room_desc"],
-        scenario_prompt=scene["scenario"],
-        user_card_id=None,
+        scenario_prompt=scenario,
+        user_card_id=getattr(user_card, "id", None),
         character_ids=cast_ids,
         max_rounds=ROUNDS,
     )
     names = {cid: engine.card_repo.get_character(cid).name for cid in cast_ids}
     print(f"\nroom #{room.id} {room.name!r} session={room.session_id}")
+    print(f"user identity: {user_name} (card #{getattr(user_card, 'id', None)})")
     print(f"round cap: {'none (keeps going until it settles)' if ROUNDS == 0 else ROUNDS}")
 
     banner(f"scene: {scene['room_name']}")
-    print(scene["scenario"])
+    print(scenario)
 
     viola_id = copied["Vera"]
     group = GroupEngine(engine, rooms)
-    user_card = engine.card_repo.get_default_user_card()
     collector = Collector()
     turns = scene["turns"][:_turn_limit()]
 

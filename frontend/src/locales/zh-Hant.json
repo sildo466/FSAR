@@ -867,5 +867,6 @@
   "group.placeholderInput": "對群聊說點什麼…",
   "group.roundsLabel": "辯論輪數",
   "group.roundsUnlimited": "不限 —— 群聊會一直進行到自然停下，或你手動停止。",
-  "group.roundsCapped": "最多 {{count}} 輪後停止。"
+  "group.roundsCapped": "最多 {{count}} 輪後停止。",
+  "group.scenarioHint": "所有成員共享。請用敘述口吻寫；提到使用者時直接寫名字，不要用「你」。"
 }

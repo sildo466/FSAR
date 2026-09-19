@@ -94,6 +94,9 @@ export function MemberPanel({ room, onClose }: Props) {
         placeholder={t("group.scenarioPlaceholder")}
         className="resize-none rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text outline-none"
       />
+      <p className="-mt-2 text-[11px] text-text-faint">
+        {t("group.scenarioHint")}
+      </p>
 
       <label className="text-[11px] text-text-muted" htmlFor="panel-rounds">
         {t("group.roundsLabel")}
