@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from src.memory.session_store import MessageRow
@@ -13,6 +15,31 @@ if TYPE_CHECKING:
 
 
 UNKNOWN_SPEAKER = "Unknown"
+
+_EAGERNESS_RE = re.compile(r'\{[^{}]*"eagerness"[^{}]*\}', re.DOTALL)
+
+
+def parse_eagerness(raw: str) -> tuple[int, str]:
+    """Extract (eagerness, reason) from an election reply.
+
+    Locates the JSON object by regex so markdown fences and surrounding prose
+    are tolerated. Any failure yields (0, "") — a character that cannot answer
+    simply stays silent this round."""
+    if not raw:
+        return 0, ""
+    match = _EAGERNESS_RE.search(raw)
+    if match is None:
+        return 0, ""
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return 0, ""
+    try:
+        score = int(data.get("eagerness", 0))
+    except (TypeError, ValueError):
+        return 0, ""
+    reason = str(data.get("reason", "") or "").strip()[:200]
+    return max(0, min(10, score)), reason
 
 
 def format_group_history(
