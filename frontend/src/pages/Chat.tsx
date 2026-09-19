@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip } from "lucide-react";
 import {
   MessageList,
   type ChatMessage,
   type PendingRisk,
 } from "../components/chat/MessageList";
+import { ChatComposer } from "../components/chat/ChatComposer";
 import { HistoryPanel } from "../components/chat/HistoryPanel";
 import { SlashPopover } from "../components/chat/SlashPopover";
 import { AgentActivity, type AgentStatus } from "../components/chat/AgentActivity";
@@ -19,7 +19,6 @@ import { useCardsStore } from "../stores/cards";
 import { useChatUI } from "../stores/chat-ui";
 import type { StoredMessage } from "../lib/ws-client";
 import { filterCommands } from "../lib/commands";
-import { MicButton } from "../components/chat/MicButton";
 import { useSpeechStore } from "../stores/speech";
 import { useTranslation } from "react-i18next";
 
@@ -52,14 +51,12 @@ export function Chat() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(false);
   const [experiences, setExperiences] = useState<Array<{ name: string; description: string }>>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const activeAgentTask = useRef<string | null>(null);
   const lastSwitchedConv = useRef<string | null>(null);
   const pendingAssistantId = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevCountRef = useRef(0);
 
   const initWS = useWS((s) => s.init);
@@ -191,14 +188,6 @@ export function Chat() {
 
   const scrollToBottom = () => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  };
-
-  const MAX_INPUT_LINES = 4;
-  const resizeInput = () => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 22 * MAX_INPUT_LINES)}px`;
   };
 
   // Wire chat.* events
@@ -335,7 +324,6 @@ export function Chat() {
 
   const handleInputChange = (v: string) => {
     setInput(v);
-    resizeInput();
     const m = v.match(/(^|\s)(\/(\S*))$/);
     if (m) {
       setPopoverOpen(true);
@@ -372,11 +360,6 @@ export function Chat() {
         setPopoverOpen(false);
         return;
       }
-    }
-    if (e.key === "Enter") {
-      if (e.shiftKey) return;
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -417,7 +400,6 @@ export function Chat() {
     setInput("");
     setAttachments([]);
     setUploadError(false);
-    resizeInput();
     setPopoverOpen(false);
     setBusy(true);
     const display = attached.length
@@ -580,72 +562,22 @@ export function Chat() {
                 onClose={() => setPopoverOpen(false)}
               />
             )}
-            {(attachments.length > 0 || uploadError) && (
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                {attachments.map((a, i) => (
-                  <span
-                    key={a.path}
-                    className="flex items-center gap-1.5 rounded-full border border-[var(--chip-border)] px-3 py-1 text-[11px] text-text-muted"
-                  >
-                    📎 {a.name}
-                    <button
-                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      className="hover:text-text"
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-                {uploadError && (
-                  <span className="text-[11px] text-red-500">{t("chat.uploadFailed")}</span>
-                )}
-              </div>
-            )}
-            <div className="glass-strong glow-focus flex items-end gap-2 rounded-[26px] px-3 py-2 shadow-[0_12px_48px_var(--glow-faint)]">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  void handlePickFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                title={t("chat.attach")}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-muted transition hover:bg-glass hover:text-text disabled:opacity-50"
-              >
-                <Paperclip size={15} strokeWidth={1.5} />
-              </button>
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={input}
-                onChange={(e) => handleInputChange(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={t("chat.placeholderInput")}
-                className="max-h-[88px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1 text-sm leading-[22px] text-text outline-none placeholder:text-text-muted"
-              />
-              <MicButton onTranscript={(text) => setInput((current) => `${current}${current.trim() ? " " : ""}${text}`)} />
-              {busy ? (
-                <button
-                  onClick={handleCancel}
-                  className="rounded-full px-4 py-2 text-xs text-text-muted transition hover:bg-glass hover:text-text"
-                >
-                  {t("chat.stop")}
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--button-bg)] text-[var(--button-text)] button-tex shadow-[0_0_20px_var(--glow-soft)] transition hover:scale-105"
-                >
-                  ↵
-                </button>
-              )}
-            </div>
+            <ChatComposer
+              value={input}
+              onChange={handleInputChange}
+              onSend={handleSend}
+              onCancel={handleCancel}
+              onKeyDown={handleKeyDown}
+              busy={busy}
+              attachments={attachments}
+              onPickFiles={(files) => void handlePickFiles(files)}
+              onRemoveAttachment={(i) =>
+                setAttachments((prev) => prev.filter((_, j) => j !== i))
+              }
+              uploadError={uploadError ? t("chat.uploadFailed") : undefined}
+              uploading={uploading}
+              placeholder={t("chat.placeholderInput")}
+            />
           </div>
         </div>
       </div>
