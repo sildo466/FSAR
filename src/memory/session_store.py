@@ -469,6 +469,21 @@ class SessionStore:
             conn.commit()
         return deleted
 
+    def update_message(
+        self, message_id: int, content: str, character_card_id: int | None = None,
+    ) -> bool:
+        """Rewrite one message in place, keeping its row id and position.
+
+        Regenerating must not append a second copy at the end of the room."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE conversations SET content = ?, character_card_id = ? "
+                "WHERE id = ?",
+                (content, character_card_id, message_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def get_recent_messages(
         self, conversation_id: str, limit: int = 10,
     ) -> list[MessageRow]:

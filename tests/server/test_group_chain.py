@@ -92,14 +92,24 @@ def test_chain_settles_when_nobody_is_eager(monkeypatch) -> None:
     assert spoken == []
 
 
-def test_chain_settles_at_exactly_the_threshold_minus_one(monkeypatch) -> None:
+def test_chain_reports_finished_when_a_round_blows_up(monkeypatch) -> None:
+    """Without a terminal event the client's composer stays on Stop with
+    nothing left to interrupt, bricking the room until a reload."""
     members = _members()
     chat = _chat(members)
-    spoken: list[str] = []
-    _patch(monkeypatch, eager=0, spoken=spoken)
+    engine = _engine(chat, members)
 
-    assert _run(_engine(chat, members)) == "settled"
-    assert spoken == []
+    async def exploding_elect(self, ws, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(GroupEngine, "elect", exploding_elect)
+    ws = FakeWebSocket()
+
+    reason = _run(engine, ws)
+
+    assert reason == "error"
+    finished = next(m for m in ws.messages if m["type"] == "group.chain.finished")
+    assert finished["reason"] == "error"
 
 
 def test_chain_speaks_when_eagerness_meets_threshold(monkeypatch) -> None:
@@ -140,7 +150,9 @@ def test_chain_stops_at_max_calls(monkeypatch) -> None:
     reason = _run(_engine(chat, members))
 
     assert reason == "max_calls"
-    assert len(spoken) < ge.MAX_CHAIN_CALLS
+    # 6 members: each round costs 6 election calls plus up to 2 speeches, so
+    # the 24-call budget runs out inside round 3.
+    assert len(spoken) == 6
 
 
 def test_same_character_cannot_speak_twice_in_a_row(monkeypatch) -> None:

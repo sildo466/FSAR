@@ -222,7 +222,10 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             marker, block = chat._render_attachments(files) if files else ("", "")
             stored = f"{content}{marker}"
             llm_content = f"{stored}\n\n{block}" if block else stored
-            chat.session_store.append_message(room.session_id, "user", stored)
+            await asyncio.to_thread(
+                chat.session_store.append_message,
+                room.session_id, "user", stored,
+            )
             mentioned = [int(c) for c in (msg.get("mentioned_character_ids") or [])]
             card = _user_card(engine, room)
             _start_chain(room_id, engine.run_chain(
@@ -237,10 +240,13 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             if room is None:
                 return True
             card = _user_card(engine, room)
-            await engine.regenerate(
+            # Detached like group.send: awaiting it here would block the
+            # receive loop for the whole stream, so group.cancel could not
+            # interrupt a regenerate.
+            _start_chain(room_id, engine.regenerate(
                 ws, room=room,
                 message_row_id=int(msg["message_id"]), user_card=card,
-            )
+            ))
             return True
     except Exception as e:
         logger.warning(f"{t} failed: {e}")

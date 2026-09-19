@@ -107,6 +107,7 @@ def _engine() -> SimpleNamespace:
 def _setup(engine=None) -> tuple[SimpleNamespace, SimpleNamespace]:
     engine = engine or _engine()
     rooms = _rooms()
+    group_handler._tasks.clear()
     group_handler.set_engine(engine, rooms)
     return engine, rooms
 
@@ -261,11 +262,22 @@ def test_group_rate_uses_room_session() -> None:
     assert any(m["type"] == "group.rate.ack" for m in ws.messages)
 
 
-def test_group_regenerate_forwards_row_id() -> None:
+def test_group_regenerate_is_detached_and_forwards_row_id() -> None:
+    """It must not be awaited in the handler, or the receive loop would be
+    blocked for the whole stream and group.cancel could not interrupt it."""
     engine, _ = _setup()
     ws = FakeWebSocket()
-    _dispatch(ws, {"type": "group.regenerate", "room_id": 1,
-                   "message_id": 11})
+
+    async def run():
+        await group_handler.dispatch(
+            ws, {"type": "group.regenerate", "room_id": 1, "message_id": 11}
+        )
+        task = group_handler._tasks.get(1)
+        assert task is not None, "regenerate should be started as a task"
+        await task
+
+    asyncio.run(run())
+
     assert engine.regenerated[0]["message_row_id"] == 11
 
 

@@ -36,6 +36,7 @@ def _chat() -> SimpleNamespace:
     chat = SimpleNamespace()
     chat._short_cache = {}
     chat._cancelled = False
+    chat._msg_ids = {}
     chat.saved: list[dict] = []
     chat.prompts: list[str] = []
     chat.tts: list[dict] = []
@@ -52,8 +53,12 @@ def _chat() -> SimpleNamespace:
             "message_id": message_id, "conv_id": conv_id,
             "content": content, "character_id": character_id,
         })
+        chat._msg_ids[message_id] = 900 + len(chat.saved)
 
     chat._save_assistant = save_assistant
+    chat.session_store = SimpleNamespace(
+        update_message=lambda row_id, content, character_card_id=None: True,
+    )
 
     async def stream_one_reply(ws, **kwargs):
         chat.prompts.append(kwargs["messages"][0]["content"])
@@ -129,6 +134,63 @@ def test_speak_emits_speaker_start_delta_and_done() -> None:
     assert start["character_id"] == 7
     assert start["character_name"] == "Mira"
     assert ws.messages[-1]["emotion_state"] == {"mood": 0.5}
+
+
+def test_speak_reports_the_row_id_so_a_fresh_reply_can_be_regenerated() -> None:
+    """Regenerate addresses DB rows; a live message has no row id until the
+    server reports one, so without this the button would do nothing."""
+    ws = FakeWebSocket()
+    _speak(_engine(_chat()), ws)
+    done = next(m for m in ws.messages if m["type"] == "group.speaker.done")
+    assert isinstance(done["row_id"], int)
+
+
+def test_speak_replaces_in_place_when_asked() -> None:
+    """A regenerate must rewrite the row rather than append a second copy."""
+    chat = _chat()
+    updated: list[dict] = []
+    chat.session_store = SimpleNamespace(
+        update_message=lambda row_id, content, character_card_id=None: (
+            updated.append({
+                "row_id": row_id, "content": content,
+                "character_card_id": character_card_id,
+            }) or True
+        ),
+    )
+    ws = FakeWebSocket()
+
+    message_id, text = asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="look around", should_stop=lambda: False,
+        message_id="42", replace_row_id=42,
+    ))
+
+    assert chat.saved == [], "replace must not append a new row"
+    assert updated == [{
+        "row_id": 42, "content": text, "character_card_id": 7,
+    }]
+    assert message_id == "42"
+    done = next(m for m in ws.messages if m["type"] == "group.speaker.done")
+    assert done["message_id"] == "42"
+    assert done["row_id"] == 42
+
+
+def test_speak_falls_back_to_append_when_the_row_is_gone() -> None:
+    chat = _chat()
+    chat.session_store = SimpleNamespace(
+        update_message=lambda row_id, content, character_card_id=None: False,
+    )
+    ws = FakeWebSocket()
+
+    asyncio.run(GroupEngine.speak(
+        _engine(chat), ws,
+        room=_room(), character=_character(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+        message_id="42", replace_row_id=42,
+    ))
+
+    assert len(chat.saved) == 1, "the reply should survive a vanished row"
 
 
 def test_group_events_carry_no_chat_namespace() -> None:

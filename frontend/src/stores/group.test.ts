@@ -41,16 +41,34 @@ describe("applyGroupEvent", () => {
     });
   });
 
-  it("does not duplicate a message that already started", () => {
-    const live = [assistant("m1", 7, "Mira")];
+  it("resets an existing message in place on speaker.start", () => {
+    // A regenerate re-streams the same row, so the bubble must be overwritten
+    // rather than duplicated or appended to.
+    const live = [{ ...assistant("42", 7, "Mira"), content: "old text", row_id: 42 }];
     const next = applyGroupEvent(live, {
       type: "group.speaker.start",
       room_id: 1,
-      message_id: "m1",
+      message_id: "42",
       character_id: 7,
       character_name: "Mira",
     });
     expect(next).toHaveLength(1);
+    expect(next[0].content).toBe("");
+    expect(next[0].streaming).toBe(true);
+    expect(next[0].row_id).toBe(42);
+  });
+
+  it("appends a distinct speaker message", () => {
+    const live = [assistant("m1", 7, "Mira")];
+    const next = applyGroupEvent(live, {
+      type: "group.speaker.start",
+      room_id: 1,
+      message_id: "m2",
+      character_id: 8,
+      character_name: "Kai",
+    });
+    expect(next).toHaveLength(2);
+    expect(next[1].id).toBe("m2");
   });
 
   it("accumulates deltas into the matching message", () => {
@@ -85,6 +103,38 @@ describe("applyGroupEvent", () => {
       message_id: "m1",
     });
     expect(next[0].streaming).toBe(false);
+  });
+
+  it("records the row id reported on speaker.done", () => {
+    // Without it a reply produced in this session has no row id, and
+    // regenerate (which addresses rows) silently does nothing.
+    const live = [{ ...assistant("m1", 7, "Mira"), streaming: true }];
+    const next = applyGroupEvent(live, {
+      type: "group.speaker.done",
+      room_id: 1,
+      message_id: "m1",
+      row_id: 77,
+    });
+    expect(next[0].row_id).toBe(77);
+  });
+
+  it("takes the server's final text on speaker.done", () => {
+    // Deltas stream before the speaker marker is stripped, so the done event
+    // is authoritative for what is actually stored.
+    const live = [
+      {
+        ...assistant("m1", 7, "Mira"),
+        content: "[Mira]: hello there",
+        streaming: true,
+      },
+    ];
+    const next = applyGroupEvent(live, {
+      type: "group.speaker.done",
+      room_id: 1,
+      message_id: "m1",
+      content: "hello there",
+    });
+    expect(next[0].content).toBe("hello there");
   });
 
   it("ignores unrelated events", () => {

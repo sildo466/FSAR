@@ -45,7 +45,15 @@ export function GroupRoom() {
   const members = room?.members ?? [];
 
   useEffect(() => {
-    if (!Number.isNaN(roomId)) openRoom(roomId);
+    if (Number.isNaN(roomId)) return;
+    // React Router keeps this component mounted across a param change, so the
+    // draft, mentions and attachments of the previous room would otherwise
+    // follow the user into the next one.
+    setInput("");
+    setMentions([]);
+    setAttachments([]);
+    setUploadError(false);
+    openRoom(roomId);
     return () => closeRoom();
   }, [roomId, openRoom, closeRoom]);
 

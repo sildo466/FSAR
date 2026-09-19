@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.core.prompts import build_character_prompt
 from src.memory.session_store import MessageRow
+from src.utils.logger import logger
 
 if TYPE_CHECKING:
     from src.memory.rooms import RoomStore
@@ -56,6 +57,27 @@ def turn_instruction(text: str, speaker: str = "") -> str:
     if not speaker:
         return text
     return TURN_INSTRUCTION.format(speaker=speaker, text=text)
+
+
+def strip_speaker_marker(text: str, own_name: str) -> str:
+    """Drop a leading "[OwnName]:" the model copied from the transcript.
+
+    The marker is an input convention, but models sometimes continue it instead
+    of just answering, and the copy then compounds over rounds. Prompt wording
+    only makes this less likely, never impossible, so clean it deterministically.
+
+    Only the speaker's *own* name is stripped, so stage directions such as
+    "[笑]：" in other brackets survive untouched."""
+    name = (own_name or "").strip()
+    if not name:
+        return text
+    pattern = re.compile(r"^\s*\[\s*" + re.escape(name) + r"\s*\]\s*[:：]\s*")
+    cleaned = text
+    while True:
+        stripped = pattern.sub("", cleaned, count=1)
+        if stripped == cleaned:
+            return cleaned.lstrip()
+        cleaned = stripped
 
 
 def format_group_history(
@@ -204,9 +226,10 @@ class GroupEngine:
         self._cancelled.discard(room_id)
 
     def _bound_short_cache(self, conv_id: str) -> None:
-        """_save_assistant appends to the shared short cache, but a group turn
-        rebuilds history from the room and never reads it, so a long-lived room
-        would grow that deque forever."""
+        """_save_assistant -> _ensure_short hydrates the room's whole history
+        into the shared short cache and holds an LRU slot for it, but a group
+        turn builds its history from the room and never reads that cache, so a
+        long-lived room would grow the deque forever."""
         queue = self.chat._short_cache.get(conv_id)
         if queue is not None and len(queue) > GROUP_SHORT_CACHE_LIMIT:
             del queue[: len(queue) - GROUP_SHORT_CACHE_LIMIT]
@@ -222,14 +245,20 @@ class GroupEngine:
         user_input: str,
         should_stop: Any,
         trigger_speaker: str = "",
+        message_id: str | None = None,
+        replace_row_id: int | None = None,
     ) -> tuple[str, str]:
         """One character's turn: in-character prompt, one streaming call.
 
         Returns (message_id, text). Memory cleansing is deliberately skipped —
-        it costs an extra model call per speaker per round."""
+        it costs an extra model call per speaker per round.
+
+        With replace_row_id the turn rewrites that row in place instead of
+        appending, so a regenerate neither duplicates the bubble nor moves it
+        to the end of the room."""
         chat = self.chat
         conv_id = room.session_id
-        message_id = f"group_{uuid.uuid4().hex[:12]}"
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
         char_id = getattr(character, "id", None)
         char_name = getattr(character, "name", None)
         await self._safe_send(ws, {
@@ -276,7 +305,20 @@ class GroupEngine:
             character=character,
             char_name=char_name,
         )
-        chat._save_assistant(message_id, conv_id, text, character_id=char_id)
+        text = strip_speaker_marker(text, char_name or "")
+        row_id = replace_row_id
+        if replace_row_id is not None:
+            if chat.session_store.update_message(
+                replace_row_id, text, character_card_id=char_id,
+            ):
+                chat._msg_ids[message_id] = replace_row_id
+            else:
+                row_id = None
+        if row_id is None:
+            chat._save_assistant(
+                message_id, conv_id, text, character_id=char_id,
+            )
+            row_id = chat._msg_ids.get(message_id)
         self._bound_short_cache(conv_id)
         emotion_state = None
         try:
@@ -297,6 +339,10 @@ class GroupEngine:
             "type": "group.speaker.done",
             "room_id": room.id,
             "message_id": message_id,
+            "row_id": row_id,
+            # Authoritative text: the streamed deltas were emitted before the
+            # marker was stripped, and a failed call appends its own suffix.
+            "content": text,
             "emotion_state": emotion_state,
         })
         return message_id, text
@@ -457,74 +503,83 @@ class GroupEngine:
         first_speaker = True
         reason = "settled"
 
-        for round_no in range(1, MAX_CHAIN_ROUNDS + 1):
-            if MAX_CHAIN_CALLS - calls_used < len(members) + 1:
-                reason = "max_calls"
-                break
-            results = await self.elect(
-                ws,
-                room=room,
-                candidates=members,
-                history_block=self._history_block(room),
-                mentioned=mentioned if round_no == 1 else [],
-                chain_id=chain_id,
-                round_no=round_no,
-            )
-            calls_used += len(members)
-            eager = [r for r in results if r.eagerness >= EAGER_THRESHOLD]
-            if not eager:
-                break
-            chosen = [
-                r for r in eager if r.character_id != last_speaker
-            ][:SPEAKERS_PER_ROUND]
-            if not chosen:
-                break
-            await self._safe_send(ws, {
-                "type": "group.elect.decided",
-                "room_id": room.id,
-                "chain_id": chain_id,
-                "round": round_no,
-                "speakers": [r.character_id for r in chosen],
-            })
-            for result in chosen:
-                if self.is_cancelled(room.id):
-                    reason = "cancelled"
-                    break
-                if calls_used + 1 > MAX_CHAIN_CALLS:
+        try:
+            for round_no in range(1, MAX_CHAIN_ROUNDS + 1):
+                if MAX_CHAIN_CALLS - calls_used < len(members) + 1:
                     reason = "max_calls"
                     break
-                character = next(
-                    (c for c in members if c.id == result.character_id), None,
-                )
-                if character is None:
-                    continue
-                history, trigger, trigger_speaker = self._trigger_for(
-                    room, user_input if first_speaker else None,
-                )
-                first_speaker = False
-                await self.speak(
+                results = await self.elect(
                     ws,
                     room=room,
-                    character=character,
-                    user_card=user_card,
-                    history=history,
-                    user_input=trigger,
-                    should_stop=lambda: self.is_cancelled(room.id),
-                    trigger_speaker=trigger_speaker,
+                    candidates=members,
+                    history_block=self._history_block(room),
+                    mentioned=mentioned if round_no == 1 else [],
+                    chain_id=chain_id,
+                    round_no=round_no,
                 )
-                calls_used += 1
-                last_speaker = result.character_id
-            if reason in ("cancelled", "max_calls"):
-                break
-        else:
-            reason = "max_rounds"
-
-        await self._safe_send(ws, {
-            "type": "group.chain.finished",
-            "room_id": room.id,
-            "chain_id": chain_id,
-            "reason": reason,
-        })
+                calls_used += len(members)
+                eager = [r for r in results if r.eagerness >= EAGER_THRESHOLD]
+                if not eager:
+                    break
+                chosen = [
+                    r for r in eager if r.character_id != last_speaker
+                ][:SPEAKERS_PER_ROUND]
+                if not chosen:
+                    break
+                await self._safe_send(ws, {
+                    "type": "group.elect.decided",
+                    "room_id": room.id,
+                    "chain_id": chain_id,
+                    "round": round_no,
+                    "speakers": [r.character_id for r in chosen],
+                })
+                for result in chosen:
+                    if self.is_cancelled(room.id):
+                        reason = "cancelled"
+                        break
+                    if calls_used + 1 > MAX_CHAIN_CALLS:
+                        reason = "max_calls"
+                        break
+                    character = next(
+                        (c for c in members if c.id == result.character_id), None,
+                    )
+                    if character is None:
+                        continue
+                    history, trigger, trigger_speaker = self._trigger_for(
+                        room, user_input if first_speaker else None,
+                    )
+                    first_speaker = False
+                    await self.speak(
+                        ws,
+                        room=room,
+                        character=character,
+                        user_card=user_card,
+                        history=history,
+                        user_input=trigger,
+                        should_stop=lambda: self.is_cancelled(room.id),
+                        trigger_speaker=trigger_speaker,
+                    )
+                    calls_used += 1
+                    last_speaker = result.character_id
+                if reason in ("cancelled", "max_calls"):
+                    break
+            else:
+                reason = "max_rounds"
+        except asyncio.CancelledError:
+            reason = "cancelled"
+            raise
+        except Exception as e:
+            logger.warning(f"group chain failed: {e}")
+            reason = "error"
+        finally:
+            # Must always fire: the client gates its composer on chainRunning,
+            # which only this event clears.
+            await self._safe_send(ws, {
+                "type": "group.chain.finished",
+                "room_id": room.id,
+                "chain_id": chain_id,
+                "reason": reason,
+            })
         return reason
 
     async def regenerate(
@@ -566,7 +621,6 @@ class GroupEngine:
                 else names.get(prior[-1].character_card_id or -1, UNKNOWN_SPEAKER)
             )
 
-        chat.session_store.delete_messages([message_row_id])
         self.clear_cancel(room.id)
         return await self.speak(
             ws,
@@ -577,4 +631,6 @@ class GroupEngine:
             user_input=trigger,
             should_stop=lambda: self.is_cancelled(room.id),
             trigger_speaker=trigger_speaker,
+            message_id=str(message_row_id),
+            replace_row_id=message_row_id,
         )

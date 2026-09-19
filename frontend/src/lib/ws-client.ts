@@ -336,7 +336,7 @@ export type ServerMsg =
   | { type: "group.speaker.start"; room_id: number; message_id: string; character_id?: number | null; character_name?: string | null }
   | { type: "group.speaker.delta"; room_id: number; message_id: string; content: string }
   | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
-  | { type: "group.speaker.done"; room_id: number; message_id: string; emotion_state?: Record<string, number> | null }
+  | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; emotion_state?: Record<string, number> | null }
   | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "max_calls" | "cancelled" }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }

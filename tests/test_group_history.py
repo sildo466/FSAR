@@ -5,6 +5,7 @@ from src.memory.session_store import MessageRow
 from src.server.group_engine import (
     UNKNOWN_SPEAKER,
     format_group_history,
+    strip_speaker_marker,
     turn_instruction,
 )
 
@@ -77,3 +78,35 @@ def test_turn_instruction_wraps_a_third_party_trigger() -> None:
 
 def test_turn_instruction_passes_the_opening_line_through() -> None:
     assert turn_instruction("look around", "") == "look around"
+
+
+def test_strip_speaker_marker_removes_the_own_name_prefix() -> None:
+    assert strip_speaker_marker("[Vera]: 你耳朵有问题", "Vera") == "你耳朵有问题"
+
+
+def test_strip_speaker_marker_removes_repeated_prefixes() -> None:
+    """The copy compounds over rounds, so clearing once is not enough."""
+    assert strip_speaker_marker("[Vera]: [Vera]: 双层", "Vera") == "双层"
+
+
+def test_strip_speaker_marker_handles_width_and_spacing() -> None:
+    assert strip_speaker_marker("  [ Vera ] ： 说话", "Vera") == "说话"
+
+
+def test_strip_speaker_marker_does_not_claim_other_brackets() -> None:
+    """Only the speaker's own name is a marker; stage directions survive."""
+    raw = "[笑]：你这人真有意思"
+    assert strip_speaker_marker(raw, "Vera") == raw
+
+
+def test_strip_speaker_marker_ignores_another_characters_marker() -> None:
+    raw = "[Lila]: 这句不是我说的"
+    assert strip_speaker_marker(raw, "Vera") == raw
+
+
+def test_strip_speaker_marker_is_a_noop_without_a_name() -> None:
+    assert strip_speaker_marker("[Vera]: x", "") == "[Vera]: x"
+
+
+def test_strip_speaker_marker_leaves_clean_text_alone() -> None:
+    assert strip_speaker_marker("就是字面意思。", "Vera") == "就是字面意思。"

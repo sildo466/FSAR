@@ -33,11 +33,20 @@ def _room() -> SimpleNamespace:
 def _chat(rows: list[MessageRow], cards: list[CharacterCard]) -> SimpleNamespace:
     chat = SimpleNamespace()
     deleted: list[list[int]] = []
+    updated: list[dict] = []
     chat.deleted = deleted
+    chat.updated = updated
     chat.session_store = SimpleNamespace(
         get_session_messages=lambda cid, **kw: list(rows),
         delete_messages=lambda ids: deleted.append(list(ids)) or len(ids),
+        update_message=lambda row_id, content, character_card_id=None: (
+            updated.append({
+                "row_id": row_id, "content": content,
+                "character_card_id": character_card_id,
+            }) or True
+        ),
     )
+    chat._msg_ids = {}
     chat.card_repo = SimpleNamespace(
         get_character=lambda cid: next((c for c in cards if c.id == cid), None),
         get_user_card=lambda cid: None,
@@ -81,6 +90,9 @@ def test_regenerate_reruns_the_original_speaker(monkeypatch) -> None:
 
     assert result == ("group_new", "new line")
     assert calls[0]["character"].id == 7
+    # Addressed by row, and rewritten in place rather than appended.
+    assert calls[0]["message_id"] == "2"
+    assert calls[0]["replace_row_id"] == 2
 
 
 def test_regenerate_rebuilds_the_trigger_from_prior_history(monkeypatch) -> None:
@@ -99,7 +111,9 @@ def test_regenerate_rebuilds_the_trigger_from_prior_history(monkeypatch) -> None
     assert calls[0]["history"] == []
 
 
-def test_regenerate_deletes_the_old_row(monkeypatch) -> None:
+def test_regenerate_leaves_the_original_row_alone(monkeypatch) -> None:
+    """Deleting first would lose the turn for good if the model call failed,
+    and would move the reply to the end of the room."""
     cards = _cards()
     chat = _chat(_rows(), cards)
     calls: list[dict] = []
@@ -110,7 +124,7 @@ def test_regenerate_deletes_the_old_row(monkeypatch) -> None:
         message_row_id=2, user_card=None,
     ))
 
-    assert chat.deleted == [[2]]
+    assert chat.deleted == []
 
 
 def test_regenerate_does_not_run_an_election(monkeypatch) -> None:

@@ -53,18 +53,25 @@ export function applyGroupEvent(
 ): GroupMessage[] {
   switch (msg.type) {
     case "group.speaker.start": {
-      if (live.some((m) => m.id === msg.message_id)) return live;
-      return [
-        ...live,
-        {
-          id: msg.message_id,
-          role: "assistant",
-          content: "",
-          character_id: msg.character_id ?? undefined,
-          character_name: msg.character_name ?? undefined,
-          streaming: true,
-        },
-      ];
+      // A regenerate re-streams an existing row: same id, so reset it in place
+      // instead of appending a second bubble.
+      const incoming: GroupMessage = {
+        id: msg.message_id,
+        role: "assistant",
+        content: "",
+        character_id: msg.character_id ?? undefined,
+        character_name: msg.character_name ?? undefined,
+        streaming: true,
+        thinking: false,
+      };
+      if (live.some((m) => m.id === msg.message_id)) {
+        return live.map((m) =>
+          m.id === msg.message_id
+            ? { ...m, ...incoming, row_id: m.row_id }
+            : m
+        );
+      }
+      return [...live, incoming];
     }
     case "group.speaker.thinking":
       return live.map((m) =>
@@ -83,7 +90,20 @@ export function applyGroupEvent(
       );
     case "group.speaker.done":
       return live.map((m) =>
-        m.id === msg.message_id ? { ...m, streaming: false, thinking: false } : m
+        m.id === msg.message_id
+          ? {
+              ...m,
+              streaming: false,
+              thinking: false,
+              // The server's text is authoritative: deltas were streamed before
+              // the speaker marker was stripped / a failure suffix was added.
+              content: msg.content ?? m.content,
+              // The live message has no row id until the server reports one;
+              // regenerate addresses rows, so without this a fresh reply
+              // could not be regenerated at all.
+              row_id: msg.row_id ?? m.row_id,
+            }
+          : m
       );
     default:
       return live;
