@@ -183,11 +183,11 @@ def test_group_mode_does_not_advertise_the_router_tool() -> None:
 def test_group_scene_tells_each_character_that_you_means_the_user() -> None:
     """The scene block is shared while the persona says "you are Mira", so a
     scene written in the second person was read by every character as being
-    about themselves — Lila answered as though she were the one insulted."""
+    about themselves — a bystander answered as though the remark were hers."""
     prompt = build_character_prompt(
         character=make_character(),
         user_card=None,
-        room_scene="你刚问了Vera一件小事，她当着大家的面把你贬得一文不值。",
+        room_scene="你刚问了 Mira 一件小事，她当着大家的面把你贬得一文不值。",
         tools_enabled=False,
         group_mode=True,
     )

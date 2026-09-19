@@ -65,6 +65,6 @@ def test_legacy_rows_still_accept_session_character_enrichment() -> None:
     store.append_message(cid, "assistant", "old reply")
     payload = store.get_session_messages(cid)[0].to_dict()
     payload.setdefault("character_id", 5)
-    payload.setdefault("character_name", "Vera")
+    payload.setdefault("character_name", "Mira")
     assert payload["character_id"] == 5
-    assert payload["character_name"] == "Vera"
+    assert payload["character_name"] == "Mira"

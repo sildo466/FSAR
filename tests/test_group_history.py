@@ -82,35 +82,35 @@ def test_turn_instruction_passes_the_opening_line_through() -> None:
 
 
 def test_strip_speaker_marker_removes_the_own_name_prefix() -> None:
-    assert strip_speaker_marker("[Vera]: 你耳朵有问题", "Vera") == "你耳朵有问题"
+    assert strip_speaker_marker("[Mira]: 你耳朵有问题", "Mira") == "你耳朵有问题"
 
 
 def test_strip_speaker_marker_removes_repeated_prefixes() -> None:
     """The copy compounds over rounds, so clearing once is not enough."""
-    assert strip_speaker_marker("[Vera]: [Vera]: 双层", "Vera") == "双层"
+    assert strip_speaker_marker("[Mira]: [Mira]: 双层", "Mira") == "双层"
 
 
 def test_strip_speaker_marker_handles_width_and_spacing() -> None:
-    assert strip_speaker_marker("  [ Vera ] ： 说话", "Vera") == "说话"
+    assert strip_speaker_marker("  [ Mira ] ： 说话", "Mira") == "说话"
 
 
 def test_strip_speaker_marker_does_not_claim_other_brackets() -> None:
     """Only the speaker's own name is a marker; stage directions survive."""
     raw = "[笑]：你这人真有意思"
-    assert strip_speaker_marker(raw, "Vera") == raw
+    assert strip_speaker_marker(raw, "Mira") == raw
 
 
 def test_strip_speaker_marker_ignores_another_characters_marker() -> None:
-    raw = "[Lila]: 这句不是我说的"
-    assert strip_speaker_marker(raw, "Vera") == raw
+    raw = "[Kai]: not mine to say"
+    assert strip_speaker_marker(raw, "Mira") == raw
 
 
 def test_strip_speaker_marker_is_a_noop_without_a_name() -> None:
-    assert strip_speaker_marker("[Vera]: x", "") == "[Vera]: x"
+    assert strip_speaker_marker("[Mira]: x", "") == "[Mira]: x"
 
 
 def test_strip_speaker_marker_leaves_clean_text_alone() -> None:
-    assert strip_speaker_marker("就是字面意思。", "Vera") == "就是字面意思。"
+    assert strip_speaker_marker("就是字面意思。", "Mira") == "就是字面意思。"
 
 
 def test_strip_tool_call_removes_a_well_formed_block() -> None:
@@ -141,6 +141,6 @@ def test_strip_tool_call_leaves_normal_text_alone() -> None:
 def test_turn_instruction_does_not_imply_the_remark_was_aimed_at_you() -> None:
     """Bystanders answered as the injured party because "Reply now" framed the
     preceding remark as addressed to whoever was picked to speak."""
-    out = turn_instruction("你这人真无聊", "Vera")
+    out = turn_instruction("你这人真无聊", "Mira")
     assert "not necessarily aimed at you" in out
     assert "Reply now" not in out

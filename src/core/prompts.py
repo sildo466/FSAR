@@ -206,9 +206,9 @@ def build_character_prompt(
     if scene:
         # Every member receives the same scene text, and the persona tells each
         # of them "you are <name>". So a scene written in the second person
-        # ("you just asked Vera and she belittled you") is read by every
-        # character as being about themselves — the wronged party drifts from
-        # the user onto whoever happens to speak next.
+        # in the second person is read by each of them as being about
+        # themselves, so the wronged party drifts off the user onto whoever
+        # happens to speak next.
         header = ROOM_SCENE_PREAMBLE.format(name=name) if group_mode else ""
         body = f"{header}\n\n{scene}" if header else scene
         parts.append(f"<room_scene>\n{body}\n</room_scene>")

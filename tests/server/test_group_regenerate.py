@@ -20,7 +20,7 @@ class FakeWebSocket:
 def _cards() -> list[CharacterCard]:
     return [
         CharacterCard(id=7, name="Mira", description="witch", personality="calm"),
-        CharacterCard(id=8, name="Vera", description="genius", personality="lazy"),
+        CharacterCard(id=8, name="Kai", description="A sailor.", personality="Loud."),
     ]
 
 
