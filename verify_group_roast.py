@@ -141,6 +141,29 @@ SCENES: dict[str, dict] = {
             ("我先回屋了，你们自己商量。", False),
         ],
     },
+    "feud": {
+        "cast": ["Vera", "Lila"],
+        "mention": None,
+        "room_name": "厨房·那碗饭",
+        "room_desc": "半夜的厨房，两个人的东西都在这儿。",
+        # Both cards are built around something specific — Lila's is FOOD RICE,
+        # Vera's is finding almost everything beneath her. So the stake has
+        # to be something small and personal: a bowl of rice. Neither can give
+        # ground without conceding that the rice mattered, or that caring about
+        # anything is a weakness.
+        "scenario": (
+            "半夜的厨房。Lila给自己留了一碗饭，拿碗扣着。Vera路过，掀开看了一眼，"
+            "说「这种东西也值得专门留一碗」，然后把它推到一边。Lila正好进来撞见。"
+            "Elara和Bran都已回房，没有别人在场。两个人都没打算让。"
+        ),
+        # The user's line looks like peacemaking but dismisses the very thing
+        # Lila's card is built on — so if she turns on the user, that is correct,
+        # and different from the earlier bug where she claimed an injury that
+        # was never hers.
+        "turns": [
+            ("……就一碗饭，你们别吵了。", False),
+        ],
+    },
 }
 
 
