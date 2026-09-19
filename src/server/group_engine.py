@@ -7,6 +7,7 @@ import asyncio
 import json
 import re
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.core.prompts import build_character_prompt
@@ -19,7 +20,48 @@ if TYPE_CHECKING:
 
 UNKNOWN_SPEAKER = "Unknown"
 
+MAX_CHAIN_ROUNDS = 4
+MAX_CHAIN_CALLS = 24
+EAGER_THRESHOLD = 5
+SPEAKERS_PER_ROUND = 2
+MENTIONED_EAGERNESS = 10
+ELECT_HISTORY_LINES = 20
+
+ELECT_PROMPT = """Your name is {name}.
+{description}
+{personality}
+{room_scene}
+What has just been said in the group chat:
+{history}
+Decide how much you want to speak next, in character.
+Return ONLY this JSON, nothing else:
+{{"eagerness": <integer 0-10>, "reason": "<one short sentence>"}}
+0-2: you have nothing to add. 3-5: you could say something. 6-10: you want to speak now."""
+
 _EAGERNESS_RE = re.compile(r'\{[^{}]*"eagerness"[^{}]*\}', re.DOTALL)
+
+
+def format_group_history(
+    messages: list[MessageRow],
+    *,
+    names_by_id: dict[int, str],
+    user_name: str,
+) -> list[dict[str, str]]:
+    """Prefix every message with its speaker.
+
+    Every character message shares role="assistant", so without a prefix the
+    model cannot tell who said what."""
+    out: list[dict[str, str]] = []
+    for row in messages:
+        if row.role == "user":
+            speaker = user_name or "user"
+        else:
+            speaker = names_by_id.get(row.character_card_id or -1, UNKNOWN_SPEAKER)
+        out.append({
+            "role": row.role,
+            "content": f"[{speaker}]: {row.content}",
+        })
+    return out
 
 
 def parse_eagerness(raw: str) -> tuple[int, str]:
@@ -45,10 +87,47 @@ def parse_eagerness(raw: str) -> tuple[int, str]:
     return max(0, min(10, score)), reason
 
 
-MAX_CHAIN_ROUNDS = 4
-MAX_CHAIN_CALLS = 24
-EAGER_THRESHOLD = 5
-SPEAKERS_PER_ROUND = 2
+@dataclass
+class ElectResult:
+    character_id: int
+    character_name: str
+    eagerness: int
+    reason: str
+
+
+def _one_completion(client: Any, provider_id: str, model: str, prompt: str) -> str:
+    from src.utils.llm_factory import chat_completion
+    result = chat_completion(
+        client,
+        provider_id=provider_id,
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100000,
+        stream=False,
+    )
+    try:
+        return result.choices[0].message.content or ""
+    except (AttributeError, IndexError):
+        return ""
+
+
+async def run_batch_completions(
+    client: Any, *, provider_id: str, model: str, prompts: list[str],
+) -> list[str]:
+    """Run independent non-streaming completions concurrently.
+
+    Returns one string per prompt; a failed call yields "" so the remaining
+    members are unaffected."""
+
+    async def one(prompt: str) -> str:
+        try:
+            return await asyncio.to_thread(
+                _one_completion, client, provider_id, model, prompt,
+            )
+        except Exception:
+            return ""
+
+    return list(await asyncio.gather(*(one(p) for p in prompts)))
 
 
 class _DeltaRelay:
@@ -191,25 +270,76 @@ class GroupEngine:
         })
         return message_id, text
 
+    def _elect_prompt(
+        self, character: Any, *, room_scene: str, history_text: str,
+    ) -> str:
+        scene = (room_scene or "").strip()
+        return ELECT_PROMPT.format(
+            name=getattr(character, "name", "") or "Unknown",
+            description=getattr(character, "description", "") or "",
+            personality=getattr(character, "personality", "") or "",
+            room_scene=f"Scene: {scene}" if scene else "",
+            history=history_text or "(nothing yet)",
+        )
 
-def format_group_history(
-    messages: list[MessageRow],
-    *,
-    names_by_id: dict[int, str],
-    user_name: str,
-) -> list[dict[str, str]]:
-    """Prefix every message with its speaker.
-
-    Every character message shares role="assistant", so without a prefix the
-    model cannot tell who said what."""
-    out: list[dict[str, str]] = []
-    for row in messages:
-        if row.role == "user":
-            speaker = user_name or "user"
-        else:
-            speaker = names_by_id.get(row.character_card_id or -1, UNKNOWN_SPEAKER)
-        out.append({
-            "role": row.role,
-            "content": f"[{speaker}]: {row.content}",
+    async def elect(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        candidates: list[Any],
+        history_block: list[dict[str, str]],
+        mentioned: list[int],
+        chain_id: str,
+        round_no: int,
+    ) -> list[ElectResult]:
+        """Run one election round. All candidates are queried concurrently."""
+        if not candidates:
+            return []
+        history_text = "\n".join(
+            m["content"] for m in history_block[-ELECT_HISTORY_LINES:]
+        )
+        prompts = [
+            self._elect_prompt(
+                c,
+                room_scene=getattr(room, "scenario_prompt", ""),
+                history_text=history_text,
+            )
+            for c in candidates
+        ]
+        await self._safe_send(ws, {
+            "type": "group.elect.started",
+            "room_id": room.id,
+            "chain_id": chain_id,
+            "round": round_no,
+            "candidates": [getattr(c, "id", None) for c in candidates],
         })
-    return out
+        client, model, provider_id = self.chat.client_and_model()
+        raws = await run_batch_completions(
+            client, provider_id=provider_id, model=model, prompts=prompts,
+        )
+        results: list[ElectResult] = []
+        for character, raw in zip(candidates, raws):
+            score, reason = parse_eagerness(raw)
+            char_id = getattr(character, "id", None)
+            char_name = getattr(character, "name", "") or ""
+            if char_id in mentioned:
+                score, reason = MENTIONED_EAGERNESS, "mentioned"
+            results.append(ElectResult(
+                character_id=char_id,
+                character_name=char_name,
+                eagerness=score,
+                reason=reason,
+            ))
+            await self._safe_send(ws, {
+                "type": "group.elect.candidate",
+                "room_id": room.id,
+                "chain_id": chain_id,
+                "round": round_no,
+                "character_id": char_id,
+                "character_name": char_name,
+                "eagerness": score,
+                "reason": reason,
+            })
+        results.sort(key=lambda r: r.eagerness, reverse=True)
+        return results
