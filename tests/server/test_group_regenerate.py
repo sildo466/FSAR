@@ -94,7 +94,8 @@ def test_regenerate_rebuilds_the_trigger_from_prior_history(monkeypatch) -> None
         message_row_id=2, user_card=None,
     ))
 
-    assert calls[0]["user_input"] == "[user]: look"
+    assert calls[0]["user_input"] == "look"
+    assert calls[0]["trigger_speaker"] == "user"
     assert calls[0]["history"] == []
 
 

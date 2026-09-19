@@ -162,6 +162,12 @@ CHARACTER_NO_TOOL_CLAUSE = """- You have no tools and no way to affect the world
   Speak, react, and want things freely, but never narrate plans to take action
   that this conversation cannot carry out."""
 
+GROUP_SPEAKING_CLAUSE = """- You are in a group chat: several other characters are present, and the
+  transcript marks each utterance with its speaker as "[Name]: ...". That
+  marking is how you tell voices apart — it is NOT a format for your own
+  reply. Write only the words you say out loud, with no name prefix, no
+  brackets, and no narration of other characters' lines."""
+
 
 def build_character_prompt(
     *,
@@ -171,6 +177,7 @@ def build_character_prompt(
     workspace_line: str = "",
     room_scene: str = "",
     tools_enabled: bool = True,
+    group_mode: bool = False,
 ) -> str:
     """Assemble the character-mode system prompt (persona-first ordering).
 
@@ -197,6 +204,8 @@ def build_character_prompt(
             CHARACTER_ACTION_CLAUSE if tools_enabled else CHARACTER_NO_TOOL_CLAUSE
         ),
     ))
+    if group_mode:
+        parts.append(GROUP_SPEAKING_CLAUSE)
     parts.append(MEMORY_POLICY)
     if memory_block:
         parts.append(memory_block.strip())

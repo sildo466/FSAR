@@ -104,3 +104,35 @@ def test_room_scene_still_before_cleansed_memory() -> None:
         tools_enabled=False,
     )
     assert prompt.index("<room_scene>") < prompt.index("[CLEANSED MEMORY]")
+
+
+def test_group_mode_forbids_self_prefixing() -> None:
+    """The transcript marks speakers as "[Name]: ..." — the model must not
+    copy that convention into its own reply."""
+    prompt = build_character_prompt(
+        character=make_character(),
+        user_card=None,
+        tools_enabled=False,
+        group_mode=True,
+    )
+    assert "[Name]: ..." in prompt
+    assert "no name prefix" in prompt
+
+
+def test_group_mode_is_off_by_default() -> None:
+    prompt = build_character_prompt(
+        character=make_character(), user_card=None, tools_enabled=False,
+    )
+    assert "no name prefix" not in prompt
+
+
+def test_group_mode_clause_sits_after_mode_prompt_and_before_memory() -> None:
+    prompt = build_character_prompt(
+        character=make_character(),
+        user_card=None,
+        memory_block="[CLEANSED MEMORY]\n- likes tea",
+        tools_enabled=False,
+        group_mode=True,
+    )
+    assert prompt.index("You are Mira") < prompt.index("no name prefix")
+    assert prompt.index("no name prefix") < prompt.index("[CLEANSED MEMORY]")

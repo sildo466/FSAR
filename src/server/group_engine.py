@@ -41,6 +41,22 @@ Return ONLY this JSON, nothing else:
 
 _EAGERNESS_RE = re.compile(r'\{[^{}]*"eagerness"[^{}]*\}', re.DOTALL)
 
+TURN_INSTRUCTION = (
+    "{speaker} has just said this in the group chat:\n"
+    "{text}\n\n"
+    "Reply now, in character, with only your own next line."
+)
+
+
+def turn_instruction(text: str, speaker: str = "") -> str:
+    """Wrap the trigger as a direct instruction to this speaker.
+
+    A bare transcript line reads as more script for the model to continue,
+    which makes it write the other characters' lines too."""
+    if not speaker:
+        return text
+    return TURN_INSTRUCTION.format(speaker=speaker, text=text)
+
 
 def format_group_history(
     messages: list[MessageRow],
@@ -205,6 +221,7 @@ class GroupEngine:
         history: list[dict[str, str]],
         user_input: str,
         should_stop: Any,
+        trigger_speaker: str = "",
     ) -> tuple[str, str]:
         """One character's turn: in-character prompt, one streaming call.
 
@@ -232,13 +249,17 @@ class GroupEngine:
             memory_block=memory_block,
             room_scene=getattr(room, "scenario_prompt", ""),
             tools_enabled=False,
+            group_mode=True,
         )
         client, model, provider_id = chat.client_and_model()
         _, max_output = chat._model_limits()
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         if user_input:
-            messages.append({"role": "user", "content": user_input})
+            messages.append({
+                "role": "user",
+                "content": turn_instruction(user_input, trigger_speaker),
+            })
 
         text = await chat._stream_one_reply(
             _DeltaRelay(ws, room.id),
@@ -374,20 +395,35 @@ class GroupEngine:
 
     def _trigger_for(
         self, room: Any, first_input: str | None,
-    ) -> tuple[list[dict[str, str]], str]:
-        """History for the next speaker plus the message that triggered them.
+    ) -> tuple[list[dict[str, str]], str, str]:
+        """History for the next speaker, the text that triggered them, and who
+        said it ("" when the trigger is the user's opening line).
 
-        The trigger is kept out of history so nobody sees it twice. The first
-        turn uses the caller's text because it may carry attachment bodies that
-        are not persisted; later turns read the room back."""
-        block = self._history_block(room)
+        The trigger is returned raw and kept out of history: it goes back as an
+        explicit instruction, not as another transcript line, otherwise the
+        model reads the transcript as a script and writes other people's
+        lines too."""
+        chat = self.chat
+        rows = chat.session_store.get_session_messages(room.session_id)
+        names, user_name = self._speaker_names(room)
         if first_input is not None:
-            if block and block[-1]["role"] == "user":
-                block = block[:-1]
-            return block, first_input
-        if not block:
-            return [], ""
-        return block[:-1], block[-1]["content"]
+            if rows and rows[-1].role == "user":
+                rows = rows[:-1]
+            history = format_group_history(
+                rows, names_by_id=names, user_name=user_name,
+            )
+            return history, first_input, ""
+        if not rows:
+            return [], "", ""
+        last = rows[-1]
+        speaker = (
+            user_name if last.role == "user"
+            else names.get(last.character_card_id or -1, UNKNOWN_SPEAKER)
+        )
+        history = format_group_history(
+            rows[:-1], names_by_id=names, user_name=user_name,
+        )
+        return history, last.content, speaker
 
     async def run_chain(
         self,
@@ -462,7 +498,7 @@ class GroupEngine:
                 )
                 if character is None:
                     continue
-                history, trigger = self._trigger_for(
+                history, trigger, trigger_speaker = self._trigger_for(
                     room, user_input if first_speaker else None,
                 )
                 first_speaker = False
@@ -474,6 +510,7 @@ class GroupEngine:
                     history=history,
                     user_input=trigger,
                     should_stop=lambda: self.is_cancelled(room.id),
+                    trigger_speaker=trigger_speaker,
                 )
                 calls_used += 1
                 last_speaker = result.character_id
@@ -516,12 +553,18 @@ class GroupEngine:
         if character is None:
             return None
 
+        prior = rows[:index]
         names, user_name = self._speaker_names(room)
-        block = format_group_history(
-            rows[:index], names_by_id=names, user_name=user_name,
+        history = format_group_history(
+            prior[:-1], names_by_id=names, user_name=user_name,
         )
-        trigger = block[-1]["content"] if block else ""
-        history = block[:-1] if block else []
+        trigger = prior[-1].content if prior else ""
+        trigger_speaker = ""
+        if prior:
+            trigger_speaker = (
+                user_name if prior[-1].role == "user"
+                else names.get(prior[-1].character_card_id or -1, UNKNOWN_SPEAKER)
+            )
 
         chat.session_store.delete_messages([message_row_id])
         self.clear_cancel(room.id)
@@ -533,4 +576,5 @@ class GroupEngine:
             history=history,
             user_input=trigger,
             should_stop=lambda: self.is_cancelled(room.id),
+            trigger_speaker=trigger_speaker,
         )

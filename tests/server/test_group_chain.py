@@ -283,6 +283,7 @@ def test_history_excludes_the_trigger_message(monkeypatch) -> None:
         captured.append({
             "history": kwargs["history"],
             "user_input": kwargs["user_input"],
+            "trigger_speaker": kwargs["trigger_speaker"],
         })
         chat._rows.append(MessageRow(id=10 + len(captured), session_id="s1",
                                      role="assistant", content="fresh",
@@ -299,8 +300,11 @@ def test_history_excludes_the_trigger_message(monkeypatch) -> None:
         "[user]: look", "[Kai]: prior",
     ]
     assert first["user_input"] == "hi"
-    # Later speakers are triggered by whoever just spoke, read back from the room.
-    assert captured[1]["user_input"] == "[Mira]: fresh"
+    assert first["trigger_speaker"] == ""
+    # Later speakers are triggered by whoever just spoke, read back from the
+    # room: raw text plus the speaker, never another transcript line.
+    assert captured[1]["user_input"] == "fresh"
+    assert captured[1]["trigger_speaker"] == "Mira"
     assert [m["content"] for m in captured[1]["history"]] == [
         "[user]: look", "[Kai]: prior", "[user]: hi",
     ]
