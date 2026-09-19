@@ -22,6 +22,7 @@ class SessionRow:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     message_count: int = 0
+    kind: str = "chat"
 
     def to_dict(self) -> dict:
         return {
@@ -31,6 +32,7 @@ class SessionRow:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "message_count": self.message_count,
+            "kind": self.kind,
         }
 
 
@@ -102,6 +104,7 @@ class SessionStore:
             self._migrate_context_tokens(conn)
             self._migrate_unlocked_tools(conn)
             self._migrate_message_attribution(conn)
+            self._migrate_session_kind(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
             )
@@ -121,6 +124,15 @@ class SessionStore:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "unlocked_tools" not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN unlocked_tools TEXT")
+
+    def _migrate_session_kind(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add kind so group rooms stay out of the chat history."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "kind" not in cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'"
+            )
+        conn.commit()
 
     def _migrate_message_attribution(self, conn: sqlite3.Connection) -> None:
         """Idempotent: add character_card_id to conversations (per-message speaker)."""
@@ -274,18 +286,21 @@ class SessionStore:
 
     # ---------- sessions CRUD ----------
 
-    def create(self) -> SessionRow:
+    def create(self, kind: str = "chat") -> SessionRow:
         now = datetime.now()
         row = SessionRow(
             id=uuid.uuid4().hex,
             created_at=now,
             updated_at=now,
+            kind=kind,
         )
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, pinned, created_at, updated_at, message_count) "
-                "VALUES (?, ?, 0, ?, ?, 0)",
-                (row.id, row.title, row.created_at.isoformat(), row.updated_at.isoformat()),
+                "INSERT INTO sessions "
+                "(id, title, pinned, created_at, updated_at, message_count, kind) "
+                "VALUES (?, ?, 0, ?, ?, 0, ?)",
+                (row.id, row.title, row.created_at.isoformat(),
+                 row.updated_at.isoformat(), kind),
             )
             conn.commit()
         return row
@@ -293,19 +308,38 @@ class SessionStore:
     def get(self, conversation_id: str) -> SessionRow | None:
         with self._connect() as conn:
             r = conn.execute(
-                "SELECT id, title, pinned, created_at, updated_at, message_count "
+                "SELECT id, title, pinned, created_at, updated_at, message_count, kind "
                 "FROM sessions WHERE id = ?",
                 (conversation_id,),
             ).fetchone()
         return self._row_to_session(r) if r else None
 
-    def list(self, limit: int = 50) -> list[SessionRow]:
+    def get_kind(self, session_id: str) -> str:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, title, pinned, created_at, updated_at, message_count "
-                "FROM sessions ORDER BY pinned DESC, updated_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            r = conn.execute(
+                "SELECT kind FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        return str(r[0] or "chat") if r else "chat"
+
+    def list(self, limit: int = 50, kind: str | None = "chat") -> list[SessionRow]:
+        """List sessions. Defaults to chat so group rooms stay out of the
+        single-chat history panel; pass kind=None for everything."""
+        with self._connect() as conn:
+            if kind is None:
+                rows = conn.execute(
+                    "SELECT id, title, pinned, created_at, updated_at, "
+                    "message_count, kind "
+                    "FROM sessions ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, title, pinned, created_at, updated_at, "
+                    "message_count, kind "
+                    "FROM sessions WHERE kind = ? "
+                    "ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                    (kind, limit),
+                ).fetchall()
         return [self._row_to_session(r) for r in rows]
 
     def rename(self, conversation_id: str, title: str) -> bool:
@@ -450,6 +484,7 @@ class SessionStore:
             created_at=datetime.fromisoformat(r[3]),
             updated_at=datetime.fromisoformat(r[4]),
             message_count=int(r[5] or 0),
+            kind=str(r[6] or "chat"),
         )
 
     @staticmethod
