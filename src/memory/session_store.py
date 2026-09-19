@@ -230,13 +230,43 @@ class SessionStore:
         return int(r[0] or 0) if r else 0
 
     def session_ids_for_character(self, character_id: int) -> list[str]:
-        """All conversation ids bound to the given character card."""
+        """Conversations the character is bound to or has spoken in.
+
+        Two sources, unioned: the legacy single-character binding on the session
+        row, plus per-message speaker attribution (group rooms). The binding
+        branch is kept verbatim so existing chats keep their exact memory scope
+        with no backfill migration."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id FROM sessions WHERE character_card_id = ?",
-                (character_id,),
-            ).fetchall()
-        return [r[0] for r in rows]
+            ids = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM sessions WHERE character_card_id = ?",
+                    (character_id,),
+                ).fetchall()
+            }
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "conversations" in tables:
+                cols = [
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(conversations)"
+                    ).fetchall()
+                ]
+                if "character_card_id" in cols:
+                    ids.update(
+                        r[0]
+                        for r in conn.execute(
+                            "SELECT DISTINCT session_fk FROM conversations "
+                            "WHERE character_card_id = ? AND session_fk IS NOT NULL",
+                            (character_id,),
+                        ).fetchall()
+                    )
+        return sorted(ids)
 
     def _migrate_conversations(self, conn: sqlite3.Connection) -> None:
         """Idempotent: add session_fk column + backfill from session_id.
