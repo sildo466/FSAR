@@ -26,6 +26,7 @@ EAGER_THRESHOLD = 5
 SPEAKERS_PER_ROUND = 2
 MENTIONED_EAGERNESS = 10
 ELECT_HISTORY_LINES = 20
+GROUP_SHORT_CACHE_LIMIT = 10
 
 ELECT_PROMPT = """Your name is {name}.
 {description}
@@ -186,6 +187,14 @@ class GroupEngine:
     def clear_cancel(self, room_id: int) -> None:
         self._cancelled.discard(room_id)
 
+    def _bound_short_cache(self, conv_id: str) -> None:
+        """_save_assistant appends to the shared short cache, but a group turn
+        rebuilds history from the room and never reads it, so a long-lived room
+        would grow that deque forever."""
+        queue = self.chat._short_cache.get(conv_id)
+        if queue is not None and len(queue) > GROUP_SHORT_CACHE_LIMIT:
+            del queue[: len(queue) - GROUP_SHORT_CACHE_LIMIT]
+
     async def speak(
         self,
         ws: Any,
@@ -247,6 +256,7 @@ class GroupEngine:
             char_name=char_name,
         )
         chat._save_assistant(message_id, conv_id, text, character_id=char_id)
+        self._bound_short_cache(conv_id)
         emotion_state = None
         try:
             emotion_state = chat._post_turn_emotion_pass(conv_id, char_id=char_id)
@@ -479,3 +489,48 @@ class GroupEngine:
             "reason": reason,
         })
         return reason
+
+    async def regenerate(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        message_row_id: int,
+        user_card: Any,
+    ) -> tuple[str, str] | None:
+        """Re-run one character's turn in place.
+
+        No election and no chaining: this is the user asking a specific speaker
+        to say it again, not a new round."""
+        chat = self.chat
+        rows = chat.session_store.get_session_messages(room.session_id)
+        index = next(
+            (i for i, r in enumerate(rows) if r.id == message_row_id), None,
+        )
+        if index is None:
+            return None
+        target = rows[index]
+        if target.role != "assistant" or not target.character_card_id:
+            return None
+        character = chat.card_repo.get_character(target.character_card_id)
+        if character is None:
+            return None
+
+        names, user_name = self._speaker_names(room)
+        block = format_group_history(
+            rows[:index], names_by_id=names, user_name=user_name,
+        )
+        trigger = block[-1]["content"] if block else ""
+        history = block[:-1] if block else []
+
+        chat.session_store.delete_messages([message_row_id])
+        self.clear_cancel(room.id)
+        return await self.speak(
+            ws,
+            room=room,
+            character=character,
+            user_card=user_card,
+            history=history,
+            user_input=trigger,
+            should_stop=lambda: self.is_cancelled(room.id),
+        )
