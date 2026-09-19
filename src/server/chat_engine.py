@@ -3376,12 +3376,16 @@ class ChatEngine:
         except Exception as e:
             logger.warning(f"save user message failed: {e}")
 
-    def _save_assistant(self, message_id: str, conv_id: str, content: str) -> None:
+    def _save_assistant(
+        self, message_id: str, conv_id: str, content: str,
+        character_id: int | None = None,
+    ) -> None:
         self._ensure_short(conv_id)
         self._short_cache[conv_id].append({"role": "assistant", "content": content})
         try:
             msg_id = self.session_store.append_message(
                 conv_id, "assistant", content, tags="reply",
+                character_card_id=character_id,
             )
             if msg_id is not None:
                 self._msg_ids[message_id] = msg_id

@@ -40,12 +40,13 @@ class MessageRow:
     session_id: str
     role: str
     content: str
+    character_card_id: int | None = None
     timestamp: datetime = field(default_factory=datetime.now)
     summary: str = ""
     tags: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id": self.id,
             "session_id": self.session_id,
             "role": self.role,
@@ -54,6 +55,9 @@ class MessageRow:
             "tags": self.tags,
             "timestamp": self.timestamp.isoformat(),
         }
+        if self.character_card_id is not None:
+            data["character_id"] = self.character_card_id
+        return data
 
 
 class SessionStore:
@@ -97,6 +101,7 @@ class SessionStore:
             self._migrate_character_binding(conn)
             self._migrate_context_tokens(conn)
             self._migrate_unlocked_tools(conn)
+            self._migrate_message_attribution(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
             )
@@ -116,6 +121,27 @@ class SessionStore:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "unlocked_tools" not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN unlocked_tools TEXT")
+
+    def _migrate_message_attribution(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add character_card_id to conversations (per-message speaker)."""
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "conversations" not in tables:
+            return
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+        if "character_card_id" not in cols:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN character_card_id INTEGER"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_character "
+            "ON conversations(character_card_id)"
+        )
+        conn.commit()
 
     def get_unlocked_tools(self, session_id: str) -> set[str]:
         """Session-permanent character-mode unlocks. Empty set when none stored."""
@@ -333,7 +359,7 @@ class SessionStore:
 
     def append_message(
         self, conversation_id: str, role: str, content: str,
-        summary: str = "", tags: str = "",
+        summary: str = "", tags: str = "", character_card_id: int | None = None,
     ) -> int | None:
         """Insert into conversations table with session_fk set; returns row id."""
         if self.get(conversation_id) is None:
@@ -343,10 +369,11 @@ class SessionStore:
             self._ensure_conversations(conn)
             cur = conn.execute(
                 "INSERT INTO conversations "
-                "(session_id, session_fk, role, content, summary, tags, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(session_id, session_fk, role, content, summary, tags, timestamp, "
+                "character_card_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (conversation_id, conversation_id, role, content, summary, tags,
-                 datetime.now().isoformat()),
+                 datetime.now().isoformat(), character_card_id),
             )
             conn.commit()
             self.touch(conversation_id)
@@ -383,7 +410,8 @@ class SessionStore:
     ) -> list[MessageRow]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags "
                 "FROM conversations WHERE session_fk = ? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (conversation_id, limit),
@@ -396,14 +424,16 @@ class SessionStore:
         with self._connect() as conn:
             if limit:
                 rows = conn.execute(
-                    "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                    "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags "
                     "FROM conversations WHERE session_fk = ? "
                     "ORDER BY timestamp ASC LIMIT ?",
                     (conversation_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                    "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags "
                     "FROM conversations WHERE session_fk = ? ORDER BY timestamp ASC",
                     (conversation_id,),
                 ).fetchall()
@@ -429,7 +459,8 @@ class SessionStore:
             session_id=r[1],
             role=r[2],
             content=r[3],
-            summary=r[4] or "",
-            tags=r[5] or "",
-            timestamp=datetime.fromisoformat(r[6]),
+            character_card_id=r[4],
+            timestamp=datetime.fromisoformat(r[5]),
+            summary=r[6] or "",
+            tags=r[7] or "",
         )
