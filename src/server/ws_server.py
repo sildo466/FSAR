@@ -16,12 +16,15 @@ from fastapi.staticfiles import StaticFiles
 
 from src.utils.fsar_config import get_default_config
 from src.utils.fsar_home import get_fsar_home
+from src.memory.rooms import RoomStore
+from src.server.group_engine import GroupEngine
 from src.utils.logger import logger
 from src.server.handlers import chat as chat_handler
 from src.server.handlers import asr as asr_handler
 from src.server.handlers import embedding as embedding_handler
 from src.server.handlers import card as card_handler
 from src.server.handlers import conversation as conversation_handler
+from src.server.handlers import group as group_handler
 from src.server.handlers import insights as insights_handler
 from src.server.handlers import integration as integration_handler
 from src.server.handlers import library as library_handler
@@ -81,6 +84,9 @@ _ctx: dict[str, Any] = {
 }
 chat_handler.set_engine(_engine)
 conversation_handler.set_engine(_engine)
+_group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
+_group_engine = GroupEngine(_engine, _group_rooms)
+group_handler.set_engine(_group_engine, _group_rooms)
 
 _feishu_adapter: Any = None
 _wechat_adapter: Any = None
@@ -607,6 +613,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await risk_handler.dispatch(_bridge, ws, msg):
         return
     if await conversation_handler.dispatch(ws, msg):
+        return
+    if await group_handler.dispatch(ws, msg):
         return
     if await card_handler.dispatch(ws, msg, _ctx):
         return
