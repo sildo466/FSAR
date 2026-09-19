@@ -834,7 +834,10 @@ class ChatEngine:
             *(message for group in current_groups for message in group),
         ]
 
-    def rate(self, message_id: str, score: int, reason: str = "") -> dict[str, Any]:
+    def rate(
+        self, message_id: str, score: int, reason: str = "",
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         msg_id = self._msg_ids.get(message_id)
         if msg_id is None and message_id.isdigit():
             msg_id = int(message_id)
@@ -842,7 +845,7 @@ class ChatEngine:
             return {"status": "no_message"}
         self.feedback.add_or_update_rating(
             message_id=msg_id,
-            session_id=self._active_conv_id or "",
+            session_id=session_id or self._active_conv_id or "",
             rating=score,
             reason=reason,
         )
@@ -3258,9 +3261,12 @@ class ChatEngine:
             if cid:
                 self._save_assistant(message_id, cid, text)
 
-    def _post_turn_emotion_pass(self, conv_id: str) -> dict | None:
+    def _post_turn_emotion_pass(
+        self, conv_id: str, char_id: int | None = None,
+    ) -> dict | None:
         from src.core.formula_engine import execute_emotion_formulas
-        char_id = self.session_store.get_character(conv_id)
+        if char_id is None:
+            char_id = self.session_store.get_character(conv_id)
         character = self.card_repo.get_character(char_id) if char_id else None
         if character is None:
             character = self.card_repo.get_default_character()
@@ -3282,18 +3288,22 @@ class ChatEngine:
         outcome: str,
         conv_id: str | None = None,
         tts_text: str = "",
+        character_id: int | None = None,
     ) -> None:
         emotion_state = None
-        char_id = None
+        char_id = character_id
         char_name = None
         if conv_id is not None:
             try:
-                emotion_state = self._post_turn_emotion_pass(conv_id)
+                emotion_state = self._post_turn_emotion_pass(
+                    conv_id, char_id=character_id,
+                )
             except Exception as e:
                 logger.debug(f"Post-turn emotion pass skipped: {e}")
             try:
-                cid = self.session_store.get_character(conv_id)
-                c = self.card_repo.get_character(cid) if cid else None
+                if char_id is None:
+                    char_id = self.session_store.get_character(conv_id)
+                c = self.card_repo.get_character(char_id) if char_id else None
                 if c:
                     char_id, char_name = c.id, c.name
             except Exception:
@@ -3314,6 +3324,7 @@ class ChatEngine:
                 message_id=message_id,
                 text=tts_text,
                 conversation_id=conv_id,
+                character_id=character_id,
             )
 
     async def _maybe_queue_tts(
@@ -3323,6 +3334,7 @@ class ChatEngine:
         message_id: str,
         text: str,
         conversation_id: str,
+        character_id: int | None = None,
     ) -> None:
         if not str(self.config.get("tts.active") or ""):
             return
@@ -3333,7 +3345,8 @@ class ChatEngine:
             return
         autoplay_on_card = 1
         try:
-            character_id = self.session_store.get_character(conversation_id)
+            if character_id is None:
+                character_id = self.session_store.get_character(conversation_id)
             character = (
                 self.card_repo.get_character(character_id)
                 if character_id is not None
