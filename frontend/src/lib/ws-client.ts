@@ -95,6 +95,17 @@ export type ClientMsg =
   | { type: "sensitive.report_missing"; path: string; context?: string }
   | { type: "sandbox_audit.list"; since?: string; conversation_id?: string; limit?: number }
   | { type: "tool.sandbox.escape_decision"; request_id: string; decision: "deny" | "allow_once" | "allow_session" | "allow_always" }
+  | { type: "group.list" }
+  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[] }
+  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean }
+  | { type: "group.delete"; room_id: number }
+  | { type: "group.members.add"; room_id: number; character_ids: number[] }
+  | { type: "group.members.remove"; room_id: number; character_id: number }
+  | { type: "group.history"; room_id: number }
+  | { type: "group.send"; room_id: number; content: string; attached_files?: string[]; mentioned_character_ids?: number[] }
+  | { type: "group.cancel"; room_id: number }
+  | { type: "group.regenerate"; room_id: number; message_id: number }
+  | { type: "group.rate"; room_id: number; message_id: number; score: number; reason?: string }
   | { type: "heartbeat" };
 
 export interface WorkspaceInfo {
@@ -162,6 +173,43 @@ export interface StoredMessage {
   timestamp: string;
   character_id?: number;
   character_name?: string;
+}
+
+export interface RoomSummary {
+  id: number;
+  name: string;
+  description: string;
+  scenario_prompt: string;
+  session_id: string;
+  user_card_id: number | null;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+  members: number[];
+}
+
+export interface GroupMessage {
+  /** Live stream id (`group_…`) while streaming; the stringified DB row id
+   *  once loaded from history. Always a string so it can feed MessageList. */
+  id: string;
+  /** DB row id — present only on persisted messages, and required by
+   *  regenerate, which addresses rows rather than stream ids. */
+  row_id?: number;
+  role: "user" | "assistant";
+  content: string;
+  character_id?: number | null;
+  character_name?: string | null;
+  user_name?: string | null;
+  timestamp?: string;
+  streaming?: boolean;
+  thinking?: boolean;
+}
+
+export interface ElectionCandidate {
+  character_id: number;
+  character_name: string;
+  eagerness: number;
+  reason: string;
 }
 
 export interface OnboardingStatePayload {
@@ -277,6 +325,21 @@ export type ServerMsg =
   | { type: "card.user_card_renamed"; user_card_id: number; name: string }
   | { type: "card.emotion_state_updated"; character_id: number; state: Record<string, number>; source: string }
   | { type: "card.error"; code: string; message?: string }
+  | { type: "group.list.ok"; rooms: RoomSummary[] }
+  | { type: "group.created"; room: RoomSummary }
+  | { type: "group.updated"; room: RoomSummary }
+  | { type: "group.deleted"; room_id: number }
+  | { type: "group.history.ok"; room_id: number; messages: GroupMessage[] }
+  | { type: "group.elect.started"; room_id: number; chain_id: string; round: number; candidates: number[] }
+  | { type: "group.elect.candidate"; room_id: number; chain_id: string; round: number; character_id: number; character_name: string; eagerness: number; reason: string }
+  | { type: "group.elect.decided"; room_id: number; chain_id: string; round: number; speakers: number[] }
+  | { type: "group.speaker.start"; room_id: number; message_id: string; character_id?: number | null; character_name?: string | null }
+  | { type: "group.speaker.delta"; room_id: number; message_id: string; content: string }
+  | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
+  | { type: "group.speaker.done"; room_id: number; message_id: string; emotion_state?: Record<string, number> | null }
+  | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "max_calls" | "cancelled" }
+  | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
+  | { type: "group.error"; room_id?: number | null; code: string; message: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };
 
