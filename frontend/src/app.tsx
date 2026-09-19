@@ -10,6 +10,7 @@ import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
 import { Chat } from "./pages/Chat";
 import { Group } from "./pages/Group";
+import { GroupRoom } from "./pages/GroupRoom";
 import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
 import { Library } from "./pages/Library";
@@ -48,6 +49,7 @@ function AppShell() {
             <Route path="/" element={<Chat />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/group" element={<Group />} />
+            <Route path="/group/:roomId" element={<GroupRoom />} />
             <Route path="/reflection" element={<Reflection />} />
             <Route path="/memory" element={<Memory />} />
             <Route path="/library" element={<Library />} />

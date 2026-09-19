@@ -55,6 +55,9 @@ interface Props {
   onRespond: (callId: string, response: "y" | "n" | "all" | "never") => void;
   onRate: (messageId: string, score: 1 | 2 | 3 | 4 | 5, reason?: string) => Promise<void> | void;
   onRegenerate?: () => void;
+  /** Per-message regenerate. Group rooms need it because the last assistant
+   *  message may belong to a character the user did not mean to re-run. */
+  onRegenerateMessage?: (messageId: string) => void;
 }
 
 function ToolCallRow({ ev }: { ev: ToolEvent }) {
@@ -140,7 +143,7 @@ function AssistantBody({ content }: { content: string }) {
   );
 }
 
-export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate }: Props) {
+export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate, onRegenerateMessage }: Props) {
   const { t } = useTranslation();
   const characters = useCardsStore((s) => s.characters);
   const charactersById = useMemo(() => {
@@ -187,7 +190,19 @@ export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegen
           {m.role === "assistant" && !m.thinking && !m.streaming && (
             <div className="flex w-full items-center justify-between gap-3 px-1">
               <RateStars messageId={m.id} onRate={onRate} />
-              <MessageReplayButton messageId={m.id} text={m.content} voiceOverride={String(character?.tts_voice ?? "")} instructionsOverride={String(character?.tts_instructions ?? "")} onRegenerate={m.id === lastAssistantId ? onRegenerate : undefined} />
+              <MessageReplayButton
+                messageId={m.id}
+                text={m.content}
+                voiceOverride={String(character?.tts_voice ?? "")}
+                instructionsOverride={String(character?.tts_instructions ?? "")}
+                onRegenerate={
+                  onRegenerateMessage
+                    ? () => onRegenerateMessage(m.id)
+                    : m.id === lastAssistantId
+                      ? onRegenerate
+                      : undefined
+                }
+              />
             </div>
           )}
           </div>
