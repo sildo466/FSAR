@@ -11,7 +11,7 @@ import uuid
 from collections import OrderedDict, deque
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import WebSocket
 
@@ -3086,11 +3086,60 @@ class ChatEngine:
         ))
         self._track_context(conv_id, messages)
         await self._emit_context(ws, conv_id)
+        text = await self._stream_one_reply(
+            ws,
+            message_id=message_id,
+            conv_id=conv_id,
+            client=client,
+            model=model,
+            provider_id=provider_id,
+            provider_family=provider_family,
+            messages=messages,
+            max_output=max_output,
+            model_effort=model_effort,
+            character=character,
+            char_name=char_name,
+        )
+        self._save_assistant(message_id, conv_id, text)
+        await self._done(
+            ws,
+            message_id,
+            "success",
+            conv_id=conv_id,
+            tts_text=text,
+        )
+        self._maybe_title(conv_id, user_input)
+        self.idle_reflector.bump_event()
+        await self._run_idle_reflection_if_due()
+
+    async def _stream_one_reply(
+        self,
+        ws: WebSocket,
+        *,
+        message_id: str,
+        conv_id: str,
+        client: Any,
+        model: str,
+        provider_id: str,
+        provider_family: str,
+        messages: list[Any],
+        max_output: int,
+        model_effort: str = "off",
+        should_stop: Callable[[], bool] | None = None,
+        character: Any = None,
+        char_name: str | None = None,
+    ) -> str:
+        """Single streaming completion with no tools; returns accumulated text.
+
+        Emits chat.thinking / chat.delta only. Persistence and chat.done stay
+        with the caller so companion and group turn-taking can differ."""
+        stop = should_stop if should_stop is not None else (lambda: self._cancelled)
         base_url = str(getattr(client, "base_url", "") or "")
         deepseek = is_deepseek_official(base_url)
         thinking_payload = resolve_thinking_payload(
             provider_family, model, model_effort, base_url,
         )
+        char_id = getattr(character, "id", None)
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[tuple[str, str | None]] = asyncio.Queue()
@@ -3108,7 +3157,7 @@ class ChatEngine:
                     stream=True,
                 )
                 async for chunk in stream:
-                    if self._cancelled:
+                    if stop():
                         break
                     if chunk.get("thinking"):
                         queue.put_nowait(("thinking", chunk["thinking"]))
@@ -3133,7 +3182,7 @@ class ChatEngine:
                     stream_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                 stream = chat_completion(client, provider_id=provider_id, **stream_kwargs)
                 for chunk in stream:
-                    if self._cancelled:
+                    if stop():
                         break
                     if not chunk.choices:
                         continue
@@ -3166,7 +3215,7 @@ class ChatEngine:
                     "message_id": message_id,
                     "conversation_id": conv_id,
                     "content": content,
-                    "character_id": character.id if character else None,
+                    "character_id": char_id,
                     "character_name": char_name,
                 })
                 continue
@@ -3174,22 +3223,11 @@ class ChatEngine:
             await ws.send_json({
                 "type": "chat.delta", "message_id": message_id,
                 "conversation_id": conv_id, "content": content,
-                "character_id": character.id if character else None,
+                "character_id": char_id,
                 "character_name": char_name,
             })
         await pump
-        text = "".join(full)
-        self._save_assistant(message_id, conv_id, text)
-        await self._done(
-            ws,
-            message_id,
-            "success",
-            conv_id=conv_id,
-            tts_text=text,
-        )
-        self._maybe_title(conv_id, user_input)
-        self.idle_reflector.bump_event()
-        await self._run_idle_reflection_if_due()
+        return "".join(full)
 
     # ---------- helpers ----------
 
