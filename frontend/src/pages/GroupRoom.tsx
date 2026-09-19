@@ -11,6 +11,7 @@ import {
   ChatComposer,
   type ComposerAttachment,
 } from "../components/chat/ChatComposer";
+import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
 import { MemberPanel } from "../components/group/MemberPanel";
 
@@ -30,6 +31,7 @@ export function GroupRoom() {
   const rate = useGroup((s) => s.rate);
   const regenerate = useGroup((s) => s.regenerate);
   const characters = useCardsStore((s) => s.characters);
+  const gauge = useGroup((s) => s.context[roomId]);
 
   const [input, setInput] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
@@ -123,6 +125,11 @@ export function GroupRoom() {
     [messages]
   );
 
+  // The election runs before anyone is picked, so a "thinking" bubble with a
+  // character's name would attribute speech to someone who may never answer.
+  const waiting =
+    chainRunning && !messages.some((m) => m.streaming || m.thinking);
+
   const rowIdOf = (messageId: string) =>
     messages.find((m) => m.id === messageId)?.row_id;
 
@@ -161,6 +168,19 @@ export function GroupRoom() {
             <Users size={13} strokeWidth={1.6} />
             {members.length}
           </button>
+          {gauge && gauge.window > 0 && (
+            <span
+              data-testid="group-token-meter"
+              title={`context: ${gauge.used.toLocaleString()} / ${gauge.window.toLocaleString()} tokens`}
+              className="shrink-0 rounded-full border border-border/60 bg-[var(--chip-bg)] px-2.5 py-1 font-mono text-[10px] leading-none text-text-muted"
+            >
+              <span className="text-text">{gauge.used.toLocaleString()}</span>
+              <span className="opacity-60">
+                {" / "}
+                {gauge.window.toLocaleString()} tk
+              </span>
+            </span>
+          )}
         </header>
 
         <ElectionStrip candidates={elections} running={chainRunning} />
@@ -207,6 +227,16 @@ export function GroupRoom() {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {waiting && (
+          <div
+            data-testid="group-waiting"
+            className="flex items-center gap-2 px-3 pt-2 text-[11px] text-text-muted"
+          >
+            <ThinkingDot />
+            {t("group.waiting")}
           </div>
         )}
 

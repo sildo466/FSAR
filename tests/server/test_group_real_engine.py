@@ -89,8 +89,14 @@ def test_speak_runs_against_the_real_engine(engine: ChatEngine, monkeypatch) -> 
 
     kinds = [m["type"] for m in ws.messages]
     assert kinds == [
-        "group.speaker.start", "group.speaker.delta", "group.speaker.done",
+        "group.speaker.start", "group.speaker.delta",
+        "group.context", "group.speaker.done",
     ]
+
+    # The real _track_context ran, so the gauge carries a real size.
+    snapshot = next(m for m in ws.messages if m["type"] == "group.context")
+    assert snapshot["used_tokens"] > 0
+    assert snapshot["window_tokens"] > 0
 
     # The real engine persisted the turn, attributed to the speaker.
     rows = rooms.messages_with_speaker(room.id)

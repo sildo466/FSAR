@@ -47,6 +47,12 @@ def _chat() -> SimpleNamespace:
     chat._active_provider_family = lambda: "openai"
     chat._memory_block = lambda query, **kw: "- user likes tea"
     chat._model_limits = lambda: (128000, 100000)
+    chat._conv_context_tokens: dict[str, int] = {}
+
+    def track_context(conv_id, messages):
+        chat._conv_context_tokens[conv_id] = 4242
+
+    chat._track_context = track_context
 
     def save_assistant(message_id, conv_id, content, character_id=None):
         chat.saved.append({
@@ -128,7 +134,7 @@ def test_speak_emits_speaker_start_delta_and_done() -> None:
     _speak(_engine(_chat()), ws)
     kinds = [m["type"] for m in ws.messages]
     assert kinds == ["group.speaker.start", "group.speaker.delta",
-                     "group.speaker.done"]
+                     "group.context", "group.speaker.done"]
     start = ws.messages[0]
     assert start["room_id"] == 1
     assert start["character_id"] == 7
@@ -326,6 +332,19 @@ def test_blank_regenerate_leaves_the_original_row_alone() -> None:
     ))
 
     assert updates == [], "the original row must survive a failed regenerate"
+
+
+def test_speak_reports_the_room_context_size() -> None:
+    """The group page had no token readout at all, because nothing ever
+    reported context for a room turn."""
+    chat = _chat()
+    ws = FakeWebSocket()
+    _speak(_engine(chat), ws)
+
+    snapshot = next(m for m in ws.messages if m["type"] == "group.context")
+    assert snapshot["room_id"] == 1
+    assert snapshot["used_tokens"] == 4242
+    assert snapshot["window_tokens"] == 128000
 
 
 def test_speak_drops_a_reply_that_was_only_a_tool_call() -> None:

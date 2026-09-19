@@ -227,12 +227,22 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             marker, block = chat._render_attachments(files) if files else ("", "")
             stored = f"{content}{marker}"
             llm_content = f"{stored}\n\n{block}" if block else stored
-            await asyncio.to_thread(
+            row_id = await asyncio.to_thread(
                 chat.session_store.append_message,
                 room.session_id, "user", stored,
             )
             mentioned = [int(c) for c in (msg.get("mentioned_character_ids") or [])]
             card = _user_card(engine, room)
+            # Echo the stored message back: without this the user's own line only
+            # appeared after a reload, because history is the only other source.
+            await ws.send_json({
+                "type": "group.user_message",
+                "room_id": room_id,
+                "message_id": str(row_id) if row_id is not None else None,
+                "row_id": row_id,
+                "content": stored,
+                "user_name": getattr(card, "name", "") or "user",
+            })
             _start_chain(room_id, engine.run_chain(
                 ws, room=room, user_input=llm_content,
                 mentioned=mentioned, user_card=card,

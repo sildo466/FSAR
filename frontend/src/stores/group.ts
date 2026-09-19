@@ -16,6 +16,9 @@ interface GroupState {
   elections: Record<number, ElectionCandidate[]>;
   chainRunning: Record<number, boolean>;
   loadingHistory: Record<number, boolean>;
+  /** Per-room context gauge, fed by group.context (rooms have their own
+   *  accounting so they never write over the single-chat readout). */
+  context: Record<number, { used: number; window: number }>;
 
   init: (client: WSClient) => () => void;
   refreshRooms: () => void;
@@ -142,11 +145,13 @@ export const useGroup = create<GroupState>((set, get) => {
         const { [msg.room_id]: _messages, ...messages } = s.messages;
         const { [msg.room_id]: _elections, ...elections } = s.elections;
         const { [msg.room_id]: _running, ...chainRunning } = s.chainRunning;
+        const { [msg.room_id]: _gauge, ...context } = s.context;
         return {
           rooms: s.rooms.filter((r) => r.id !== msg.room_id),
           messages,
           elections,
           chainRunning,
+          context,
           currentRoomId:
             s.currentRoomId === msg.room_id ? null : s.currentRoomId,
         };
@@ -160,8 +165,9 @@ export const useGroup = create<GroupState>((set, get) => {
         loadingHistory: { ...s.loadingHistory, [msg.room_id]: false },
       }));
     } else if (msg.type === "group.elect.started") {
+      // Deliberately keep the previous round's candidates visible: clearing
+      // here made the status strip blink away and back every round.
       set((s) => ({
-        elections: { ...s.elections, [msg.room_id]: [] },
         chainRunning: { ...s.chainRunning, [msg.room_id]: true },
       }));
     } else if (msg.type === "group.elect.candidate") {
@@ -180,6 +186,32 @@ export const useGroup = create<GroupState>((set, get) => {
           ],
         },
       }));
+    } else if (msg.type === "group.user_message") {
+      const id = msg.message_id ?? `user_${msg.row_id ?? msg.content.length}`;
+      set((s) => {
+        const prior = s.messages[msg.room_id] ?? [];
+        if (prior.some((m) => m.id === id)) return {};
+        const entry: GroupMessage = {
+          id,
+          role: "user",
+          content: msg.content,
+          user_name: msg.user_name ?? undefined,
+          row_id: msg.row_id ?? undefined,
+        };
+        return {
+          messages: { ...s.messages, [msg.room_id]: [...prior, entry] },
+        };
+      });
+    } else if (msg.type === "group.context") {
+      set((s) => ({
+        context: {
+          ...s.context,
+          [msg.room_id]: {
+            used: msg.used_tokens,
+            window: msg.window_tokens,
+          },
+        },
+      }));
     } else if (msg.type === "group.chain.finished") {
       set((s) => ({
         chainRunning: { ...s.chainRunning, [msg.room_id]: false },
@@ -194,6 +226,7 @@ export const useGroup = create<GroupState>((set, get) => {
     elections: {},
     chainRunning: {},
     loadingHistory: {},
+    context: {},
 
     init: (client) => {
       attached = client;

@@ -20,6 +20,7 @@ const emptyState = {
   elections: {},
   chainRunning: {},
   loadingHistory: {},
+  context: {},
 };
 
 describe("applyGroupEvent", () => {
@@ -290,7 +291,9 @@ describe("useGroup store", () => {
       candidates: [7, 8],
     });
     expect(useGroup.getState().chainRunning[1]).toBe(true);
-    expect(useGroup.getState().elections[1]).toEqual([]);
+    // The strip must not blank out here — see the "keeps the previous round's
+    // candidates" regression test below.
+    expect(useGroup.getState().elections[1]).toBeUndefined();
 
     useGroup.getState().applyServerMsg({
       type: "group.elect.candidate",
@@ -346,5 +349,91 @@ describe("useGroup store", () => {
       reason: "settled",
     });
     expect(useGroup.getState().chainRunning[1]).toBe(false);
+  });
+});
+
+
+describe("group chat regressions", () => {
+  beforeEach(() => {
+    useGroup.setState(emptyState);
+  });
+
+  it("appends the echoed user message", () => {
+    // The server used to persist the user's line without ever sending it, so
+    // it only appeared after a reload.
+    useGroup.getState().applyServerMsg({
+      type: "group.user_message",
+      room_id: 1,
+      message_id: "7",
+      row_id: 7,
+      content: "hello",
+      user_name: "tester",
+    });
+    const stored = useGroup.getState().messages[1];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      id: "7",
+      role: "user",
+      content: "hello",
+      user_name: "tester",
+      row_id: 7,
+    });
+  });
+
+  it("does not double-append an echoed message", () => {
+    const echo = {
+      type: "group.user_message" as const,
+      room_id: 1,
+      message_id: "7",
+      row_id: 7,
+      content: "hello",
+      user_name: "tester",
+    };
+    useGroup.getState().applyServerMsg(echo);
+    useGroup.getState().applyServerMsg(echo);
+    expect(useGroup.getState().messages[1]).toHaveLength(1);
+  });
+
+  it("keeps the previous round's candidates when a new election opens", () => {
+    useGroup.getState().applyServerMsg({
+      type: "group.elect.started",
+      room_id: 1,
+      chain_id: "c1",
+      round: 1,
+      candidates: [7],
+    });
+    useGroup.getState().applyServerMsg({
+      type: "group.elect.candidate",
+      room_id: 1,
+      chain_id: "c1",
+      round: 1,
+      character_id: 7,
+      character_name: "Mira",
+      eagerness: 8,
+      reason: "eager",
+    });
+    useGroup.getState().applyServerMsg({
+      type: "group.elect.started",
+      room_id: 1,
+      chain_id: "c1",
+      round: 2,
+      candidates: [7],
+    });
+    // Clearing here made the status strip blink out and back every round.
+    expect(useGroup.getState().elections[1]).toHaveLength(1);
+    expect(useGroup.getState().chainRunning[1]).toBe(true);
+  });
+
+  it("stores the room's context gauge", () => {
+    useGroup.getState().applyServerMsg({
+      type: "group.context",
+      room_id: 1,
+      used_tokens: 1234,
+      window_tokens: 128000,
+    });
+    expect(useGroup.getState().context[1]).toEqual({
+      used: 1234,
+      window: 128000,
+    });
   });
 });

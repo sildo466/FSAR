@@ -337,6 +337,7 @@ class GroupEngine:
             char_name=char_name,
         )
         text = strip_tool_call_markup(strip_speaker_marker(text, char_name or ""))
+        await self._context_snapshot(ws, room, messages)
         if not text.strip():
             # The call produced nothing, or only a speaker marker. Saving a
             # blank row would leave an empty bubble in the room and feed the
@@ -390,6 +391,26 @@ class GroupEngine:
             "emotion_state": emotion_state,
         })
         return message_id, text
+
+    async def _context_snapshot(self, ws: Any, room: Any, messages: list[Any]) -> None:
+        """Report the room's context size for its own gauge.
+
+        Reuses ChatEngine's accounting but emits group.context, so a room never
+        writes over the single-chat token readout."""
+        try:
+            self.chat._track_context(room.session_id, messages)
+            used = getattr(self.chat, "_conv_context_tokens", {}).get(
+                room.session_id, 0,
+            )
+            window = self.chat._model_limits()[0]
+        except Exception:
+            return
+        await self._safe_send(ws, {
+            "type": "group.context",
+            "room_id": room.id,
+            "used_tokens": used,
+            "window_tokens": window,
+        })
 
     def _elect_prompt(
         self, character: Any, *, room_scene: str, history_text: str,

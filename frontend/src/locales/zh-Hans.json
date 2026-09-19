@@ -853,7 +853,7 @@
   "group.me": "我在群里的身份",
   "group.defaultUser": "默认用户",
   "group.members": "成员",
-  "group.memberCount": "{{count}} 位成员",
+  "group.memberCount": "{count} 位成员",
   "group.addMembers": "添加角色",
   "group.remove": "移除",
   "group.unknownMember": "已删除角色",
@@ -867,6 +867,7 @@
   "group.placeholderInput": "对群聊说点什么…",
   "group.roundsLabel": "辩论轮数",
   "group.roundsUnlimited": "不限 —— 群聊会一直进行到自然停下，或你手动停止。",
-  "group.roundsCapped": "最多 {{count}} 轮后停止。",
-  "group.scenarioHint": "所有成员共享。请用叙述口吻写；提到用户时直接写名字，不要用「你」。"
+  "group.roundsCapped": "最多 {count} 轮后停止。",
+  "group.scenarioHint": "所有成员共享。请用叙述口吻写；提到用户时直接写名字，不要用「你」。",
+  "group.waiting": "等待回复…"
 }

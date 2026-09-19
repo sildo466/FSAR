@@ -341,6 +341,8 @@ export type ServerMsg =
   | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
   | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; failed?: boolean; emotion_state?: Record<string, number> | null }
   | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "cancelled" | "error" }
+  | { type: "group.user_message"; room_id: number; message_id?: string | null; row_id?: number | null; content: string; user_name?: string | null }
+  | { type: "group.context"; room_id: number; used_tokens: number; window_tokens: number }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }

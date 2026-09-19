@@ -853,7 +853,7 @@
   "group.me": "Who I am here",
   "group.defaultUser": "Default user",
   "group.members": "Members",
-  "group.memberCount": "{{count}} members",
+  "group.memberCount": "{count} members",
   "group.addMembers": "Add characters",
   "group.remove": "Remove",
   "group.unknownMember": "Deleted character",
@@ -867,6 +867,7 @@
   "group.placeholderInput": "Say something to the group…",
   "group.roundsLabel": "Debate rounds",
   "group.roundsUnlimited": "No cap — the group keeps going until it settles or you stop it.",
-  "group.roundsCapped": "Stops after {{count}} rounds.",
-  "group.scenarioHint": "Shared by every member. Write it as narration — name the user instead of saying “you”."
+  "group.roundsCapped": "Stops after {count} rounds.",
+  "group.scenarioHint": "Shared by every member. Write it as narration — name the user instead of saying “you”.",
+  "group.waiting": "Waiting for a reply…"
 }

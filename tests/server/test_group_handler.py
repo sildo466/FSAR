@@ -58,11 +58,11 @@ def _chat() -> SimpleNamespace:
     appended: list[dict] = []
     rated: list[dict] = []
     chat = SimpleNamespace(appended=appended, rated=rated)
-    chat.session_store = SimpleNamespace(
-        append_message=lambda cid, role, content, **kw: appended.append(
-            {"conv": cid, "role": role, "content": content}
-        ),
-    )
+    def append_message(cid, role, content, **kw):
+        appended.append({"conv": cid, "role": role, "content": content})
+        return 900 + len(appended)
+
+    chat.session_store = SimpleNamespace(append_message=append_message)
     chat.card_repo = SimpleNamespace(
         get_character=lambda cid: SimpleNamespace(id=cid, name=f"C{cid}"),
         get_user_card=lambda cid: None,
@@ -228,6 +228,20 @@ def test_group_send_persists_user_message_and_starts_chain() -> None:
                                      "content": "hi"}]
     assert engine.chain_calls[0]["user_input"] == "hi"
     assert engine.chain_calls[0]["room"].id == 1
+
+
+def test_group_send_echoes_the_user_message() -> None:
+    """Without the echo the user's own line only appeared after a reload:
+    history is the only other source for it."""
+    engine, _ = _setup()
+    ws = FakeWebSocket()
+    _dispatch(ws, {"type": "group.send", "room_id": 1, "content": "hi"})
+
+    echo = next(m for m in ws.messages if m["type"] == "group.user_message")
+    assert echo["content"] == "hi"
+    assert echo["message_id"] == "901"
+    assert echo["row_id"] == 901
+    assert echo["room_id"] == 1
 
 
 def test_group_send_forwards_mentions_and_attachment_body() -> None:

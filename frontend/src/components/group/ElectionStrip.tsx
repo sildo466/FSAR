@@ -2,6 +2,7 @@
 import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import type { ElectionCandidate } from "../../lib/ws-client";
+import { ThinkingDot } from "../chat/ThinkingDot";
 
 interface Props {
   candidates: ElectionCandidate[];
@@ -10,7 +11,7 @@ interface Props {
 
 export function ElectionStrip({ candidates, running }: Props) {
   const { t } = useTranslation();
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0 && !running) return null;
 
   return (
     <motion.div
@@ -18,7 +19,7 @@ export function ElectionStrip({ candidates, running }: Props) {
       animate={{ opacity: 1, height: "auto" }}
       role="region"
       aria-label={t("group.electionAria")}
-      className="border-b border-border bg-[color:var(--glass)]/35 px-4 py-2 sm:px-8"
+      className="sticky top-0 z-20 border-b border-border bg-[color:var(--glass)]/35 px-4 py-2 backdrop-blur sm:px-8"
     >
       <div className="mx-auto flex max-w-[900px] items-center gap-2 overflow-x-auto">
         <div className="mr-1 flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase text-text-faint">
@@ -30,6 +31,7 @@ export function ElectionStrip({ candidates, running }: Props) {
           )}
           {t("group.election")}
         </div>
+        {candidates.length === 0 && <ThinkingDot />}
         {candidates.map((c) => (
           <div
             key={c.character_id}

@@ -145,7 +145,7 @@
   "group.me": "Wer ich hier bin",
   "group.defaultUser": "Standardnutzer",
   "group.members": "Mitglieder",
-  "group.memberCount": "{{count}} Mitglieder",
+  "group.memberCount": "{count} Mitglieder",
   "group.addMembers": "Charaktere hinzufügen",
   "group.remove": "Entfernen",
   "group.unknownMember": "Gelöschter Charakter",
@@ -159,6 +159,7 @@
   "group.placeholderInput": "Sag etwas zur Gruppe…",
   "group.roundsLabel": "Debattenrunden",
   "group.roundsUnlimited": "Keine Obergrenze — die Gruppe läuft weiter, bis sie sich beruhigt oder du sie stoppst.",
-  "group.roundsCapped": "Endet nach {{count}} Runden.",
-  "group.scenarioHint": "Wird von allen geteilt. Schreib es als Erzählung — nenne den Nutzer beim Namen statt „du“ zu sagen."
+  "group.roundsCapped": "Endet nach {count} Runden.",
+  "group.scenarioHint": "Wird von allen geteilt. Schreib es als Erzählung — nenne den Nutzer beim Namen statt „du“ zu sagen.",
+  "group.waiting": "Warte auf eine Antwort…"
 }
