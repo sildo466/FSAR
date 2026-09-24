@@ -179,6 +179,37 @@ class FsarConfig:
                 "model": str(cfg.get("model", "") or ""),
             })
 
+    def get_judge(self) -> dict:
+        value = _expand_env(self.get("llm.judge", {}) or {})
+        return {
+            "base_url": str(value.get("base_url", "") or ""),
+            "api_key": str(value.get("api_key", "") or ""),
+            "model": str(value.get("model", "") or ""),
+        }
+
+    def set_judge(self, cfg: dict | None) -> None:
+        self.patch("llm.judge", {
+            "base_url": str((cfg or {}).get("base_url", "") or ""),
+            "api_key": str((cfg or {}).get("api_key", "") or ""),
+            "model": str((cfg or {}).get("model", "") or ""),
+        })
+
+    @property
+    def inject_budget_chars(self) -> int:
+        return int(self.get("memory.inject_budget_chars", 2400))
+
+    @property
+    def inject_candidate_cap(self) -> int:
+        return int(self.get("memory.inject_candidate_cap", 40))
+
+    @property
+    def inject_score_floor(self) -> float:
+        return float(self.get("memory.inject_score_floor", 0.35))
+
+    @property
+    def inject_max_item_chars(self) -> int:
+        return int(self.get("memory.inject_max_item_chars", 600))
+
     def add_provider(self, provider: dict) -> None:
         providers = self.list_providers()
         providers.append(provider)

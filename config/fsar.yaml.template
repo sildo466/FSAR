@@ -78,6 +78,13 @@ llm:
     base_url: ""
     api_key: ""
     model: ""
+  # Optional per-candidate relevance judge for memory/experience injection.
+  # Leave all three empty to disable; injection then falls back to priority
+  # order (never to truncation). base_url / api_key may reference ${ENV_VAR}.
+  judge:
+    base_url: ""
+    api_key: ""
+    model: ""
   # provider rows may include `format: responses` to route calls through
   # the OpenAI Responses API (/v1/responses) instead of chat completions.
   # When the GUI sets "OpenAI Responses" as the family for an openai preset,
@@ -112,7 +119,13 @@ memory:
   short_term_window: 50
   reflection_interval_hours: 12
   reflection_intensity: medium
-  recall_max_chars: 2000
+  # Injection is packed by relevance into a character budget instead of being
+  # truncated by position. Budget sits near the old truncation limit on purpose:
+  # the judge only earns its keep when the candidate pool exceeds the budget.
+  inject_budget_chars: 2400
+  inject_candidate_cap: 40
+  inject_score_floor: 0.35
+  inject_max_item_chars: 600
   enable_rating_prompt: true
   embedder:
     provider: ""
