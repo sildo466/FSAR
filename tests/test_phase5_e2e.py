@@ -46,7 +46,6 @@ def _patch_config(db_path: str, intensity: str = "high"):
     cfg = get_config()
     cfg._settings.setdefault("memory", {})["sqlite_path"] = db_path
     cfg._settings["memory"]["reflection_intensity"] = intensity
-    cfg._settings["memory"]["recall_max_chars"] = 2000
     return cfg
 
 

@@ -51,12 +51,20 @@ _MEMORY_HEADERS = {
 _MEMORY_ORDER = ["fact", "profile", "preference", "pattern", "history"]
 
 
-def render_slots(packed: list[Candidate]) -> dict[str, str]:
+def render_slots(
+    packed: list[Candidate],
+    *,
+    extra_strategy_lines: list[str] = (),
+) -> dict[str, str]:
     """Render packed candidates back into the three prompt slots, grouped by source.
 
     Packing decides which items are injected; rendering decides where they land.
     Grouping by source keeps the section headers intact — laying items out in
     score order would interleave and repeat them.
+
+    `extra_strategy_lines` carries the tool-stat warnings, which deliberately
+    bypass scoring and packing: they are operational data that must always be
+    injected, so they must not compete for the context budget.
     """
     by_source: dict[str, list[Candidate]] = {}
     for item in packed:
@@ -70,13 +78,14 @@ def render_slots(packed: list[Candidate]) -> dict[str, str]:
         memory_parts.append(_MEMORY_HEADERS[source])
         memory_parts.extend(i.text for i in items)
 
-    strategy_items = by_source.get("strategy", [])
+    strategy_lines = list(extra_strategy_lines)
+    strategy_lines.extend(i.text for i in by_source.get("strategy", []))
     experience_items = by_source.get("experience", [])
 
     strategy = ""
-    if strategy_items:
+    if strategy_lines:
         strategy = "## Learned Strategies (from past interactions)\n" + "\n".join(
-            i.text for i in strategy_items
+            strategy_lines
         ) + "\n"
 
     experience = ""

@@ -1,11 +1,15 @@
 """FSAR memory recall — unified interface.
 
-The orchestrator calls recall_for_context(query) and gets back an
-LLM-friendly context block containing:
+The orchestrator calls recall_for_context(query) and gets back a structured
+RecallResult holding the candidate memories for that query:
+
 - Relevant past conversations (semantic)
 - User preferences
 - Behavioral patterns
 - User profile
+
+src/memory/pipeline.py turns those into individually judgeable candidates and
+packs the ones worth injecting into the prompt budget.
 """
 
 from __future__ import annotations
@@ -28,33 +32,6 @@ class RecallResult:
     patterns: list[dict] = field(default_factory=list)
     profile: dict[str, str] = field(default_factory=dict)
     memory_chunks: list[dict] = field(default_factory=list)
-
-    def to_context(self, max_len: int = 2000) -> str:
-        """Format as an LLM-friendly context block (injected into a system/user message)."""
-        parts: list[str] = []
-        if self.memory_chunks:
-            parts.append("\n[Saved Facts]")
-            parts.extend(
-                f"- {c['title']}: {c['body']}" for c in self.memory_chunks[:8]
-            )
-        if self.profile:
-            parts.append("\n[User Profile]")
-            parts.extend(f"- {k}: {v}" for k, v in self.profile.items())
-        if self.preferences:
-            parts.append("\n[Known Preferences]")
-            parts.extend(f"- {k}: {v}" for k, v in self.preferences.items())
-        if self.patterns:
-            parts.append("\n[Behavioral Patterns]")
-            parts.extend(f"- {p['pattern']} (x{p['count']})" for p in self.patterns[:10])
-        if self.similar_conversations:
-            parts.append("\n[Relevant History]")
-            for c in self.similar_conversations[:5]:
-                parts.append(f"- {c.get('text', '')[:200]}")
-
-        text = "\n".join(parts)
-        if len(text) > max_len:
-            text = text[:max_len] + "..."
-        return text
 
     @property
     def is_empty(self) -> bool:

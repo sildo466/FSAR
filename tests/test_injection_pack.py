@@ -95,3 +95,17 @@ def test_render_puts_strategy_and_experience_in_their_own_slots():
 def test_render_of_empty_selection_is_all_empty():
     slots = render_slots([])
     assert slots == {"memory": "", "strategy": "", "experience": ""}
+
+
+def test_render_appends_unconditional_strategy_lines_under_one_header():
+    kept = [Candidate("strategy", "S1", "- 先跑最小复现", 2)]
+    slots = render_slots(kept, extra_strategy_lines=["- Avoid `run_command` (42% success)"])
+    assert "run_command" in slots["strategy"]
+    assert "先跑最小复现" in slots["strategy"]
+    assert slots["strategy"].count("## Learned Strategies") == 1
+
+
+def test_render_emits_strategy_slot_from_extra_lines_alone():
+    slots = render_slots([], extra_strategy_lines=["- `run_command` is slow"])
+    assert "## Learned Strategies" in slots["strategy"]
+    assert "run_command" in slots["strategy"]

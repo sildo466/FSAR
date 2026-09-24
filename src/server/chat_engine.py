@@ -39,7 +39,10 @@ from src.memory import (
     set_task_context,
 )
 from src.memory.cards import CardRepo
-from src.memory.cleanse import cleanse_memory_block
+from src.memory.cleanse import _character_summary, cleanse_memory_block
+from src.memory.judge import JevJudge, LlmJudge
+from src.memory.pipeline import InjectionPipeline
+from src.memory.recall import RecallResult
 from src.mcp import MCPManager
 from src.security import (
     RiskEngine,
@@ -358,7 +361,7 @@ class ChatEngine:
         self.config = config
         self.bridge = bridge
         self.registry: ToolRegistry = create_default_registry(config)
-        self._cleanse_cache: dict[tuple[int, str], str] = {}
+        self._cleanse_cache: dict[str, set[str]] = {}
         self.mcp = MCPManager(
             self.registry,
             config_path=config.get("mcp.config_path", "config/mcp_servers.yaml"),
@@ -444,6 +447,9 @@ class ChatEngine:
         # Real context size (per conversation) actually handed to the model,
         # kept so UI gauges reflect usage instead of just the short-cache tail.
         self._conv_context_tokens: dict[str, int] = {}
+        # Built last: the judge factory resolves the active provider, which
+        # depends on the session overrides assigned just above.
+        self.injection_pipeline = self._build_injection_pipeline()
 
     # ---------- session lifecycle ----------
 
@@ -3485,32 +3491,33 @@ class ChatEngine:
             user_card = None
         if user_card is None:
             user_card = self.card_repo.get_default_user_card()
-        memory_block = await asyncio.to_thread(
-            self._memory_block, user_input, character=character
-        )
-        strategy_block = self._strategy_block()
-        experience_block = self._experience_block()
         slim = False
+        top_k = 5
+        semantic = True
+        intensity = None
+        include_strategy = True
+        include_experience = True
         if profile is not None:
             slim = profile.slim_system_prompt
-            memory_block = (
-                await asyncio.to_thread(
-                    self._memory_block,
-                    user_input,
-                    semantic_top_k=profile.recall_top_k,
-                    character=character,
-                )
-                if profile.semantic_recall else ""
-            )
+            semantic = profile.semantic_recall
+            top_k = profile.recall_top_k
             if profile.name != "medium":
-                strategy_block = (
-                    self._strategy_block(profile.injector_intensity)
-                    if profile.inject_strategy else ""
-                )
-                experience_block = (
-                    self._experience_block(profile.injector_intensity)
-                    if profile.inject_experience else ""
-                )
+                intensity = profile.injector_intensity
+                include_strategy = profile.inject_strategy
+                include_experience = profile.inject_experience
+        slots = await asyncio.to_thread(
+            self._injection_slots,
+            user_input,
+            semantic_top_k=top_k,
+            character=character,
+            intensity=intensity,
+            include_strategy=include_strategy,
+            include_experience=include_experience,
+            recall_memory=semantic,
+        )
+        memory_block = slots["memory"]
+        strategy_block = slots["strategy"]
+        experience_block = slots["experience"]
         prompt = build_system_prompt(
             mode=mode,
             character=character,
@@ -3556,24 +3563,104 @@ class ChatEngine:
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."
         )
 
+    def _build_injection_pipeline(self) -> InjectionPipeline:
+        """Pick the judge: a configured JEV endpoint, else the active model.
+
+        LlmJudge is the fallback so that character mode keeps its persona
+        filter for users who never configure JEV.
+        """
+        judge_cfg = self.config.get_judge()
+        judge: Any
+        if judge_cfg["base_url"] and judge_cfg["model"]:
+            from src.providers.judge.client import JevClient
+
+            judge = JevJudge(
+                JevClient(judge_cfg["base_url"], judge_cfg["api_key"],
+                          model=judge_cfg["model"])
+            )
+        else:
+            client, model, provider_id = self.client_and_model()
+            judge = LlmJudge(client, model, provider_id, cache=self._cleanse_cache)
+        return InjectionPipeline(
+            judge=judge,
+            budget_chars=self.config.inject_budget_chars,
+            candidate_cap=self.config.inject_candidate_cap,
+            score_floor=self.config.inject_score_floor,
+            max_item_chars=self.config.inject_max_item_chars,
+        )
+
     def _memory_block(self, query: str, *, semantic_top_k: int = 5,
                       character: Any = None) -> str:
-        try:
-            session_ids: set[str] | None = None
-            if character is not None and getattr(character, "id", None) is not None:
-                session_ids = set(
-                    self.session_store.session_ids_for_character(character.id)
-                )
-            result = self.recall.recall_for_context(
-                query, semantic_top_k=semantic_top_k, session_ids=session_ids,
+        return self._injection_slots(
+            query, semantic_top_k=semantic_top_k, character=character,
+            include_strategy=False, include_experience=False,
+        )["memory"]
+
+    def _strategy_injector_for(self, intensity: str | None = None) -> StrategyInjector:
+        injector = self.strategy_injector
+        if intensity is not None:
+            injector = StrategyInjector(
+                decision_log=self.strategy_injector.decision_log,
+                user_model=self.strategy_injector.user_model,
+                intensity=intensity,
+                max_prefs=self.strategy_injector.max_prefs,
+                max_strategies=self.strategy_injector.max_strategies,
+                success_rate_threshold=self.strategy_injector.success_rate_threshold,
+                latency_threshold_ms=self.strategy_injector.latency_threshold_ms,
+                min_uses=self.strategy_injector.min_uses,
             )
-            if result.is_empty:
-                return ""
-            max_chars = int(self.config.get("memory.recall_max_chars", 2000))
-            return result.to_context(max_len=max_chars)
+        try:
+            recent = self.reflection_store.list_recent(limit=10)
+            injector.set_recent_strategies(
+                [r["suggested_strategy"] for r in recent if r.get("suggested_strategy")]
+            )
         except Exception as e:
-            logger.warning(f"Memory recall failed: {e}")
-            return ""
+            logger.debug(f"Recent strategies skipped: {e}")
+        return injector
+
+    def _injection_slots(
+        self, query: str, *, semantic_top_k: int = 5, character: Any = None,
+        intensity: str | None = None, include_strategy: bool = True,
+        include_experience: bool = True, recall_memory: bool = True,
+    ) -> dict[str, str]:
+        """Build the memory/strategy/experience slots from one shared candidate pool."""
+        strategy_injector = (
+            self._strategy_injector_for(intensity) if include_strategy else None
+        )
+        exp_intensity = (
+            intensity if intensity is not None else self.experience_injector.intensity
+        )
+        experience_store = (
+            self.experience_injector.store
+            if include_experience and exp_intensity != "off" else None
+        )
+        try:
+            result = RecallResult()
+            if recall_memory:
+                session_ids: set[str] | None = None
+                if character is not None and getattr(character, "id", None) is not None:
+                    session_ids = set(
+                        self.session_store.session_ids_for_character(character.id)
+                    )
+                result = self.recall.recall_for_context(
+                    query, semantic_top_k=semantic_top_k, session_ids=session_ids,
+                )
+            return self.injection_pipeline.build_slots(
+                query, result,
+                mode="character" if character is not None else "agent",
+                context=_character_summary(character) if character is not None else "",
+                experience_store=experience_store,
+                strategy_injector=strategy_injector,
+            )
+        except Exception as e:
+            logger.warning(f"Memory injection failed: {e}")
+            return {
+                "memory": "",
+                "strategy": self._strategy_block(intensity) if include_strategy else "",
+                "experience": (
+                    self._experience_block(intensity) if include_experience else ""
+                ),
+            }
 
     def _strategy_block(self, intensity: str | None = None) -> str:
         try:
