@@ -144,13 +144,37 @@ def test_render_emits_the_experience_contract_around_surviving_entries():
     assert body.index("## Experiences") < body.index("[Skill loading rule]")
 
 
-def test_render_omits_the_skill_rule_when_no_entry_survived():
-    """The rule refers to the list above it, so it must never appear alone."""
+def test_render_omits_the_contract_by_default_without_entries():
     slots = render_slots(
         [], experience_header="## Experiences (MUST load)",
         experience_rule="[Skill loading rule] ...",
     )
     assert slots["experience"] == ""
+
+
+def test_emit_experience_contract_survives_entries_losing_the_budget():
+    """The contract is what tells the agent experience_view exists. Gating it on
+    entries surviving lets budget pressure remove the mechanism silently."""
+    slots = render_slots(
+        [], experience_header="## Experiences (MUST load)",
+        experience_rule="[Skill loading rule] ...",
+        emit_experience_contract=True,
+    )
+    assert "## Experiences (MUST load)" in slots["experience"]
+    assert "[Skill loading rule]" in slots["experience"]
+
+
+def test_render_groups_experience_entries_by_category():
+    kept = [
+        Candidate("experience", "E1", "    - 群聊: a", 3, category="group"),
+        Candidate("experience", "E2", "    - 桌宠: b", 3, category="pet"),
+        Candidate("experience", "E3", "    - 群聊2: c", 3, category="group"),
+    ]
+    body = render_slots(kept, experience_header="## Experiences")["experience"]
+
+    assert "  group:" in body
+    assert "  pet:" in body
+    assert body.count("  group:") == 1  # one header per run of items, not per item
 
 
 def test_render_appends_extra_experience_blocks_after_the_contract():

@@ -106,20 +106,21 @@ def test_experience_index_becomes_candidates():
     assert [c.source for c in cands] == ["experience", "experience"]
     assert cands[0].key == "E1"
     assert cands[0].priority == 3
-    assert "群聊" in cands[0].text
+    assert cands[0].text == "    - 群聊: per-scene cast 配置"
+    assert [c.category for c in cands] == ["group", "pet"]
 
 
-def test_experience_description_is_capped():
+def test_experience_description_is_ellipsised_not_hard_sliced():
     store = _FakeExpStore([_Exp("x", "c", "y" * 500)])
     cands = candidates_from_experience(store, max_desc_chars=60)
-    assert "y" * 60 in cands[0].text
-    assert "y" * 61 not in cands[0].text
+    assert "y" * 59 + "…" in cands[0].text
+    assert "y" * 60 not in cands[0].text
 
 
 def test_experience_without_description_renders_name_only():
     store = _FakeExpStore([_Exp("裸名", "c", "")])
     cands = candidates_from_experience(store, max_desc_chars=60)
-    assert cands[0].text == "- 裸名"
+    assert cands[0].text == "    - 裸名"
 
 
 def test_strategy_items_become_candidates():

@@ -82,4 +82,5 @@ class InjectionPipeline:
             experience_header=experience_header,
             experience_rule=experience_rule,
             extra_experience_blocks=list(extra_experience_blocks),
+            emit_experience_contract=experience_store is not None,
         )

@@ -25,6 +25,7 @@ class Candidate:
     key: str
     text: str
     priority: int
+    category: str = ""
 
     @property
     def chars(self) -> int:
@@ -81,11 +82,11 @@ def cap_by_source(candidates: list[Candidate], cap: int) -> list[Candidate]:
 
 
 def candidates_from_experience(store, *, max_desc_chars: int = 60) -> list[Candidate]:
-    """Experience index entries as candidates.
+    """Experience index entries as candidates, grouped by category on render.
 
-    Descriptions stay short (60 chars by default) which is what lets this source
-    afford to enter the pool without a count limit. Skills on disk are synced
-    first, matching the injector this replaced.
+    Descriptions stay short (60 chars by default, ellipsised when cut) which is
+    what lets this source afford to enter the pool without a count limit. Skills
+    on disk are synced first, matching the injector this replaced.
     """
     try:
         from src.memory.skill_sync import sync_skills_from_disk
@@ -95,9 +96,14 @@ def candidates_from_experience(store, *, max_desc_chars: int = 60) -> list[Candi
 
     out: list[Candidate] = []
     for i, exp in enumerate(store.list_for_index(), start=1):
-        desc = (exp.description or "").strip().replace("\n", " ")[:max_desc_chars]
-        text = f"- {exp.name}: {desc}" if desc else f"- {exp.name}"
-        out.append(Candidate("experience", f"E{i}", text, PRIORITY["experience"]))
+        desc = (exp.description or "").strip().replace("\n", " ")
+        if len(desc) > max_desc_chars:
+            desc = desc[: max_desc_chars - 1] + "…"
+        text = f"    - {exp.name}: {desc}" if desc else f"    - {exp.name}"
+        out.append(Candidate(
+            "experience", f"E{i}", text, PRIORITY["experience"],
+            category=str(getattr(exp, "category", "") or ""),
+        ))
     return out
 
 

@@ -24,10 +24,12 @@ def pack(
     intended — injecting junk to fill space is worse than injecting less.
 
     A key missing from `scores` means the judge did not rate it — no judge at
-    all, or a batch that died. Such items keep priority order and skip the
-    floor, so a partial judge failure degrades to priority rather than dropping
-    them. `drop_unscored=True` inverts that for character mode, where an
-    unjudged item must not reach the prompt unfiltered.
+    all, or a batch that died. Such items skip the floor and keep priority order
+    among themselves, but they sort *after* every positively scored item, so
+    under a tight budget a rated item beats an unrated one. That is deliberate:
+    with the budget scarce, a confident rating is better evidence than a missing
+    one. `drop_unscored=True` inverts this for character mode, where an unjudged
+    item must not reach the prompt unfiltered.
     """
     ordered = sorted(
         candidates,
@@ -68,6 +70,7 @@ def render_slots(
     experience_header: str = "## Experiences",
     experience_rule: str = "",
     extra_experience_blocks: list[str] = (),
+    emit_experience_contract: bool = False,
 ) -> dict[str, str]:
     """Render packed candidates back into the three prompt slots, grouped by source.
 
@@ -79,9 +82,11 @@ def render_slots(
     rather than content and must never be scored away:
 
     - `extra_strategy_lines` — tool-stat warnings.
-    - `experience_header` / `experience_rule` — the skill-loading contract. The
-      rule only appears when at least one entry survived, since it refers to the
-      list above it.
+    - `experience_header` / `experience_rule` — the skill-loading contract.
+      `emit_experience_contract=True` keeps it in the prompt even when every
+      entry lost the budget race, so the agent is still told that
+      `experience_view` exists; otherwise the mechanism disappears silently.
+      When entries do survive they are grouped by category, as before.
     - `extra_experience_blocks` — the memory-chunks block at medium/high.
     """
     by_source: dict[str, list[Candidate]] = {}
@@ -108,9 +113,22 @@ def render_slots(
     index_lines: list[str] = []
     if experience_items:
         index_lines.append(experience_header)
-        index_lines.extend(i.text for i in experience_items)
+        grouped: dict[str, list[Candidate]] = {}
+        for item in experience_items:
+            grouped.setdefault(item.category, []).append(item)
+        for category in sorted(grouped):
+            if category:
+                index_lines.append(f"  {category}:")
+            index_lines.extend(i.text for i in grouped[category])
         if experience_rule:
+            index_lines.append("")
             index_lines.append(experience_rule)
+    elif emit_experience_contract:
+        index_lines.append(experience_header)
+        if experience_rule:
+            index_lines.append("")
+            index_lines.append(experience_rule)
+
     experience_parts = ["\n".join(index_lines)] if index_lines else []
     experience_parts.extend(b for b in extra_experience_blocks if b)
     experience = ("\n\n".join(experience_parts) + "\n") if experience_parts else ""

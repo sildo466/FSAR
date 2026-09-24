@@ -202,6 +202,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             reset_clients()
         except Exception:
             pass
+        if engine is not None:
+            engine.refresh_injection_pipeline()
         return True
     if t == "llm.get_vision":
         vm = config.get_vision_model()
@@ -275,7 +277,9 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
     return False
 
 
-_INJECTION_PATCH_PREFIXES = ("memory.inject_", "llm.judge", "llm.active")
+_INJECTION_PATCH_PREFIXES = (
+    "memory.inject_", "llm.judge", "llm.active", "llm.providers",
+)
 
 
 def _affects_injection_patch(patch: dict) -> bool:

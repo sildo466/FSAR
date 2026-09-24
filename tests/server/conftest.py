@@ -62,9 +62,22 @@ def isolate_engine(monkeypatch):
     # provider) and recall (which reads the real DB) — not the older per-block
     # helpers, which nothing calls any more.
     from src.memory.judge import NullJudge
+    from src.memory.pipeline import InjectionPipeline
     from src.memory.recall import RecallResult
 
-    monkeypatch.setattr(engine.injection_pipeline, "judge", NullJudge())
+    def _offline_pipeline() -> InjectionPipeline:
+        """Every (re)build must be offline too: patching only the live instance
+        would let refresh_injection_pipeline construct a real judge."""
+        return InjectionPipeline(
+            judge=NullJudge(),
+            budget_chars=engine.config.inject_budget_chars,
+            candidate_cap=engine.config.inject_candidate_cap,
+            score_floor=engine.config.inject_score_floor,
+            max_item_chars=engine.config.inject_max_item_chars,
+        )
+
+    monkeypatch.setattr(engine, "_build_injection_pipeline", _offline_pipeline)
+    monkeypatch.setattr(engine, "injection_pipeline", _offline_pipeline())
     monkeypatch.setattr(
         engine.recall, "recall_for_context", lambda *a, **k: RecallResult()
     )

@@ -255,9 +255,20 @@ def test_experience_slot_carries_the_skill_loading_contract(engine, monkeypatch)
     assert "群聊" in body
 
 
-def test_experience_contract_absent_when_no_entry_survives(engine, monkeypatch):
+def test_experience_contract_is_kept_when_entries_lose_the_budget(engine, monkeypatch):
+    """include_experience=True means the mechanism must reach the prompt even
+    with no surviving entries, or the agent never learns experience_view exists."""
     monkeypatch.setattr(engine.recall, "recall_for_context", lambda *a, **k: RecallResult())
-    assert engine._injection_slots("q")["experience"] == ""
+
+    body = engine._injection_slots("q")["experience"]
+
+    assert "MUST call experience_view" in body
+    assert "[Skill loading rule]" in body
+
+
+def test_experience_slot_empty_when_experience_is_excluded(engine, monkeypatch):
+    monkeypatch.setattr(engine.recall, "recall_for_context", lambda *a, **k: RecallResult())
+    assert engine._injection_slots("q", include_experience=False)["experience"] == ""
 
 
 def test_refresh_rebuilds_the_pipeline(engine):
