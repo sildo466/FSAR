@@ -235,6 +235,39 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             return True
         await ws.send_json({"type": "llm.vision_changed", "vision_model": config.get_vision_model()})
         return True
+    if t == "llm.get_judge":
+        await ws.send_json({"type": "llm.judge_config", "judge": config.get_judge()})
+        return True
+    if t == "llm.set_judge":
+        cfg = {
+            "base_url": str(msg.get("base_url", "") or ""),
+            "api_key": str(msg.get("api_key", "") or ""),
+            "model": str(msg.get("model", "") or ""),
+        }
+        # A custom judge endpoint needs both a model id and a base URL; a
+        # half-filled config would silently enable judging with broken creds.
+        if cfg["model"] or cfg["base_url"]:
+            if not cfg["model"] or not cfg["base_url"]:
+                await ws.send_json({
+                    "type": "error",
+                    "code": "incomplete_judge",
+                    "message": "Custom judge endpoint requires both a base URL and a model id.",
+                    "recoverable": True,
+                })
+                return True
+        config.set_judge(cfg)
+        try:
+            config.save()
+        except Exception as e:
+            await ws.send_json({
+                "type": "error",
+                "code": "save_failed",
+                "message": f"Failed to save judge config: {e}",
+                "recoverable": True,
+            })
+            return True
+        await ws.send_json({"type": "llm.judge_changed", "judge": config.get_judge()})
+        return True
     return False
 
 

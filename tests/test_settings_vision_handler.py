@@ -99,3 +99,82 @@ async def test_llm_set_vision_surfaces_save_error():
     assert handled is True
     assert ws.sent[0]["type"] == "error"
     assert ws.sent[0]["code"] == "save_failed"
+
+
+class _JudgeCfg(_Cfg):
+    def __init__(self, judge=None, fail_save=False):
+        super().__init__(fail_save=fail_save)
+        self._judge = judge
+
+    def get_judge(self):
+        return self._judge or {"base_url": "", "api_key": "", "model": ""}
+
+    def set_judge(self, cfg):
+        self._judge = cfg
+
+
+@pytest.mark.asyncio
+async def test_llm_get_judge():
+    cfg = _JudgeCfg({"base_url": "https://j", "api_key": "k", "model": "typesafe/jev"})
+    ws = _Ws()
+    handled = await settings_mod.dispatch(ws, {"type": "llm.get_judge"}, cfg)
+    assert handled is True
+    assert ws.sent == [{
+        "type": "llm.judge_config",
+        "judge": {"base_url": "https://j", "api_key": "k", "model": "typesafe/jev"},
+    }]
+
+
+@pytest.mark.asyncio
+async def test_llm_set_judge_persists():
+    cfg = _JudgeCfg()
+    ws = _Ws()
+    handled = await settings_mod.dispatch(
+        ws,
+        {"type": "llm.set_judge", "base_url": "https://j", "api_key": "k",
+         "model": "typesafe/jev"},
+        cfg,
+    )
+    assert handled is True
+    assert cfg._judge == {"base_url": "https://j", "api_key": "k", "model": "typesafe/jev"}
+    assert cfg.saved is True
+    assert ws.sent == [{
+        "type": "llm.judge_changed",
+        "judge": {"base_url": "https://j", "api_key": "k", "model": "typesafe/jev"},
+    }]
+
+
+@pytest.mark.asyncio
+async def test_llm_set_judge_rejects_incomplete_custom():
+    cfg = _JudgeCfg()
+    ws = _Ws()
+    handled = await settings_mod.dispatch(
+        ws, {"type": "llm.set_judge", "base_url": "https://j", "api_key": "k", "model": ""},
+        cfg,
+    )
+    assert handled is True
+    assert cfg._judge is None  # not applied
+    assert ws.sent[0]["type"] == "error"
+    assert ws.sent[0]["code"] == "incomplete_judge"
+
+
+@pytest.mark.asyncio
+async def test_llm_set_judge_clears_when_all_empty():
+    cfg = _JudgeCfg({"base_url": "https://j", "api_key": "k", "model": "m"})
+    ws = _Ws()
+    await settings_mod.dispatch(
+        ws, {"type": "llm.set_judge", "base_url": "", "api_key": "", "model": ""}, cfg,
+    )
+    assert cfg._judge == {"base_url": "", "api_key": "", "model": ""}
+
+
+@pytest.mark.asyncio
+async def test_llm_set_judge_surfaces_save_error():
+    cfg = _JudgeCfg(fail_save=True)
+    ws = _Ws()
+    await settings_mod.dispatch(
+        ws, {"type": "llm.set_judge", "base_url": "https://j", "api_key": "k", "model": "m"},
+        cfg,
+    )
+    assert ws.sent[0]["type"] == "error"
+    assert ws.sent[0]["code"] == "save_failed"

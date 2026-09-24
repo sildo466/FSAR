@@ -54,6 +54,8 @@ export type ClientMsg =
   | { type: "llm.set_active"; provider_id: string }
   | { type: "llm.get_vision" }
   | { type: "llm.set_vision"; base_url: string; api_key: string; model: string }
+  | { type: "llm.get_judge" }
+  | { type: "llm.set_judge"; base_url: string; api_key: string; model: string }
   | { type: "integration.list" }
   | { type: "integration.save"; payload: Record<string, unknown> }
   | { type: "integration.delete"; payload: { id: number } }
@@ -294,6 +296,8 @@ export type ServerMsg =
   | { type: "llm.provider_changed"; provider_id: string; model: string }
   | { type: "llm.vision_config"; vision_model: { base_url: string; api_key: string; model: string } }
   | { type: "llm.vision_changed"; vision_model: { base_url: string; api_key: string; model: string } }
+  | { type: "llm.judge_config"; judge: { base_url: string; api_key: string; model: string } }
+  | { type: "llm.judge_changed"; judge: { base_url: string; api_key: string; model: string } }
   | { type: "experience.created"; experience: { id: number; name: string; category: string; description: string; body: string; trigger_patterns: string[]; pitfalls: string[]; use_count: number; state: string; pinned: boolean; created_by: string; created_at: string; updated_at: string } }
   | { type: "tools.list_result"; tools: Array<{ name: string; description: string; risk_level: string }> }
   | { type: "workspace.list_result"; workspaces: WorkspaceInfo[] }
