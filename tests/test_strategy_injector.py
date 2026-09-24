@@ -193,6 +193,69 @@ def test_strategy_injector_accepts_intensity_changes():
         _cleanup(db)
 
 
+def test_item_lines_excludes_tool_stats():
+    """Same data: build_block surfaces the tool stat, item_lines must not."""
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        dl = DecisionLog()
+        for i in range(5):
+            dl.record(task_id="t1", session_id="s1", step_no=i+1,
+                     chosen_tool="run_command", args_summary="x",
+                     latency_ms=100, success=(i == 0),
+                     error_class="timeout" if i > 0 else "")
+        inj = StrategyInjector(decision_log=dl, user_model=UserModel(),
+                               intensity=INTENSITY_MEDIUM, min_uses=3,
+                               success_rate_threshold=70.0)
+        assert "run_command" in inj.build_block()
+        assert all("run_command" not in line for line in inj.item_lines())
+    finally:
+        _cleanup(db)
+
+
+def test_item_lines_empty_when_intensity_off():
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        inj = StrategyInjector(decision_log=DecisionLog(), user_model=UserModel(),
+                               intensity=INTENSITY_OFF)
+        assert inj.item_lines() == []
+    finally:
+        _cleanup(db)
+
+
+def test_item_lines_includes_strategies_without_prior_build_block():
+    """Callers pass raw strategy text; item_lines adds the bullet itself."""
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        inj = StrategyInjector(decision_log=DecisionLog(), user_model=UserModel(),
+                               intensity=INTENSITY_HIGH)
+        inj.set_recent_strategies(["先跑最小复现"])
+        assert "- 先跑最小复现" in inj.item_lines()
+    finally:
+        _cleanup(db)
+
+
+def test_item_lines_surfaces_prefs_but_not_tool_stats():
+    db = _tmp_db()
+    _patch_config_db(db)
+    try:
+        dl = DecisionLog()
+        um = UserModel()
+        for i in range(5):
+            dl.record(task_id="t1", session_id="s1", step_no=i+1,
+                     chosen_tool="web_fetch", args_summary="x",
+                     latency_ms=100, success=False, error_class="timeout")
+        um.set_preference("language", "Chinese")
+        inj = StrategyInjector(decision_log=dl, user_model=um, intensity=INTENSITY_LOW)
+        lines = inj.item_lines()
+        assert any("language" in line for line in lines)
+        assert all("web_fetch" not in line for line in lines)
+    finally:
+        _cleanup(db)
+
+
 def _cleanup(db_path: str):
     """Reset config + best-effort delete temp db."""
     from src.utils.config import get_config
