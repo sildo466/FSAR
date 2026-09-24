@@ -77,3 +77,26 @@ def cap_by_source(candidates: list[Candidate], cap: int) -> list[Candidate]:
         if not progressed:
             break
     return kept
+
+
+def candidates_from_experience(store, *, max_desc_chars: int = 60) -> list[Candidate]:
+    """Experience index entries as candidates.
+
+    Descriptions stay short (60 chars by default) which is what lets this source
+    afford to enter the pool without a count limit.
+    """
+    out: list[Candidate] = []
+    for i, exp in enumerate(store.list_for_index(), start=1):
+        desc = (exp.description or "").strip().replace("\n", " ")[:max_desc_chars]
+        text = f"- {exp.name}: {desc}" if desc else f"- {exp.name}"
+        out.append(Candidate("experience", f"E{i}", text, PRIORITY["experience"]))
+    return out
+
+
+def candidates_from_strategy(injector) -> list[Candidate]:
+    """Judgeable strategy lines. Tool stats are deliberately not included —
+    they are operational warnings that build_block() injects unconditionally."""
+    out: list[Candidate] = []
+    for i, line in enumerate(injector.item_lines(), start=1):
+        out.append(Candidate("strategy", f"S{i}", line, PRIORITY["strategy"]))
+    return out
