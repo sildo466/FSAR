@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from src.memory.candidates import Candidate
-from src.memory.pack import pack
+from src.memory.pack import pack, render_slots
 
 
 def c(key, text, priority=1, source="profile"):
@@ -64,3 +64,34 @@ def test_oversized_item_beyond_budget_is_dropped():
     big = c("big", "z" * 1000)
     kept = pack([big], {}, budget_chars=100, score_floor=0.0, max_item_chars=600)
     assert kept == []
+
+
+def test_render_groups_by_source_under_original_headers():
+    kept = [
+        Candidate("profile", "U1", "- 城市: 杭州", 1),
+        Candidate("fact", "F1", "- 部署: /data", 0),
+        Candidate("history", "H1", "- 上次改过挂载", 4),
+    ]
+    slots = render_slots(kept)
+    assert "[Saved Facts]" in slots["memory"]
+    assert "[User Profile]" in slots["memory"]
+    assert slots["memory"].index("[Saved Facts]") < slots["memory"].index("[User Profile]")
+    assert "- 部署: /data" in slots["memory"]
+    assert slots["strategy"] == ""
+    assert slots["experience"] == ""
+
+
+def test_render_puts_strategy_and_experience_in_their_own_slots():
+    kept = [
+        Candidate("strategy", "S1", "- 先跑最小复现", 2),
+        Candidate("experience", "E1", "- 群聊: per-scene cast", 3),
+    ]
+    slots = render_slots(kept)
+    assert slots["memory"] == ""
+    assert "- 先跑最小复现" in slots["strategy"]
+    assert "- 群聊: per-scene cast" in slots["experience"]
+
+
+def test_render_of_empty_selection_is_all_empty():
+    slots = render_slots([])
+    assert slots == {"memory": "", "strategy": "", "experience": ""}

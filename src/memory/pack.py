@@ -39,3 +39,52 @@ def pack(
         kept.append(item)
         used += item.chars
     return kept
+
+
+_MEMORY_HEADERS = {
+    "fact": "[Saved Facts]",
+    "profile": "[User Profile]",
+    "preference": "[Known Preferences]",
+    "pattern": "[Behavioral Patterns]",
+    "history": "[Relevant History]",
+}
+_MEMORY_ORDER = ["fact", "profile", "preference", "pattern", "history"]
+
+
+def render_slots(packed: list[Candidate]) -> dict[str, str]:
+    """Render packed candidates back into the three prompt slots, grouped by source.
+
+    Packing decides which items are injected; rendering decides where they land.
+    Grouping by source keeps the section headers intact — laying items out in
+    score order would interleave and repeat them.
+    """
+    by_source: dict[str, list[Candidate]] = {}
+    for item in packed:
+        by_source.setdefault(item.source, []).append(item)
+
+    memory_parts: list[str] = []
+    for source in _MEMORY_ORDER:
+        items = by_source.get(source)
+        if not items:
+            continue
+        memory_parts.append(_MEMORY_HEADERS[source])
+        memory_parts.extend(i.text for i in items)
+
+    strategy_items = by_source.get("strategy", [])
+    experience_items = by_source.get("experience", [])
+
+    strategy = ""
+    if strategy_items:
+        strategy = "## Learned Strategies (from past interactions)\n" + "\n".join(
+            i.text for i in strategy_items
+        ) + "\n"
+
+    experience = ""
+    if experience_items:
+        experience = "## Experiences\n" + "\n".join(i.text for i in experience_items) + "\n"
+
+    return {
+        "memory": "\n".join(memory_parts),
+        "strategy": strategy,
+        "experience": experience,
+    }
