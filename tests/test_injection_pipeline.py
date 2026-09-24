@@ -141,3 +141,42 @@ def test_judge_sees_more_than_the_budget_allows():
     _pipeline(judge, budget=100).build_slots("q", res, mode="agent")
     assert len(judge.seen) == 20
     assert judge.seen_chars > 100
+
+
+def test_fail_closed_injects_nothing_when_the_filter_could_not_run():
+    """Character mode must never fall back to raw memory: its persona filter
+    exists to keep technical recall out of the prompt."""
+    res = RecallResult(
+        profile={"tool_strategy": "prefer chat.llm for similar tasks"},
+        similar_conversations=[{"text": "private history"}],
+    )
+    slots = _pipeline(_Judge()).build_slots(
+        "q", res, mode="character", context="Name: X", fail_closed=True,
+    )
+    assert slots == {"memory": "", "strategy": "", "experience": ""}
+
+
+def test_agent_mode_still_falls_back_to_priority_when_the_filter_could_not_run():
+    res = RecallResult(profile={"city": "杭州"})
+    slots = _pipeline(_Judge()).build_slots("q", res, mode="agent", fail_closed=False)
+    assert "杭州" in slots["memory"]
+
+
+def test_rejecting_every_candidate_yields_an_empty_block():
+    res = RecallResult(
+        profile={"secret": "aws-key"},
+        similar_conversations=[{"text": "private history"}],
+    )
+    judge = _Judge({"U1": 0.0, "H1": 0.0})
+    pipe = InjectionPipeline(
+        judge=judge, budget_chars=6000, candidate_cap=40,
+        score_floor=0.35, max_item_chars=600,
+    )
+    assert pipe.build_slots("q", res, mode="character", context="X")["memory"] == ""
+
+
+def test_fail_closed_with_no_candidates_is_still_empty():
+    slots = _pipeline(_Judge()).build_slots(
+        "q", RecallResult(), mode="character", context="X", fail_closed=True,
+    )
+    assert slots == {"memory": "", "strategy": "", "experience": ""}

@@ -35,12 +35,18 @@ class InjectionPipeline:
         experience_store=None,
         strategy_injector=None,
         include_extra: bool = True,
+        fail_closed: bool = False,
     ) -> dict[str, str]:
         """Build the three prompt slots from one shared candidate pool and budget.
 
         `include_extra=False` skips the strategy and experience sources for
         callers that only consume the memory slot, so they do not pay for
         judgments whose results they discard.
+
+        `fail_closed=True` injects nothing when the judge produced no scores.
+        Character mode needs this: its persona filter exists to keep technical
+        memory out of the prompt, and falling back to priority order would leak
+        exactly the items it is meant to remove.
         """
         candidates: list[Candidate] = candidates_from_recall(recall_result)
         tool_stats: list[str] = []
@@ -53,6 +59,9 @@ class InjectionPipeline:
 
         capped = cap_by_source(candidates, self.candidate_cap)
         scores = self.judge.score(query, capped, mode=mode, context=context)
+        if fail_closed and capped and not scores:
+            return {"memory": "", "strategy": "", "experience": ""}
+
         packed = pack(
             capped,
             scores,

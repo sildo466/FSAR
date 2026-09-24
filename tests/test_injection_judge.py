@@ -138,7 +138,9 @@ def test_llm_judge_distinguishes_characters_via_context(monkeypatch):
     assert len(calls) == 2  # different characters must not share a cache entry
 
 
-def test_llm_judge_fails_open_to_no_scores(monkeypatch):
+def test_llm_judge_returns_no_scores_on_failure(monkeypatch):
+    """No scores, not wrong scores. The caller decides whether that means
+    fall back to priority (agent) or inject nothing (character)."""
     def boom(*a, **k):
         raise RuntimeError("provider down")
 

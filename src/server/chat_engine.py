@@ -39,7 +39,7 @@ from src.memory import (
     set_task_context,
 )
 from src.memory.cards import CardRepo
-from src.memory.cleanse import _character_summary, cleanse_memory_block
+from src.memory.cleanse import _character_summary
 from src.memory.judge import JevJudge, LlmJudge
 from src.memory.pipeline import InjectionPipeline
 from src.memory.recall import RecallResult
@@ -2943,7 +2943,12 @@ class ChatEngine:
     async def _build_character_prompt(
         self, conv_id: str, user_input: str, character: Any,
     ) -> str:
-        """Character prompt: raw memory → LLM-cleansed → persona-first assembly."""
+        """Character prompt: candidates → persona judge → pack → persona-first assembly.
+
+        The persona filter runs before the budget is allocated so it sees every
+        candidate. Judging after packing meant it only ever screened the
+        survivors of a priority cut.
+        """
         user_card_id = self._session_user_override
         user_card = (
             self.card_repo.get_user_card(user_card_id)
@@ -2951,25 +2956,17 @@ class ChatEngine:
         )
         if user_card is None:
             user_card = self.card_repo.get_default_user_card()
-        raw = await asyncio.to_thread(
-            self._memory_block, user_input, character=character
+        slots = await asyncio.to_thread(
+            self._injection_slots,
+            user_input,
+            character=character,
+            include_strategy=False,
+            include_experience=False,
         )
-        cleaned = ""
-        if raw:
-            client, model, provider_id = self.client_and_model()
-            cleaned = await asyncio.to_thread(
-                cleanse_memory_block,
-                raw,
-                character,
-                client,
-                model,
-                provider_id,
-                cache=self._cleanse_cache,
-            )
         return build_character_prompt(
             character=character,
             user_card=user_card,
-            memory_block=cleaned,
+            memory_block=slots["memory"],
             workspace_line=self._character_workspace_line(),
         )
 
@@ -3651,6 +3648,7 @@ class ChatEngine:
                 context=_character_summary(character) if character is not None else "",
                 experience_store=experience_store,
                 strategy_injector=strategy_injector,
+                fail_closed=character is not None,
             )
         except Exception as e:
             logger.warning(f"Memory injection failed: {e}")
