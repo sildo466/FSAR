@@ -119,17 +119,6 @@ def test_tool_stats_bypass_the_budget_and_stay_in_the_strategy_slot(engine, monk
     assert strategy.count("## Learned Strategies") == 1
 
 
-def test_character_mode_injects_nothing_when_the_filter_produced_no_scores(engine, monkeypatch):
-    """fail-closed: a character must never receive unfiltered memory."""
-    monkeypatch.setattr(
-        engine.recall, "recall_for_context",
-        lambda *a, **k: RecallResult(profile={"tool_strategy": "prefer chat.llm"}),
-    )
-    character = type("C", (), {"id": 1})()
-
-    assert engine._injection_slots("q", character=character)["memory"] == ""
-
-
 def test_memory_only_callers_skip_the_extra_sources(engine, monkeypatch):
     calls = {"n": 0}
 
@@ -195,3 +184,83 @@ def test_judge_rescues_history_when_the_budget_is_tight(engine, monkeypatch):
 
     assert "hist" in block
     assert "k0" not in block
+
+
+class _Exp:
+    def __init__(self, name, description):
+        self.name = name
+        self.description = description
+        self.category = "c"
+
+
+class _StoreWith(_EmptyStore):
+    def __init__(self, items):
+        self._items = list(items)
+
+    def list_for_index(self):
+        return self._items
+
+
+def test_agent_mode_is_not_judged_as_a_character(engine, monkeypatch):
+    """Every prompt build resolves a default character, so keying the judge on
+    `character is not None` ran the persona filter over agent turns too."""
+    seen = {}
+
+    class SpyJudge:
+        def score(self, query, candidates, *, mode, context=""):
+            seen["mode"] = mode
+            seen["context"] = context
+            return {}
+
+    monkeypatch.setattr(engine.injection_pipeline, "judge", SpyJudge())
+    monkeypatch.setattr(engine.recall, "recall_for_context", lambda *a, **k: RecallResult())
+
+    engine._injection_slots("q", mode="agent", character=object())
+
+    assert seen["mode"] == "agent"
+    assert seen["context"] == ""  # no persona summary leaks into the agent judge
+
+
+def test_agent_mode_keeps_memory_the_judge_did_not_rate(engine, monkeypatch):
+    monkeypatch.setattr(engine.injection_pipeline, "judge", _NoJudge())
+    monkeypatch.setattr(
+        engine.recall, "recall_for_context",
+        lambda *a, **k: RecallResult(profile={"city": "杭州"}),
+    )
+    slots = engine._injection_slots("q", mode="agent", character=object())
+    assert "杭州" in slots["memory"]
+
+
+def test_character_mode_drops_memory_the_judge_did_not_rate(engine, monkeypatch):
+    monkeypatch.setattr(engine.injection_pipeline, "judge", _NoJudge())
+    monkeypatch.setattr(
+        engine.recall, "recall_for_context",
+        lambda *a, **k: RecallResult(profile={"tool_strategy": "prefer chat.llm"}),
+    )
+    slots = engine._injection_slots("q", mode="character", character=object())
+    assert slots["memory"] == ""
+
+
+def test_experience_slot_carries_the_skill_loading_contract(engine, monkeypatch):
+    monkeypatch.setattr(
+        engine.experience_injector, "store",
+        _StoreWith([_Exp("群聊", "per-scene cast")]),
+    )
+    monkeypatch.setattr(engine.recall, "recall_for_context", lambda *a, **k: RecallResult())
+
+    body = engine._injection_slots("q")["experience"]
+
+    assert "MUST call experience_view" in body
+    assert "[Skill loading rule]" in body
+    assert "群聊" in body
+
+
+def test_experience_contract_absent_when_no_entry_survives(engine, monkeypatch):
+    monkeypatch.setattr(engine.recall, "recall_for_context", lambda *a, **k: RecallResult())
+    assert engine._injection_slots("q")["experience"] == ""
+
+
+def test_refresh_rebuilds_the_pipeline(engine):
+    before = engine.injection_pipeline
+    engine.refresh_injection_pipeline()
+    assert engine.injection_pipeline is not before

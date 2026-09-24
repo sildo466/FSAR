@@ -109,3 +109,60 @@ def test_render_emits_strategy_slot_from_extra_lines_alone():
     slots = render_slots([], extra_strategy_lines=["- `run_command` is slow"])
     assert "## Learned Strategies" in slots["strategy"]
     assert "run_command" in slots["strategy"]
+
+
+def test_unscored_items_keep_priority_order_and_skip_the_floor():
+    """An item the judge never rated (dead batch, or no judge) must not be
+    floor-dropped just because it has no score."""
+    cands = [c("H1", "hist", priority=4, source="history"), c("U1", "prof", priority=1)]
+    kept = pack(cands, {"U1": 0.1}, budget_chars=100, score_floor=0.35, max_item_chars=600)
+    assert [k.key for k in kept] == ["H1"]
+
+
+def test_drop_unscored_removes_items_the_judge_never_rated():
+    cands = [c("U1", "prof", priority=1), c("H1", "hist", priority=4, source="history")]
+    kept = pack(cands, {"U1": 0.9}, budget_chars=100, score_floor=0.0,
+                max_item_chars=600, drop_unscored=True)
+    assert [k.key for k in kept] == ["U1"]
+
+
+def test_drop_unscored_with_no_scores_at_all_drops_everything():
+    cands = [c("U1", "prof", priority=1), c("H1", "hist", priority=4, source="history")]
+    assert pack(cands, {}, budget_chars=100, score_floor=0.0,
+                max_item_chars=600, drop_unscored=True) == []
+
+
+def test_render_emits_the_experience_contract_around_surviving_entries():
+    kept = [Candidate("experience", "E1", "- 群聊: per-scene cast", 3)]
+    slots = render_slots(
+        kept, experience_header="## Experiences (MUST load)",
+        experience_rule="[Skill loading rule] ...",
+    )
+    body = slots["experience"]
+    assert "## Experiences (MUST load)" in body
+    assert "- 群聊: per-scene cast" in body
+    assert body.index("## Experiences") < body.index("[Skill loading rule]")
+
+
+def test_render_omits_the_skill_rule_when_no_entry_survived():
+    """The rule refers to the list above it, so it must never appear alone."""
+    slots = render_slots(
+        [], experience_header="## Experiences (MUST load)",
+        experience_rule="[Skill loading rule] ...",
+    )
+    assert slots["experience"] == ""
+
+
+def test_render_appends_extra_experience_blocks_after_the_contract():
+    kept = [Candidate("experience", "E1", "- x", 3)]
+    slots = render_slots(
+        kept, extra_experience_blocks=["## Memory (2 chunks)\n- [s] t: b"],
+    )
+    body = slots["experience"]
+    assert "## Memory (2 chunks)" in body
+    assert body.index("## Experiences") < body.index("## Memory")
+
+
+def test_render_emits_extra_experience_blocks_without_the_contract():
+    slots = render_slots([], extra_experience_blocks=["## Memory (1 chunks)"])
+    assert "## Memory" in slots["experience"]

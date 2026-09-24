@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.memory.recall import RecallResult
+from src.utils.logger import logger
 
 PRIORITY = {
     "fact": 0,
@@ -83,8 +84,15 @@ def candidates_from_experience(store, *, max_desc_chars: int = 60) -> list[Candi
     """Experience index entries as candidates.
 
     Descriptions stay short (60 chars by default) which is what lets this source
-    afford to enter the pool without a count limit.
+    afford to enter the pool without a count limit. Skills on disk are synced
+    first, matching the injector this replaced.
     """
+    try:
+        from src.memory.skill_sync import sync_skills_from_disk
+        sync_skills_from_disk(store)
+    except Exception as e:
+        logger.debug(f"skill disk sync skipped: {e}")
+
     out: list[Candidate] = []
     for i, exp in enumerate(store.list_for_index(), start=1):
         desc = (exp.description or "").strip().replace("\n", " ")[:max_desc_chars]

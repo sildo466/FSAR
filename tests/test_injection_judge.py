@@ -69,15 +69,33 @@ def test_jev_judge_skips_call_when_no_candidates():
     assert fake.states == []
 
 
-def test_jev_judge_returns_empty_on_batch_failure_so_priority_order_applies():
-    from src.providers.judge.client import BatchFailed
-
-    class Broken:
+def test_jev_judge_passes_through_partial_scores_from_a_dead_batch():
+    class Partial:
         def nouls(self, state, instructions):
-            raise BatchFailed("503")
+            return {"U1": 0.9}  # U2's batch died; it stays unscored
 
+    cands = [
+        Candidate("profile", "U1", "- x", 1),
+        Candidate("profile", "U2", "- y", 1),
+    ]
+    assert JevJudge(Partial()).score("q", cands, mode="agent") == {"U1": 0.9}
+
+
+def test_llm_judge_has_no_opinion_outside_character_mode(monkeypatch):
+    """It is the persona filter; agent and companion turns must not pay for it."""
+    calls = []
+
+    def boom(*a, **k):
+        calls.append(1)
+        raise AssertionError("must not call the model outside character mode")
+
+    monkeypatch.setattr("src.memory.judge.chat_completion", boom)
+    judge = LlmJudge(object(), "m", "p")
     cands = [Candidate("profile", "U1", "- x", 1)]
-    assert JevJudge(Broken()).score("q", cands, mode="agent") == {}
+
+    assert judge.score("q", cands, mode="agent") == {}
+    assert judge.score("q", cands, mode="companion") == {}
+    assert calls == []
 
 
 def test_llm_judge_returns_empty_when_no_provider_configured():

@@ -4,9 +4,7 @@ from __future__ import annotations
 import json
 import urllib.error
 
-import pytest
-
-from src.providers.judge.client import BatchFailed, JevClient
+from src.providers.judge.client import JevClient
 
 
 class _Resp:
@@ -54,15 +52,39 @@ def test_nouls_splits_calls_over_twenty_questions(monkeypatch):
     assert len(out) == 45
 
 
-def test_nouls_raises_batch_failed_after_retries(monkeypatch):
+def test_nouls_returns_empty_when_every_batch_fails(monkeypatch):
+    """A total failure reads as "no judgement", which callers already handle."""
+
     def boom(req, timeout=None):
         raise urllib.error.HTTPError("u", 503, "unavailable", {}, None)
 
     monkeypatch.setattr("urllib.request.urlopen", boom)
     monkeypatch.setattr("time.sleep", lambda *_: None)
     client = JevClient("https://x/v1/systemone", "k")
-    with pytest.raises(BatchFailed):
-        client.nouls("s", {"a": "i"})
+    assert client.nouls("s", {"a": "i"}) == {}
+
+
+def test_nouls_keeps_earlier_scores_when_a_later_batch_fails(monkeypatch):
+    """One dead batch must not discard the batches that already succeeded."""
+    calls = {"n": 0}
+
+    def flaky(req, timeout=None):
+        calls["n"] += 1
+        body = json.loads(req.data.decode())
+        if calls["n"] == 1:
+            return _Resp({
+                "answers": {k: {"type": "noul", "noul": 0.8} for k in body["questions"]},
+            })
+        raise urllib.error.HTTPError("u", 503, "unavailable", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", flaky)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    client = JevClient("https://x/v1/systemone", "k")
+
+    out = client.nouls("s", {f"q{i}": "i" for i in range(25)})
+
+    assert set(out) == {f"q{i}" for i in range(20)}
+    assert all(value == 0.8 for value in out.values())
 
 
 def test_nouls_does_not_retry_on_non_retryable_status(monkeypatch):
@@ -74,6 +96,5 @@ def test_nouls_does_not_retry_on_non_retryable_status(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", boom)
     client = JevClient("https://x/v1/systemone", "k")
-    with pytest.raises(BatchFailed):
-        client.nouls("s", {"a": "i"})
+    assert client.nouls("s", {"a": "i"}) == {}
     assert len(calls) == 1

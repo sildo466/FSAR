@@ -105,6 +105,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             config.save()
         except Exception:
             pass
+        if engine is not None and _affects_injection_patch(patch):
+            engine.refresh_injection_pipeline()
         await ws.send_json({"type": "settings.changed", "patch": patch, "by": "user"})
         return True
     if t == "style.patch":
@@ -266,9 +268,22 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
                 "recoverable": True,
             })
             return True
+        if engine is not None:
+            engine.refresh_injection_pipeline()
         await ws.send_json({"type": "llm.judge_changed", "judge": config.get_judge()})
         return True
     return False
+
+
+_INJECTION_PATCH_PREFIXES = ("memory.inject_", "llm.judge", "llm.active")
+
+
+def _affects_injection_patch(patch: dict) -> bool:
+    """True when a settings patch changes what the injection pipeline reads."""
+    return any(
+        isinstance(key, str) and key.startswith(_INJECTION_PATCH_PREFIXES)
+        for key in patch
+    )
 
 
 def _sync_permissions_to_engine(patch: dict[str, Any], engine: Any) -> str | None:

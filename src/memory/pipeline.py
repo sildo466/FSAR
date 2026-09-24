@@ -36,6 +36,9 @@ class InjectionPipeline:
         strategy_injector=None,
         include_extra: bool = True,
         fail_closed: bool = False,
+        experience_header: str = "## Experiences",
+        experience_rule: str = "",
+        extra_experience_blocks=(),
     ) -> dict[str, str]:
         """Build the three prompt slots from one shared candidate pool and budget.
 
@@ -43,10 +46,16 @@ class InjectionPipeline:
         callers that only consume the memory slot, so they do not pay for
         judgments whose results they discard.
 
-        `fail_closed=True` injects nothing when the judge produced no scores.
-        Character mode needs this: its persona filter exists to keep technical
-        memory out of the prompt, and falling back to priority order would leak
-        exactly the items it is meant to remove.
+        `fail_closed=True` (character mode) drops any candidate the judge did
+        not rate, including the whole pool when the judge failed outright. The
+        persona filter exists to keep technical recall out of the prompt, so
+        falling back to priority order would leak exactly what it removes.
+        Agent mode keeps that fallback, where unfiltered recall is intended.
+
+        `experience_header` / `experience_rule` / `extra_experience_blocks` are
+        contracts rather than content: they ride outside the pool so scoring can
+        never drop them. The rule is only rendered when an entry survived, since
+        it refers to the list above it.
         """
         candidates: list[Candidate] = candidates_from_recall(recall_result)
         tool_stats: list[str] = []
@@ -59,14 +68,18 @@ class InjectionPipeline:
 
         capped = cap_by_source(candidates, self.candidate_cap)
         scores = self.judge.score(query, capped, mode=mode, context=context)
-        if fail_closed and capped and not scores:
-            return {"memory": "", "strategy": "", "experience": ""}
-
         packed = pack(
             capped,
             scores,
             budget_chars=self.budget_chars,
             score_floor=self.score_floor,
             max_item_chars=self.max_item_chars,
+            drop_unscored=fail_closed,
         )
-        return render_slots(packed, extra_strategy_lines=tool_stats)
+        return render_slots(
+            packed,
+            extra_strategy_lines=tool_stats,
+            experience_header=experience_header,
+            experience_rule=experience_rule,
+            extra_experience_blocks=list(extra_experience_blocks),
+        )

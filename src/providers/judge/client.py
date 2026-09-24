@@ -16,13 +16,15 @@ import time
 import urllib.error
 import urllib.request
 
+from src.utils.logger import logger
+
 MAX_QUESTIONS_PER_CALL = 20
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 _USER_AGENT = "curl/8.11.1"
 
 
 class BatchFailed(RuntimeError):
-    """One batch exhausted its retries; callers fall back to priority order."""
+    """One batch exhausted its retries."""
 
 
 class JevClient:
@@ -35,11 +37,22 @@ class JevClient:
         self.attempts = attempts
 
     def nouls(self, state: str, instructions: dict[str, str]) -> dict[str, float]:
+        """Score every question, batch by batch.
+
+        A batch that exhausts its retries is skipped, not fatal: its keys are
+        simply absent from the result, so callers fall back to priority order
+        for those items instead of losing the scores already collected. A total
+        failure yields `{}`, which is the same "no judgement" signal a disabled
+        judge produces.
+        """
         scores: dict[str, float] = {}
         items = list(instructions.items())
         for start in range(0, len(items), MAX_QUESTIONS_PER_CALL):
             chunk = dict(items[start:start + MAX_QUESTIONS_PER_CALL])
-            scores.update(self._one_batch(state, chunk))
+            try:
+                scores.update(self._one_batch(state, chunk))
+            except BatchFailed as exc:
+                logger.warning(f"JEV batch failed, {len(chunk)} questions left unscored: {exc}")
         return scores
 
     def _one_batch(self, state: str, instructions: dict[str, str]) -> dict[str, float]:

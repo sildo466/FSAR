@@ -40,6 +40,7 @@ from src.memory import (
 )
 from src.memory.cards import CardRepo
 from src.memory.cleanse import _character_summary
+from src.memory.experience_store import EXPERIENCE_INDEX_HEADER, SKILL_LOADING_RULE
 from src.memory.judge import JevJudge, LlmJudge
 from src.memory.pipeline import InjectionPipeline
 from src.memory.recall import RecallResult
@@ -2959,6 +2960,7 @@ class ChatEngine:
         slots = await asyncio.to_thread(
             self._injection_slots,
             user_input,
+            mode="character",
             character=character,
             include_strategy=False,
             include_experience=False,
@@ -3505,6 +3507,7 @@ class ChatEngine:
         slots = await asyncio.to_thread(
             self._injection_slots,
             user_input,
+            mode=mode,
             semantic_top_k=top_k,
             character=character,
             intensity=intensity,
@@ -3586,6 +3589,15 @@ class ChatEngine:
             max_item_chars=self.config.inject_max_item_chars,
         )
 
+    def refresh_injection_pipeline(self) -> None:
+        """Rebuild after the judge endpoint or budget settings change.
+
+        The pipeline captures the judge client and the four numbers at build
+        time, so without this a settings change would only take effect after a
+        process restart.
+        """
+        self.injection_pipeline = self._build_injection_pipeline()
+
     def _memory_block(self, query: str, *, semantic_top_k: int = 5,
                       character: Any = None) -> str:
         return self._injection_slots(
@@ -3616,11 +3628,18 @@ class ChatEngine:
         return injector
 
     def _injection_slots(
-        self, query: str, *, semantic_top_k: int = 5, character: Any = None,
-        intensity: str | None = None, include_strategy: bool = True,
-        include_experience: bool = True, recall_memory: bool = True,
+        self, query: str, *, mode: str = "agent", semantic_top_k: int = 5,
+        character: Any = None, intensity: str | None = None,
+        include_strategy: bool = True, include_experience: bool = True,
+        recall_memory: bool = True,
     ) -> dict[str, str]:
-        """Build the memory/strategy/experience slots from one shared candidate pool."""
+        """Build the memory/strategy/experience slots from one shared candidate pool.
+
+        `mode` — not the presence of a character card — drives the judge. Every
+        prompt build resolves a default character, so keying on that would run
+        the persona filter over agent and companion turns too.
+        """
+        is_character = mode == "character"
         strategy_injector = (
             self._strategy_injector_for(intensity) if include_strategy else None
         )
@@ -3644,11 +3663,19 @@ class ChatEngine:
                 )
             return self.injection_pipeline.build_slots(
                 query, result,
-                mode="character" if character is not None else "agent",
-                context=_character_summary(character) if character is not None else "",
+                mode=mode,
+                context=(
+                    _character_summary(character)
+                    if is_character and character is not None else ""
+                ),
                 experience_store=experience_store,
                 strategy_injector=strategy_injector,
-                fail_closed=character is not None,
+                fail_closed=is_character,
+                experience_header=EXPERIENCE_INDEX_HEADER,
+                experience_rule=SKILL_LOADING_RULE,
+                extra_experience_blocks=self._memory_chunks_blocks(
+                    experience_store, exp_intensity
+                ),
             )
         except Exception as e:
             logger.warning(f"Memory injection failed: {e}")
@@ -3659,6 +3686,19 @@ class ChatEngine:
                     self._experience_block(intensity) if include_experience else ""
                 ),
             }
+
+    def _memory_chunks_blocks(self, experience_store, exp_intensity: str) -> list[str]:
+        """The ## Memory chunk block, which medium/high used to append verbatim."""
+        if experience_store is None or exp_intensity not in ("medium", "high"):
+            return []
+        try:
+            block = experience_store.render_memory_chunks_block(
+                limit=self.experience_injector.max_chunks
+            )
+        except Exception as e:
+            logger.debug(f"Memory chunks block skipped: {e}")
+            return []
+        return [block] if block else []
 
     def _strategy_block(self, intensity: str | None = None) -> str:
         try:

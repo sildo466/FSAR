@@ -28,6 +28,20 @@ from src.utils.config import get_config
 from src.utils.logger import logger
 
 
+EXPERIENCE_INDEX_HEADER = (
+    "## Experiences (task matches one below → MUST call experience_view(name) first "
+    "→ FOLLOW its SKILL.md exactly)"
+)
+SKILL_LOADING_RULE = (
+    "[Skill loading rule] If the task matches one of the skills above, your FIRST "
+    "step MUST be to call experience_view(name=\"...\") to load it, then execute the "
+    "task. Do NOT skip this step; do NOT read skill-directory files via "
+    "file_ops/run_command instead of experience_view. After loading, follow the "
+    "SKILL.md exactly (copy the seed template, obey Non-Negotiables). Load only "
+    "the single matching skill."
+)
+
+
 STATE_ACTIVE = "active"
 STATE_STALE = "stale"
 STATE_ARCHIVED = "archived"
@@ -536,7 +550,7 @@ class ExperienceStore:
         by_cat: dict[str, list[Experience]] = {}
         for e in exps:
             by_cat.setdefault(e.category, []).append(e)
-        lines = ["## Experiences (task matches one below → MUST call experience_view(name) first → FOLLOW its SKILL.md exactly)"]
+        lines = [EXPERIENCE_INDEX_HEADER]
         for cat in sorted(by_cat):
             show_in_compact = cat in compact
             if not show_in_compact:
@@ -548,14 +562,7 @@ class ExperienceStore:
                 prefix = "    -" if show_in_compact else "    -"
                 lines.append(f"{prefix} {e.name}: {desc}")
         lines.append("")
-        lines.append(
-            "[Skill loading rule] If the task matches one of the skills above, your FIRST "
-            "step MUST be to call experience_view(name=\"...\") to load it, then execute the "
-            "task. Do NOT skip this step; do NOT read skill-directory files via "
-            "file_ops/run_command instead of experience_view. After loading, follow the "
-            "SKILL.md exactly (copy the seed template, obey Non-Negotiables). Load only "
-            "the single matching skill."
-        )
+        lines.append(SKILL_LOADING_RULE)
         return "\n".join(lines)
 
     # ---------- P5 → P6 auto-promote bridge ----------

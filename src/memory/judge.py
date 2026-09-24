@@ -8,7 +8,7 @@ import json
 from typing import Protocol
 
 from src.memory.candidates import Candidate
-from src.providers.judge.client import BatchFailed, JevClient
+from src.providers.judge.client import JevClient
 from src.utils.llm_factory import chat_completion
 
 
@@ -59,11 +59,7 @@ No rewriting, no commentary."""
 
 
 class JevJudge:
-    """Scores candidates through a JEV evaluation endpoint.
-
-    A failed batch yields no scores rather than wrong ones, so the packer falls
-    back to priority order for those items.
-    """
+    """Scores candidates through a JEV evaluation endpoint."""
 
     def __init__(self, client: JevClient, *, model: str = ""):
         self.client = client
@@ -78,17 +74,16 @@ class JevJudge:
         if context:
             head = f"{context}\n\n{head}"
         state = head + "Candidates:\n" + "\n".join(f"[{c.key}] {c.text}" for c in candidates)
-        try:
-            return self.client.nouls(state, instructions)
-        except BatchFailed:
-            return {}
+        return self.client.nouls(state, instructions)
 
 
 class LlmJudge:
     """Character-mode persona filter over the active provider.
 
     Keeps the pre-JEV behaviour so a user without JEV configured does not
-    silently lose persona filtering.
+    silently lose persona filtering. It only has an opinion in character mode:
+    agent and companion turns fall through to priority order, where unfiltered
+    recall is what's wanted.
     """
 
     def __init__(self, client, model: str, provider_id: str, *,
@@ -99,6 +94,8 @@ class LlmJudge:
         self.cache = cache
 
     def score(self, query, candidates, *, mode, context=""):
+        if mode != "character":
+            return {}
         if not candidates or not self.provider_id or not self.model:
             return {}
         payload = "\n".join(f"[{c.key}] {c.text}" for c in candidates)
