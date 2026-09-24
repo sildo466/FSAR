@@ -4,6 +4,7 @@ import { Plus, Cpu, Plug, Shield, Palette, Wrench, Database, FolderLock, AudioLi
 import { useWS } from "../stores/ws";
 import { ProviderModal } from "../components/settings/ProviderModal";
 import { VisionModelSection } from "../components/settings/VisionModelSection";
+import { JudgeSection } from "../components/settings/JudgeSection";
 import { MCPTab } from "../components/settings/MCPTab";
 import { PermissionsTab } from "../components/settings/PermissionsTab";
 import { StyleTab } from "../components/settings/StyleTab";
@@ -232,6 +233,7 @@ export function Settings({ initialTab = "models" }: { initialTab?: Tab }) {
                 onSetActive={setActive}
               />
               <VisionModelSection />
+              <JudgeSection />
             </>
           )}
           {tab === "embedding" && (
