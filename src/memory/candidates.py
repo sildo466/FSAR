@@ -45,3 +45,35 @@ def candidates_from_recall(result: RecallResult) -> list[Candidate]:
         out.append(Candidate("history", f"H{i}", f"- {c.get('text', '')}", PRIORITY["history"]))
 
     return out
+
+
+def cap_by_source(candidates: list[Candidate], cap: int) -> list[Candidate]:
+    """Keep at most `cap` candidates, taking turns across sources.
+
+    Round-robin rather than priority order: history sits at the lowest priority
+    but holds most query-relevant recall, so a priority cut would drop it
+    before the judge ever sees it.
+    """
+    if cap <= 0:
+        return []
+    if len(candidates) <= cap:
+        return list(candidates)
+
+    buckets: dict[str, list[Candidate]] = {}
+    for c in candidates:
+        buckets.setdefault(c.source, []).append(c)
+
+    kept: list[Candidate] = []
+    cursor = {src: 0 for src in buckets}
+    while len(kept) < cap:
+        progressed = False
+        for src, items in buckets.items():
+            if cursor[src] < len(items):
+                kept.append(items[cursor[src]])
+                cursor[src] += 1
+                progressed = True
+                if len(kept) >= cap:
+                    break
+        if not progressed:
+            break
+    return kept

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
-from src.memory.candidates import Candidate, candidates_from_recall
+from src.memory.candidates import Candidate, candidates_from_recall, cap_by_source
 from src.memory.recall import RecallResult
 
 
@@ -40,3 +40,29 @@ def test_candidate_chars_matches_text_length():
 
 def test_empty_result_yields_no_candidates():
     assert candidates_from_recall(RecallResult()) == []
+
+
+def _cand(source, key):
+    from src.memory.candidates import PRIORITY
+    return Candidate(source, key, f"- {source} {key}", PRIORITY[source])
+
+
+def test_cap_is_round_robin_so_low_priority_sources_survive():
+    cands = [_cand("profile", f"U{i}") for i in range(10)]
+    cands += [_cand("history", f"H{i}") for i in range(3)]
+
+    kept = cap_by_source(cands, cap=6)
+
+    assert len(kept) == 6
+    assert {"H0", "H1", "H2"} <= {c.key for c in kept}
+
+
+def test_cap_returns_everything_when_under_limit():
+    cands = [_cand("profile", "U1"), _cand("history", "H1")]
+    assert len(cap_by_source(cands, cap=40)) == 2
+
+
+def test_cap_drains_remaining_slots_when_a_source_runs_out():
+    cands = [_cand("history", f"H{i}") for i in range(8)]
+    kept = cap_by_source(cands, cap=5)
+    assert len(kept) == 5
