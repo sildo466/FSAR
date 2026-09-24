@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Memory injection no longer truncates by position.** The assembled block was
+  cut at 2000 characters, which both split items mid-sentence and starved
+  `history` — the source holding most query-relevant recall — because profile
+  and preferences were injected in full ahead of it. Recall results are now
+  turned into individual candidates, judged per item, packed whole into one
+  shared character budget across memory / strategy / experience, and regrouped
+  by source when rendered. Operational tool-stat warnings still bypass the
+  budget and are injected unconditionally.
+- **Character mode runs its persona filter before the budget is allocated**, so
+  the filter sees every candidate instead of only the survivors of a priority
+  cut. It is also now fail-closed: if the filter cannot run, the character
+  receives no memory rather than unfiltered memory. Agent mode keeps the
+  priority-order fallback, where unfiltered recall is intended.
+
+### Added
+
+- **Optional memory judge endpoint** (`llm.judge` in `fsar.yaml`, *Models* tab
+  in Settings). Point it at a JEV / System One evaluation endpoint to score
+  injection candidates by relevance; leave all three fields empty to fall back
+  to static priority order. `base_url` and `api_key` accept `${ENV_VAR}`.
+- **Injection budget settings** (`memory.inject_*`), editable in
+  Settings → Advanced. Defaults: 2400-character budget, 40 candidates judged,
+  0.35 relevance floor, 600 characters per item.
+
+### Removed
+
+- `memory.recall_max_chars`, replaced by `memory.inject_budget_chars`. The old
+  value was tuned for positional truncation and would badly under-allocate an
+  atomic packer.
+
 ## [0.5.0] - 2026-09-05
 
 Minor release delivering the **Live Companion**: a spoken, voiced conversation
