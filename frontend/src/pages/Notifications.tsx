@@ -2,9 +2,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, RotateCcw, ShieldOff, Trash2 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { cn } from "../lib/cn";
+import { AnnouncementBody, announcementTitle } from "./components/Announcement";
 import type {
   ContentQuarantineInfo,
   ContentScanReport,
@@ -154,7 +153,9 @@ export function Notifications() {
                     : "notifications.releaseTitle",
                   { version },
                 )
-              : n.title;
+              : n.kind === "announcement"
+                ? announcementTitle(n.body, n.title)
+                : n.title;
           return (
             <li
               key={n.id}
@@ -165,7 +166,9 @@ export function Notifications() {
                 <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-muted">
                   {t(`notifications.kind.${n.kind}`)}
                 </span>
-                <span className="text-[13px]">{heading}</span>
+                <span data-testid={`notification-title-${n.id}`} className="text-[13px]">
+                  {heading}
+                </span>
                 {n.read === 0 && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
                 <span className="ml-auto normal-case text-[10px] text-text-muted">
                   {n.created_at}
@@ -212,9 +215,7 @@ export function Notifications() {
 
               {n.body &&
                 (n.kind === "announcement" ? (
-                  <div className="text-[13px] leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.body}</ReactMarkdown>
-                  </div>
+                  <AnnouncementBody body={n.body} />
                 ) : (
                   <pre className="whitespace-pre-wrap break-words bg-surface px-2 py-1.5 font-mono text-[11px]">
                     {n.body}

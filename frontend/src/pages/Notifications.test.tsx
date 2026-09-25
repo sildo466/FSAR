@@ -247,6 +247,23 @@ const BLOCKED_FEED = {
   ],
 };
 
+const ANNOUNCEMENT_FEED = {
+  ...FEED,
+  items: [
+    {
+      id: 12,
+      kind: "announcement",
+      title: "a.md",
+      body: "# Hello\n\n<img src=x onerror=alert(1)>",
+      ref: "sha1",
+      url: null,
+      payload: { name: "a.md", sha: "sha1" },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+  ],
+};
+
 describe("Notifications updates", () => {
   it("offers an update button for an updatable release", async () => {
     const screen = render(<Notifications />);
@@ -273,26 +290,18 @@ describe("Notifications updates", () => {
     await waitFor(() => screen.getByText(/uncommitted/));
   });
 
-  it("renders announcement markdown as text, not html", async () => {
+  it("titles an announcement from its markdown heading, not the filename", async () => {
     const screen = render(<Notifications />);
-    pushFeed({
-      ...FEED,
-      items: [
-        {
-          id: 12,
-          kind: "announcement",
-          title: "a.md",
-          body: "# Hello\n\n<img src=x onerror=alert(1)>",
-          ref: "sha1",
-          url: null,
-          payload: { name: "a.md", sha: "sha1" },
-          read: 0,
-          created_at: "2026-09-25T10:00:00",
-        },
-      ],
-    });
+    pushFeed(ANNOUNCEMENT_FEED);
     await waitFor(() => screen.getByTestId("notification-12"));
-    expect(screen.getByText(/Hello/)).toBeTruthy();
+    expect(screen.getByTestId("notification-title-12").textContent).toBe("Hello");
+    expect(screen.queryByText("a.md")).toBeNull();
+  });
+
+  it("does not parse raw html in an announcement", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(ANNOUNCEMENT_FEED);
+    await waitFor(() => screen.getByTestId("notification-12"));
     expect(screen.queryByRole("img")).toBeNull();
   });
 });
