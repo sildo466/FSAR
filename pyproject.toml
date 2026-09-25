@@ -47,3 +47,4 @@ include = ["src*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = ["real_model: calls a real model provider; not part of the default run"]
