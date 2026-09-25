@@ -6,6 +6,7 @@ import pytest
 from src.notifications.store import NotificationStore
 from src.server.handlers import notifications as handler
 from src.updates.apply import UpdatePlan
+from src.updates.github import GitHubError
 
 
 class _FakeWS:
@@ -104,3 +105,35 @@ async def test_apply_requires_a_tag(config):
     await handler.dispatch(ws, {"type": "updates.apply"}, config)
     assert ws.sent[0]["ok"] is False
     assert "tag" in ws.sent[0]["error"]
+
+
+async def test_a_failing_channel_keeps_the_other_channels_counts(config, monkeypatch):
+    """The two channels are separate network calls, so a failure on one must
+    not discard the releases the other already stored."""
+    store = NotificationStore(config.get("memory.sqlite_path"))
+    monkeypatch.setattr(handler, "_store", lambda _cfg: store)
+    monkeypatch.setattr(
+        "src.utils.version.app_version",
+        lambda: {
+            "tag": "v0.6.0-beta1", "base": "v0.6.0-beta1", "channel": "beta",
+            "exact": True, "source": "git",
+        },
+    )
+
+    class _Client:
+        async def releases(self, *, per_page=30):
+            return [{
+                "tag_name": "v0.9.0", "prerelease": False, "draft": False,
+                "name": "FSAR v0.9.0", "body": "notes", "html_url": "u",
+            }]
+
+        async def contents(self, path, *, ref="main"):
+            raise GitHubError("HTTP 503 for x", status=503)
+
+    monkeypatch.setattr("src.updates.github.GitHubClient", lambda _cfg: _Client())
+    ws = _FakeWS()
+    await handler.dispatch(ws, {"type": "updates.check"}, config)
+    payload = ws.sent[0]
+    assert payload["added"] == 1
+    assert len(store.list(kind="release")) == 1
+    assert "503" in payload["error"]

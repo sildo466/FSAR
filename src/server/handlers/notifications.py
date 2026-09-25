@@ -54,6 +54,9 @@ async def run_update_checks(config, store, *, client=None, screener=None) -> dic
 
     Shared by the startup task and the manual `updates.check` message so the
     logic exists in exactly one place.
+
+    The two channels are checked independently: they are separate network calls,
+    so a rate limit or an outage on one must not discard what the other found.
     """
     from src.updates.announcements import sync_announcements
     from src.updates.github import GitHubClient
@@ -61,26 +64,37 @@ async def run_update_checks(config, store, *, client=None, screener=None) -> dic
     from src.utils.version import app_version
 
     version = app_version()
-    releases_added = 0
-    announcements_added = 0
+    counts = {"added": 0, "announcements": 0}
+    errors: list[str] = []
+
     if bool(config.get("notifications.release.enabled", True)):
-        api = client or GitHubClient(config)
-        rows = await api.releases()
-        releases_added = sync_release_notifications(
-            store,
-            rows,
-            current_tag=version["tag"],
-            channel=version["channel"],
-            include_prerelease=bool(
-                config.get("notifications.release.include_prerelease", False)
-            ),
-        )
+        try:
+            api = client or GitHubClient(config)
+            rows = await api.releases()
+            counts["added"] = sync_release_notifications(
+                store,
+                rows,
+                current_tag=version["tag"],
+                channel=version["channel"],
+                include_prerelease=bool(
+                    config.get("notifications.release.include_prerelease", False)
+                ),
+            )
+        except Exception as exc:
+            errors.append(f"releases: {exc}")
+
     if bool(config.get("notifications.announcement.enabled", True)):
-        api = client or GitHubClient(config)
-        announcements_added = await sync_announcements(
-            config, store, client=api, screener=screener
-        )
-    return {"added": releases_added, "announcements": announcements_added}
+        try:
+            api = client or GitHubClient(config)
+            counts["announcements"] = await sync_announcements(
+                config, store, client=api, screener=screener
+            )
+        except Exception as exc:
+            errors.append(f"announcements: {exc}")
+
+    if errors:
+        counts["error"] = "; ".join(errors)
+    return counts
 
 
 async def dispatch(ws: WebSocket, msg: dict[str, Any], config: Any = None) -> bool:

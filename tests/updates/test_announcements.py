@@ -4,9 +4,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.notifications.store import NotificationStore
 from src.security.content_screen import ScreenVerdict
 from src.updates.announcements import manifest_path, sync_announcements
+from src.updates.github import GitHubError
 
 
 class _Config:
@@ -162,3 +165,32 @@ async def test_manifest_records_names_and_shas(tmp_path: Path, monkeypatch):
     )
     data = json.loads(manifest_path(home).read_text(encoding="utf-8"))
     assert data == {"a.md": "sha1"}
+
+
+class _FailingClient:
+    """Every listing fails with the given status."""
+
+    def __init__(self, status: int):
+        self._status = status
+
+    async def contents(self, path, *, ref="main"):
+        raise GitHubError(f"HTTP {self._status} for x", status=self._status)
+
+
+async def test_missing_announcements_folder_is_not_a_failure(tmp_path: Path, monkeypatch):
+    """Before the folder exists the API answers 404. That is an empty set, and
+    it must not take the release check down with it."""
+    _patch_home(monkeypatch, tmp_path)
+    store = NotificationStore(tmp_path / "m.db")
+    client = _FailingClient(404)
+    assert await sync_announcements(_Config(), store, client=client,
+                                    screener=_Screener()) == 0
+
+
+async def test_other_listing_errors_still_propagate(tmp_path: Path, monkeypatch):
+    _patch_home(monkeypatch, tmp_path)
+    store = NotificationStore(tmp_path / "m.db")
+    client = _FailingClient(503)
+    with pytest.raises(GitHubError):
+        await sync_announcements(_Config(), store, client=client,
+                                 screener=_Screener())

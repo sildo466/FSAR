@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from src.notifications.store import NotificationStore
+from src.updates.github import GitHubError
 from src.utils.fsar_home import get_fsar_home
 from src.utils.logger import logger
 
@@ -60,7 +61,14 @@ async def sync_announcements(
     screener=None,
 ) -> int:
     """Fetch new or revised announcements. Returns how many were added."""
-    entries = await client.contents(ANNOUNCEMENTS_DIR, ref=ANNOUNCEMENTS_REF)
+    try:
+        entries = await client.contents(ANNOUNCEMENTS_DIR, ref=ANNOUNCEMENTS_REF)
+    except GitHubError as exc:
+        if exc.status == 404:
+            # The repository has no announcements folder yet. That is an empty
+            # set, not a failure, and must not fail the caller's other channels.
+            return 0
+        raise
     target_dir = _local_dir()
     manifest = _load_manifest(target_dir)
     screen = screener if screener is not None else _default_screener(config)

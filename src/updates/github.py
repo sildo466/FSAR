@@ -15,7 +15,10 @@ _TIMEOUT = 15.0
 
 
 class GitHubError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        # Callers distinguish "absent" from "broken" without parsing the message.
+        self.status = status
 
 
 class GitHubClient:
@@ -47,7 +50,10 @@ class GitHubClient:
         except httpx.HTTPError as exc:
             raise GitHubError(f"request failed: {exc}") from exc
         if response.status_code >= 400:
-            raise GitHubError(f"HTTP {response.status_code} for {url}")
+            raise GitHubError(
+                f"HTTP {response.status_code} for {url}",
+                status=response.status_code,
+            )
         return response
 
     async def releases(self, *, per_page: int = 30) -> list[dict]:
