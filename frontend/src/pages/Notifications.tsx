@@ -49,7 +49,7 @@ export function Notifications() {
         >
           <AlertTriangle size={14} strokeWidth={1.5} className="mt-0.5 text-warning" />
           <div className="text-[11px] leading-relaxed text-text-muted">
-            {t("notifications.unavailable", { count: unavailable })}
+            {t("notifications.unavailable", { n: unavailable })}
           </div>
         </div>
       )}

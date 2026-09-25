@@ -144,6 +144,23 @@ security:
 
 Prevents secrets and other sensitive content from being written into long-term memory.
 
+### security.content_screening — prompt-injection screening
+
+```yaml
+  content_screening:
+    enabled: true                 # on by default: active on a fresh deployment
+    threshold: 0.5                # confidence at or above this quarantines the item
+    scan_on_startup: true         # scan existing content in the background at startup
+```
+
+A model decides "normal roleplay / user statement" versus "an instruction aimed at the model". This catches payloads that are only harmful by context and that a keyword regex cannot see. If `llm.judge` is configured it uses JEV, otherwise the active LLM.
+
+- **On write**: every memory write (facts, experience, preferences, patterns, task reflections) is screened on a background thread. Conversation is not blocked.
+- **At startup**: a background pass over stored facts, reflections, patterns, preferences, semantic memory and character cards.
+- **On a hit**: the item moves from its store into quarantine and appears on the GUI **Notifications** page, where it can be **restored** or **permanently deleted**. Restored content is allowlisted by hash and skipped from then on.
+- **Character cards** are never deleted — only their text fields are blanked, because sessions still reference the card id.
+- **When screening is unavailable** (no model configured, timeout, call failure) nothing is quarantined; the Notifications page instead reports how many items went unscreened this run.
+
 ### security.file_read_blacklist — file-read blacklist
 
 ```yaml
