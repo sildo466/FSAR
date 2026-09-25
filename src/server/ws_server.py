@@ -95,6 +95,27 @@ _social_adapters: list[Any] = []
 _social_lock = asyncio.Lock()
 
 
+def _get_content_guard():
+    from src.security.content_guard import get_guard
+
+    return get_guard()
+
+
+def start_content_scan():
+    """Kick off the startup content scan without blocking startup."""
+    if not _config.get("security.content_screening.scan_on_startup", True):
+        return None
+    guard = _get_content_guard()
+
+    async def _run() -> None:
+        try:
+            await asyncio.to_thread(guard.scan_all)
+        except Exception as exc:
+            logger.warning(f"startup content scan failed: {exc}")
+
+    return asyncio.create_task(_run())
+
+
 def set_feishu_adapter(adapter: Any) -> None:
     global _feishu_adapter
     _feishu_adapter = adapter
@@ -152,6 +173,7 @@ async def _startup() -> None:
     if renamed:
         logger.info(f"renamed {renamed} built-in card(s) with language suffix")
     await _reload_social()
+    start_content_scan()
 
 
 @app.on_event("shutdown")

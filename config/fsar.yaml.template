@@ -59,6 +59,10 @@ security:
       enabled: true
       block_on_match: true
       custom_patterns: []
+  content_screening:
+    enabled: true
+    threshold: 0.5
+    scan_on_startup: true
   file_read_blacklist:
     enabled: true
     defaults: true

@@ -90,4 +90,8 @@ def isolate_engine(monkeypatch):
     monkeypatch.setattr(engine, "_save_user", lambda *a, **k: None)
     monkeypatch.setattr(engine, "_save_assistant", lambda *a, **k: None)
     monkeypatch.setattr(engine, "_reflect", lambda *a, **k: None)
+    # The startup scan would build the real guard and call the configured
+    # provider. tests/conftest.py already neutralises the write hooks; this
+    # stops the scan itself.
+    monkeypatch.setattr(ws_mod, "start_content_scan", lambda: None)
     yield
