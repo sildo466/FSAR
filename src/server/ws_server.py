@@ -19,6 +19,7 @@ from src.utils.fsar_home import get_fsar_home
 from src.memory.rooms import RoomStore
 from src.server.group_engine import GroupEngine
 from src.utils.logger import logger
+from src.utils.version import app_version
 from src.server.handlers import chat as chat_handler
 from src.server.handlers import asr as asr_handler
 from src.server.handlers import embedding as embedding_handler
@@ -608,6 +609,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         "type": "snapshot",
         "config": _config._settings,
         "skin_id": _config.get("style.skin_id", "default"),
+        "version": app_version(),
         "chat_models": model_items + integration_items,
         "selected_chat_model": _config.chat_default_model,
         "onboarding": {
