@@ -127,6 +127,29 @@ def start_content_scan():
     return asyncio.create_task(_run())
 
 
+def start_update_checks():
+    """Look for new releases and announcements without blocking startup.
+
+    Every failure path is swallowed: an unreachable network or an expired token
+    must never stop the app from starting.
+    """
+    config = _config
+
+    async def _run() -> None:
+        try:
+            from src.notifications.store import NotificationStore
+            from src.server.handlers.notifications import run_update_checks
+
+            path = config.get("memory.sqlite_path") or (
+                get_fsar_home() / "data" / "memory.db"
+            )
+            await run_update_checks(config, NotificationStore(Path(path)))
+        except Exception as exc:
+            logger.warning(f"update check failed: {exc}")
+
+    return asyncio.create_task(_run())
+
+
 def set_feishu_adapter(adapter: Any) -> None:
     global _feishu_adapter
     _feishu_adapter = adapter
@@ -185,6 +208,7 @@ async def _startup() -> None:
         logger.info(f"renamed {renamed} built-in card(s) with language suffix")
     await _reload_social()
     start_content_scan()
+    start_update_checks()
 
 
 @app.on_event("shutdown")

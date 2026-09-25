@@ -116,6 +116,11 @@ def pyproject_version(repo: Path) -> str | None:
     return f"v{value}" if isinstance(value, str) and value else None
 
 
+def repo_root() -> Path:
+    """Checkout root, the directory the update flow runs git in."""
+    return _REPO_ROOT
+
+
 def app_version(repo: Path | None = None) -> dict:
     """Version payload for the WS snapshot."""
     root = repo or _REPO_ROOT

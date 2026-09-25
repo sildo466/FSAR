@@ -47,6 +47,7 @@ security:
     allowlist:
       - "api.openai.com:443"
       - "api.anthropic.com:443"
+      - "api.github.com:443"
       - "127.0.0.0/8"
     blocklist:
       - "*.onion"
