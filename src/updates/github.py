@@ -27,8 +27,8 @@ class GitHubClient:
         self.timeout = timeout
         self._client = client
 
-    def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/vnd.github+json"}
+    def _headers(self, accept: str | None = None) -> dict[str, str]:
+        headers = {"Accept": accept or "application/vnd.github+json"}
         token = str(self.config.get("github.token", "") or "").strip()
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -39,16 +39,16 @@ class GitHubClient:
 
         enforce_url(url, self.config)
 
-    async def _get(self, url: str) -> httpx.Response:
+    async def _get(self, url: str, *, accept: str | None = None) -> httpx.Response:
         self._guard(url)
         try:
             if self._client is not None:
-                response = await self._client.get(url, headers=self._headers())
+                response = await self._client.get(url, headers=self._headers(accept))
             else:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.get(url, headers=self._headers())
+                    response = await client.get(url, headers=self._headers(accept))
         except httpx.HTTPError as exc:
-            raise GitHubError(f"request failed: {exc}") from exc
+            raise GitHubError(f"request failed: {exc!r}") from exc
         if response.status_code >= 400:
             raise GitHubError(
                 f"HTTP {response.status_code} for {url}",
@@ -71,6 +71,16 @@ class GitHubClient:
         payload = response.json()
         return payload if isinstance(payload, list) else []
 
-    async def raw(self, url: str) -> str:
-        response = await self._get(url)
+    async def contents_text(self, path: str, *, ref: str = "main") -> str:
+        """A file's body, fetched from the pinned API host.
+
+        Deliberately not the listing's `download_url`: that points at
+        raw.githubusercontent.com, which is unreachable on networks where
+        api.github.com works, and is absent from the egress allowlist.
+        """
+        clean = path.strip("/")
+        response = await self._get(
+            f"{GITHUB_API}/repos/{REPO_SLUG}/contents/{clean}?ref={ref}",
+            accept="application/vnd.github.raw",
+        )
         return response.text

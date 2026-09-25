@@ -90,14 +90,15 @@ async def sync_announcements(
         ):
             continue
         sha = str(entry.get("sha") or "")
-        url = str(entry.get("download_url") or "")
-        if not sha or not url:
+        if not sha:
             continue
         local = target_dir / name
         if manifest.get(name) == sha and local.is_file():
             continue
 
-        text = await client.raw(url)
+        text = await client.contents_text(
+            f"{ANNOUNCEMENTS_DIR}/{name}", ref=ANNOUNCEMENTS_REF
+        )
         verdict = screen.screen(text, kind="announcement")
         if verdict.flagged:
             logger.warning(f"announcement {name} screened out; not stored")

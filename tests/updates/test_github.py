@@ -107,7 +107,27 @@ async def test_egress_allowlist_permits_api_github_com(monkeypatch):
     assert len(transport.requests) == 1
 
 
-async def test_raw_fetches_text_from_the_given_url():
+async def test_contents_text_uses_the_pinned_host_and_raw_media_type():
+    """Not the listing's `download_url`: raw.githubusercontent.com is
+    unreachable where api.github.com works, and is not in the egress allowlist."""
     client, transport = _client(_Config(), [(200, "# hello")])
-    body = await client.raw(f"{GITHUB_API}/repos/sildo466/FSAR/contents/x")
+    body = await client.contents_text("announcements/a.md")
     assert body == "# hello"
+    request = transport.requests[0]
+    assert str(request.url) == (
+        f"{GITHUB_API}/repos/sildo466/FSAR/contents/announcements/a.md?ref=main"
+    )
+    assert request.headers["accept"] == "application/vnd.github.raw"
+
+
+async def test_network_failure_message_names_the_exception_type():
+    """A bare `str(exc)` is empty for httpx.ReadTimeout, which made the reported
+    error read 'request failed: ' with no clue what went wrong."""
+    class _Timeout(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            raise httpx.ReadTimeout("", request=request)
+
+    client = GitHubClient(_Config(), client=httpx.AsyncClient(transport=_Timeout()))
+    with pytest.raises(GitHubError) as excinfo:
+        await client.releases()
+    assert "ReadTimeout" in str(excinfo.value)

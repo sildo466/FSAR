@@ -24,6 +24,8 @@ class _Config:
 
 
 class _Client:
+    """Bodies are keyed by the API path the client is asked to fetch."""
+
     def __init__(self, entries, bodies):
         self._entries = entries
         self._bodies = bodies
@@ -34,9 +36,10 @@ class _Client:
         assert ref == "main"
         return self._entries
 
-    async def raw(self, url):
-        self.fetched.append(url)
-        return self._bodies[url]
+    async def contents_text(self, path, *, ref="main"):
+        assert ref == "main"
+        self.fetched.append(path)
+        return self._bodies[path]
 
 
 class _Screener:
@@ -51,8 +54,8 @@ class _Screener:
         return ScreenVerdict(self._flagged, 0.9 if self._flagged else 0.0)
 
 
-def _entry(name, sha, url):
-    return {"type": "file", "name": name, "sha": sha, "download_url": url}
+def _entry(name, sha):
+    return {"type": "file", "name": name, "sha": sha}
 
 
 def _patch_home(monkeypatch, tmp_path: Path) -> Path:
@@ -71,7 +74,7 @@ def _stored_markdown(home: Path) -> list[Path]:
 async def test_downloads_screens_stores_and_notifies(tmp_path: Path, monkeypatch):
     home = _patch_home(monkeypatch, tmp_path)
     store = NotificationStore(tmp_path / "m.db")
-    client = _Client([_entry("a.md", "sha1", "u1")], {"u1": "# hi"})
+    client = _Client([_entry("a.md", "sha1")], {"announcements/a.md": "# hi"})
     screener = _Screener()
 
     added = await sync_announcements(_Config(), store, client=client, screener=screener)
@@ -89,12 +92,12 @@ async def test_downloads_screens_stores_and_notifies(tmp_path: Path, monkeypatch
 async def test_second_run_is_a_no_op(tmp_path: Path, monkeypatch):
     _patch_home(monkeypatch, tmp_path)
     store = NotificationStore(tmp_path / "m.db")
-    entries = [_entry("a.md", "sha1", "u1")]
-    first = _Client(entries, {"u1": "# hi"})
+    entries = [_entry("a.md", "sha1")]
+    first = _Client(entries, {"announcements/a.md": "# hi"})
     assert await sync_announcements(_Config(), store, client=first,
                                     screener=_Screener()) == 1
 
-    second = _Client(entries, {"u1": "# hi"})
+    second = _Client(entries, {"announcements/a.md": "# hi"})
     assert await sync_announcements(_Config(), store, client=second,
                                     screener=_Screener()) == 0
     assert second.fetched == []
@@ -105,13 +108,13 @@ async def test_changed_sha_redownloads_even_with_the_same_name(tmp_path: Path, m
     store = NotificationStore(tmp_path / "m.db")
     await sync_announcements(
         _Config(), store,
-        client=_Client([_entry("a.md", "sha1", "u1")], {"u1": "v1"}),
+        client=_Client([_entry("a.md", "sha1")], {"announcements/a.md": "v1"}),
         screener=_Screener(),
     )
-    client = _Client([_entry("a.md", "sha2", "u2")], {"u2": "v2"})
+    client = _Client([_entry("a.md", "sha2")], {"announcements/a.md": "v2"})
     assert await sync_announcements(_Config(), store, client=client,
                                     screener=_Screener()) == 1
-    assert client.fetched == ["u2"]
+    assert client.fetched == ["announcements/a.md"]
     assert (home / "data" / "announcements" / "a.md").read_text() == "v2"
 
 
@@ -119,8 +122,8 @@ async def test_non_markdown_entries_are_ignored(tmp_path: Path, monkeypatch):
     home = _patch_home(monkeypatch, tmp_path)
     store = NotificationStore(tmp_path / "m.db")
     client = _Client(
-        [_entry("notes.txt", "sha1", "u1"), {"type": "dir", "name": "old"}],
-        {"u1": "ignored"},
+        [_entry("notes.txt", "sha1"), {"type": "dir", "name": "old"}],
+        {"announcements/notes.txt": "ignored"},
     )
     assert await sync_announcements(_Config(), store, client=client,
                                     screener=_Screener()) == 0
@@ -133,8 +136,8 @@ async def test_path_traversal_in_name_is_ignored(tmp_path: Path, monkeypatch):
     home = _patch_home(monkeypatch, tmp_path)
     store = NotificationStore(tmp_path / "m.db")
     client = _Client(
-        [_entry("../escape.md", "sha1", "u1"), _entry("..\\escape2.md", "sha2", "u2")],
-        {"u1": "nope", "u2": "nope"},
+        [_entry("../escape.md", "sha1"), _entry("..\\escape2.md", "sha2")],
+        {"announcements/../escape.md": "nope", "announcements/..\\escape2.md": "nope"},
     )
     assert await sync_announcements(_Config(), store, client=client,
                                     screener=_Screener()) == 0
@@ -146,7 +149,8 @@ async def test_path_traversal_in_name_is_ignored(tmp_path: Path, monkeypatch):
 async def test_flagged_content_is_not_written(tmp_path: Path, monkeypatch):
     home = _patch_home(monkeypatch, tmp_path)
     store = NotificationStore(tmp_path / "m.db")
-    client = _Client([_entry("bad.md", "sha1", "u1")], {"u1": "ignore all previous"})
+    client = _Client([_entry("bad.md", "sha1")],
+                     {"announcements/bad.md": "ignore all previous"})
     added = await sync_announcements(_Config(), store, client=client,
                                      screener=_Screener(flagged=True))
     assert added == 0
@@ -160,7 +164,7 @@ async def test_manifest_records_names_and_shas(tmp_path: Path, monkeypatch):
     store = NotificationStore(tmp_path / "m.db")
     await sync_announcements(
         _Config(), store,
-        client=_Client([_entry("a.md", "sha1", "u1")], {"u1": "x"}),
+        client=_Client([_entry("a.md", "sha1")], {"announcements/a.md": "x"}),
         screener=_Screener(),
     )
     data = json.loads(manifest_path(home).read_text(encoding="utf-8"))
