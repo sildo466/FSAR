@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, RotateCcw, ShieldOff, Trash2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "../lib/cn";
 import type {
   ContentQuarantineInfo,
@@ -24,6 +26,8 @@ export function Notifications() {
   const [filterKind, setFilterKind] = useState<FeedFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     send({ type: "content_guard.list" });
@@ -34,6 +38,9 @@ export function Notifications() {
         setWhitelist(msg.whitelist);
         setReport(msg.report);
         setEnabled(msg.enabled);
+      } else if (msg.type === "updates.apply_result") {
+        setPendingUpdate(null);
+        setUpdateError(msg.ok ? null : (msg.error ?? "unknown"));
       }
     });
   }, [send, client]);
@@ -129,6 +136,12 @@ export function Notifications() {
         </div>
       )}
 
+      {updateError && (
+        <div className="rounded border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+          {t("notifications.updateFailed", { error: updateError })}
+        </div>
+      )}
+
       <ul className="border border-border rounded overflow-hidden">
         {visible.map((n) => {
           const payload = n.payload ?? {};
@@ -158,11 +171,55 @@ export function Notifications() {
                   {n.created_at}
                 </span>
               </div>
-              {n.body && (
-                <pre className="whitespace-pre-wrap break-words bg-surface px-2 py-1.5 font-mono text-[11px]">
-                  {n.body}
-                </pre>
+              {n.kind === "release" && (
+                <button
+                  data-testid={`update-${n.id}`}
+                  disabled={payload.updatable !== true || pendingUpdate === n.ref}
+                  title={
+                    payload.updatable === true
+                      ? undefined
+                      : t("notifications.updateBlocked")
+                  }
+                  onClick={() => setPendingUpdate(n.ref)}
+                  className="h-7 w-fit rounded border border-border px-2 text-[12px] hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {t("notifications.update", { version })}
+                </button>
               )}
+
+              {pendingUpdate === n.ref && (
+                <div className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2">
+                  <span className="text-[11px] text-text-muted">
+                    {t("notifications.update", { version })}
+                  </span>
+                  <button
+                    data-testid={`update-${n.id}-confirm`}
+                    onClick={() =>
+                      send({ type: "updates.apply", tag: String(payload.tag ?? "") })
+                    }
+                    className="h-7 rounded border border-border px-2 text-[12px]"
+                  >
+                    {t("common.continue")}
+                  </button>
+                  <button
+                    onClick={() => setPendingUpdate(null)}
+                    className="h-7 rounded border border-border px-2 text-[12px]"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+              )}
+
+              {n.body &&
+                (n.kind === "announcement" ? (
+                  <div className="text-[13px] leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.body}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words bg-surface px-2 py-1.5 font-mono text-[11px]">
+                    {n.body}
+                  </pre>
+                ))}
             </li>
           );
         })}

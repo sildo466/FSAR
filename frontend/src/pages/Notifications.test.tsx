@@ -217,3 +217,82 @@ describe("Notifications feed", () => {
     expect(client.sent).toContainEqual({ type: "notifications.clear" });
   });
 });
+
+const UPDATE_FEED = {
+  ...FEED,
+  items: [
+    {
+      id: 10,
+      kind: "release",
+      title: "FSAR v0.7.0",
+      body: "notes",
+      ref: "v0.7.0",
+      url: null,
+      payload: { tag: "v0.7.0", channel: "stable", updatable: true },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+  ],
+};
+
+const BLOCKED_FEED = {
+  ...UPDATE_FEED,
+  items: [
+    {
+      ...UPDATE_FEED.items[0],
+      id: 11,
+      ref: "v0.5.0",
+      payload: { tag: "v0.5.0", channel: "stable", updatable: false },
+    },
+  ],
+};
+
+describe("Notifications updates", () => {
+  it("offers an update button for an updatable release", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(UPDATE_FEED);
+    await waitFor(() => screen.getByTestId("update-10"));
+    fireEvent.click(screen.getByTestId("update-10"));
+    fireEvent.click(await screen.findByTestId("update-10-confirm"));
+    expect(client.sent).toContainEqual({ type: "updates.apply", tag: "v0.7.0" });
+  });
+
+  it("disables the update button when the version is not newer", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(BLOCKED_FEED);
+    const button = await waitFor(() => screen.getByTestId("update-11"));
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("title")).toMatch(/已不低于|at or above/);
+  });
+
+  it("surfaces a failed update", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(UPDATE_FEED);
+    await waitFor(() => screen.getByTestId("update-10"));
+    client.emit({ type: "updates.apply_result", ok: false, error: "uncommitted" } as never);
+    await waitFor(() => screen.getByText(/uncommitted/));
+  });
+
+  it("renders announcement markdown as text, not html", async () => {
+    const screen = render(<Notifications />);
+    pushFeed({
+      ...FEED,
+      items: [
+        {
+          id: 12,
+          kind: "announcement",
+          title: "a.md",
+          body: "# Hello\n\n<img src=x onerror=alert(1)>",
+          ref: "sha1",
+          url: null,
+          payload: { name: "a.md", sha: "sha1" },
+          read: 0,
+          created_at: "2026-09-25T10:00:00",
+        },
+      ],
+    });
+    await waitFor(() => screen.getByTestId("notification-12"));
+    expect(screen.getByText(/Hello/)).toBeTruthy();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+});
