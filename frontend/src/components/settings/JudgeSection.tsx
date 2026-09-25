@@ -67,10 +67,15 @@ export function JudgeSection() {
             <span className="text-[13px]">{t("settings.judge.custom")}</span>
           </label>
           {custom && (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t("settings.judge.baseUrl")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t("settings.judge.apiKey")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t("settings.judge.model")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t("settings.judge.baseUrl")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
+                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={t("settings.judge.apiKey")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
+                <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t("settings.judge.model")} className="rounded-lg border border-border bg-bg/30 px-3 py-1.5 text-[12px]" />
+              </div>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                {t("settings.judge.customHint")}
+              </p>
             </div>
           )}
           <div className="flex items-center gap-3">

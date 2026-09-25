@@ -94,6 +94,8 @@ llm:
     api_key: ""
     model: ""
   # Optional per-candidate relevance judge for memory/experience injection.
+  # This endpoint must speak JEV's protocol: it returns typed judgments rather
+  # than text, so an OpenAI-compatible model cannot be dropped in here.
   # Leave all three empty to disable; injection then falls back to priority
   # order (never to truncation). base_url / api_key may reference ${ENV_VAR}.
   judge:
