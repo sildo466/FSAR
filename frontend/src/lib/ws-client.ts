@@ -250,6 +250,10 @@ export interface ContentScanReport {
   /** How many items could not be judged this run (no provider, timeout). */
   unavailable?: number;
   total?: number;
+  /** Items that passed the watermark filter. */
+  selected?: number;
+  /** "full" with JEV configured, "incremental" without it. */
+  mode?: string;
   enabled?: boolean;
 }
 

@@ -207,3 +207,58 @@ def test_restore_is_a_noop_when_store_write_fails(guard):
     assert guard.restore(qid, [adapter]) is False
     assert guard.is_whitelisted("EVIL") is False
     assert len(guard.list_quarantine()) == 1
+
+
+# ---------- incremental mode ----------
+
+
+def _item(ref, text, stamp):
+    return QuarantineItem("chunk", ref, text, "memory_chunk", stamp=stamp)
+
+
+def test_full_scan_records_a_watermark(guard):
+    adapter = _FakeAdapter("chunk", [_item("1", "a", 10.0), _item("2", "b", 25.0)])
+    guard.scan_all([adapter], mode="full")
+    assert guard.get_watermark("chunk") == 25.0
+
+
+def test_incremental_first_run_adopts_without_spending_any_calls(guard):
+    adapter = _FakeAdapter("chunk", [_item("1", "EVIL a", 10.0), _item("2", "b", 25.0)])
+    report = guard.scan_all([adapter], mode="incremental")
+    assert report["scanned"] == 0
+    assert report["quarantined"] == 0
+    assert guard.screener.calls == []
+    assert guard.get_watermark("chunk") == 25.0
+
+
+def test_incremental_scans_only_items_past_the_watermark(guard):
+    old = _FakeAdapter("chunk", [_item("1", "old EVIL", 10.0)])
+    guard.scan_all([old], mode="incremental")  # adopt
+    fresh = _FakeAdapter(
+        "chunk", [_item("1", "old EVIL", 10.0), _item("2", "new EVIL", 40.0)]
+    )
+    report = guard.scan_all([fresh], mode="incremental")
+    assert report["scanned"] == 1
+    assert report["quarantined"] == 1
+    assert fresh.removed == ["2"]
+    assert guard.get_watermark("chunk") == 40.0
+
+
+def test_incremental_with_nothing_new_makes_no_calls(guard):
+    adapter = _FakeAdapter("chunk", [_item("1", "EVIL", 10.0)])
+    guard.scan_all([adapter], mode="incremental")  # adopt
+    guard.screener.calls.clear()
+    report = guard.scan_all([adapter], mode="incremental")
+    assert report["selected"] == 0
+    assert guard.screener.calls == []
+
+
+def test_watermark_never_goes_backwards(guard):
+    guard.set_watermark("chunk", 50.0)
+    guard.set_watermark("chunk", 10.0)
+    assert guard.get_watermark("chunk") == 50.0
+
+
+def test_unknown_mode_is_rejected(guard):
+    with pytest.raises(ValueError):
+        guard.scan_all([_FakeAdapter("chunk", [])], mode="sideways")

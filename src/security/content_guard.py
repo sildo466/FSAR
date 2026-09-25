@@ -25,6 +25,7 @@ from src.utils.logger import logger
 
 QUARANTINE_TABLE = "content_quarantine"
 WHITELIST_TABLE = "content_whitelist"
+STATE_TABLE = "content_scan_state"
 
 SCAN_STORES = [
     "semantic_doc",
@@ -63,6 +64,16 @@ def reset_guard() -> None:
     _GUARD = None
 
 
+def _epoch(value) -> float:
+    """ISO timestamp -> epoch seconds. Unparseable values sort oldest."""
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @dataclass
 class QuarantineItem:
     store: str
@@ -70,6 +81,10 @@ class QuarantineItem:
     text: str
     kind: str
     original_fields: dict | None = None
+    # Monotonic within one store, used to skip already-scanned items. Stores
+    # differ in what is monotonic (row id vs. timestamp), which is fine because
+    # watermarks are only ever compared within the same store.
+    stamp: float = 0.0
 
 
 class StoreAdapter(Protocol):
@@ -131,6 +146,15 @@ class ContentGuard:
                     added_by TEXT NOT NULL,
                     note TEXT,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {STATE_TABLE} (
+                    store TEXT PRIMARY KEY,
+                    watermark REAL NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -243,6 +267,37 @@ class ContentGuard:
                 "ORDER BY created_at DESC"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---------- scan watermarks ----------
+
+    def get_watermark(self, store: str) -> float:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT watermark FROM {STATE_TABLE} WHERE store = ?", (store,)
+            ).fetchone()
+        return float(row["watermark"]) if row else 0.0
+
+    def has_watermark(self, store: str) -> bool:
+        """Distinguishes 'never scanned' from 'scanned up to 0'."""
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT 1 FROM {STATE_TABLE} WHERE store = ?", (store,)
+            ).fetchone()
+        return row is not None
+
+    def set_watermark(self, store: str, watermark: float) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {STATE_TABLE} (store, watermark, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(store) DO UPDATE SET
+                    watermark = MAX(watermark, excluded.watermark),
+                    updated_at = excluded.updated_at
+                """,
+                (store, float(watermark), datetime.now().isoformat(timespec="seconds")),
+            )
+            conn.commit()
 
     # ---------- quarantine ----------
 
@@ -410,16 +465,29 @@ class ContentGuard:
             report["quarantined"] += 1
         return report
 
-    def scan_all(self, adapters=None) -> dict:
+    def scan_all(self, adapters=None, *, mode: str = "full") -> dict:
+        """Scan stored content.
+
+        full        -- every item, every time. Cheap on JEV, so this is what a
+                       JEV-configured install runs at startup.
+        incremental -- only items newer than each store's watermark. Used when
+                       no JEV is configured, because a full pass would spend the
+                       user's own LLM budget on every launch. A store with no
+                       watermark yet is adopted silently rather than scanned, so
+                       a fresh install does not pay for its backlog.
+        """
         if not self.enabled:
-            self.set_report({"enabled": False})
-            return {"scanned": 0, "quarantined": 0, "unavailable": 0, "total": 0}
+            self.set_report({"enabled": False, "mode": mode})
+            return {"scanned": 0, "quarantined": 0, "unavailable": 0, "total": 0, "mode": mode}
+        if mode not in ("full", "incremental"):
+            raise ValueError(f"unknown scan mode: {mode!r}")
 
         if adapters is None:
             adapters = self.adapters()
 
         totals = {"scanned": 0, "quarantined": 0, "unavailable": 0}
         total_items = 0
+        selected = 0
         for adapter in adapters:
             try:
                 items = adapter.enumerate()
@@ -427,12 +495,25 @@ class ContentGuard:
                 logger.warning(f"content scan could not enumerate {adapter.name}: {exc}")
                 continue
             total_items += len(items)
-            kind = items[0].kind if items else adapter.name
-            report = self._judge_items(items, kind=kind, adapter=adapter)
+
+            if mode == "incremental":
+                if not self.has_watermark(adapter.name):
+                    if items:
+                        self.set_watermark(adapter.name, max(i.stamp for i in items))
+                    continue
+                mark = self.get_watermark(adapter.name)
+                items = [i for i in items if i.stamp > mark]
+
+            selected += len(items)
+            report = self._judge_items(
+                items, kind=items[0].kind if items else adapter.name, adapter=adapter
+            )
             for key in totals:
                 totals[key] += report[key]
+            if items:
+                self.set_watermark(adapter.name, max(i.stamp for i in items))
 
-        summary = {**totals, "total": total_items}
+        summary = {**totals, "total": total_items, "selected": selected, "mode": mode}
         self.set_report(summary)
         logger.info(f"content scan finished: {summary}")
         return summary
@@ -476,7 +557,12 @@ class _SemanticAdapter:
         for doc_id, text, meta in self.store.list_all():
             if str(meta.get("role", "")) != "user":
                 continue
-            out.append(QuarantineItem(self.name, doc_id, text, self.name))
+            out.append(
+                QuarantineItem(
+                    self.name, doc_id, text, self.name,
+                    stamp=float(meta.get("ts") or 0),
+                )
+            )
         return out
 
     def remove(self, item):
@@ -494,7 +580,10 @@ class _ChunkAdapter:
 
     def enumerate(self):
         return [
-            QuarantineItem(self.name, str(c.id), c.body, "memory_chunk", {"title": c.title})
+            QuarantineItem(
+                self.name, str(c.id), c.body, "memory_chunk",
+                {"title": c.title}, stamp=float(c.id or 0),
+            )
             for c in self.store.list_all_chunks()
         ]
 
@@ -521,7 +610,8 @@ class _ExperienceAdapter:
 
         return [
             QuarantineItem(
-                self.name, e.name, e.body, "memory_chunk", {"category": e.category}
+                self.name, e.name, e.body, "memory_chunk",
+                {"category": e.category}, stamp=float(e.id or 0),
             )
             for e in self.store.list_for_index(
                 categories=None, include_states=VALID_STATES
@@ -548,7 +638,10 @@ class _PreferenceAdapter:
 
     def enumerate(self):
         return [
-            QuarantineItem(self.name, key, f"{key}: {pref.value}", "preference")
+            QuarantineItem(
+                self.name, key, f"{key}: {pref.value}", "preference",
+                stamp=_epoch(pref.updated_at),
+            )
             for key, pref in self.store.get_all_preferences().items()
         ]
 
@@ -571,7 +664,10 @@ class _PatternAdapter:
 
     def enumerate(self):
         return [
-            QuarantineItem(self.name, p["pattern"], p["pattern"], "pattern")
+            QuarantineItem(
+                self.name, p["pattern"], p["pattern"], "pattern",
+                stamp=_epoch(p["last_seen"]),
+            )
             for p in self.store.get_top_patterns(limit=1000000)
         ]
 
@@ -591,7 +687,10 @@ class _ReflectionAdapter:
 
     def enumerate(self):
         return [
-            QuarantineItem(self.name, str(r["id"]), r["suggested_strategy"], "reflection")
+            QuarantineItem(
+                self.name, str(r["id"]), r["suggested_strategy"], "reflection",
+                stamp=float(r["id"] or 0),
+            )
             for r in self.store.list_recent(limit=1000000)
             if r.get("suggested_strategy")
         ]
@@ -617,7 +716,10 @@ class _CardAdapter:
             if not text.strip():
                 continue
             out.append(
-                QuarantineItem(self.name, str(card.id), text, "character_card", fields)
+                QuarantineItem(
+                    self.name, str(card.id), text, "character_card", fields,
+                    stamp=_epoch(card.updated_at),
+                )
             )
         return out
 

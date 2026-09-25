@@ -156,7 +156,7 @@ Prevents secrets and other sensitive content from being written into long-term m
 A model decides "normal roleplay / user statement" versus "an instruction aimed at the model". This catches payloads that are only harmful by context and that a keyword regex cannot see. If `llm.judge` is configured it uses JEV, otherwise the active LLM.
 
 - **On write**: every memory write (facts, experience, preferences, patterns, task reflections) is screened on a background thread. Conversation is not blocked.
-- **At startup**: a background pass over stored facts, reflections, patterns, preferences, semantic memory and character cards.
+- **At startup** depends on whether JEV is configured. With `llm.judge` set, every launch re-checks everything — JEV calls are cheap. Without JEV, only items newer than the last scan are checked, and a full pass would otherwise spend your own API budget on every launch. On first run the existing backlog is adopted without being scanned.
 - **On a hit**: the item moves from its store into quarantine and appears on the GUI **Notifications** page, where it can be **restored** or **permanently deleted**. Restored content is allowlisted by hash and skipped from then on.
 - **Character cards** are never deleted — only their text fields are blanked, because sessions still reference the card id.
 - **When screening is unavailable** (no model configured, timeout, call failure) nothing is quarantined; the Notifications page instead reports how many items went unscreened this run.

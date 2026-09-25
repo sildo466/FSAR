@@ -103,14 +103,22 @@ def _get_content_guard():
 
 
 def start_content_scan():
-    """Kick off the startup content scan without blocking startup."""
+    """Kick off the startup content scan without blocking startup.
+
+    With JEV configured the pass is full: it costs nothing per call, so every
+    launch re-checks everything. Without JEV, a full pass would spend the user's
+    own LLM budget on every launch, so only items newer than the stored
+    watermark are checked.
+    """
     if not _config.get("security.content_screening.scan_on_startup", True):
         return None
     guard = _get_content_guard()
+    judge = _config.get_judge() or {}
+    mode = "full" if (judge.get("base_url") and judge.get("api_key")) else "incremental"
 
     async def _run() -> None:
         try:
-            await asyncio.to_thread(guard.scan_all)
+            await asyncio.to_thread(guard.scan_all, mode=mode)
         except Exception as exc:
             logger.warning(f"startup content scan failed: {exc}")
 
