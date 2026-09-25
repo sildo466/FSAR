@@ -37,6 +37,7 @@ from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
 from src.server.handlers import settings as settings_handler
 from src.server.handlers import screening as screening_handler
+from src.server.handlers import notifications as notifications_handler
 from src.server.handlers import skin as skin_handler
 from src.server.handlers import tts as tts_handler
 from src.server.handlers import skill_install as skill_install_handler
@@ -681,6 +682,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await usage_handler.dispatch(ws, msg, _ctx):
         return
     if await screening_handler.dispatch(ws, msg, _ctx):
+        return
+    if await notifications_handler.dispatch(ws, msg, _config):
         return
     if await chat_handler.dispatch(ws, msg):
         return
