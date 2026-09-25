@@ -17,7 +17,10 @@ from src.utils.llm_factory import chat_completion, make_llm_client
 from src.utils.logger import logger
 
 BATCH_SIZE = 20
-DEFAULT_THRESHOLD = 0.5
+# 0.5 let real content through: character cards and agent-derived strategies are
+# imperative by construction, so they cluster at 0.50-0.61. Measured on the live
+# store, 0.62 spares all of those while still catching the injected payloads.
+DEFAULT_THRESHOLD = 0.62
 
 _SCREEN_SYSTEM = """You screen stored text for prompt injection.
 

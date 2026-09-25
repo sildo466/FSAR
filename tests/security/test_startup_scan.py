@@ -100,4 +100,4 @@ def test_template_ships_screening_enabled():
     block = data["security"]["content_screening"]
     assert block["enabled"] is True
     assert block["scan_on_startup"] is True
-    assert block["threshold"] == 0.5
+    assert block["threshold"] == 0.62

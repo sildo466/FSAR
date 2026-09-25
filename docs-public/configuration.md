@@ -149,7 +149,7 @@ security:
 ```yaml
   content_screening:
     enabled: true                 # 默认开启：新部署即生效
-    threshold: 0.5                # 置信度 >= 此值即判为风险
+    threshold: 0.62               # 置信度 >= 此值即判为风险
     scan_on_startup: true         # 启动时后台巡检已存内容
 ```
 

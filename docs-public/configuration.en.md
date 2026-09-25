@@ -149,7 +149,7 @@ Prevents secrets and other sensitive content from being written into long-term m
 ```yaml
   content_screening:
     enabled: true                 # on by default: active on a fresh deployment
-    threshold: 0.5                # confidence at or above this quarantines the item
+    threshold: 0.62               # confidence at or above this quarantines the item
     scan_on_startup: true         # scan existing content in the background at startup
 ```
 

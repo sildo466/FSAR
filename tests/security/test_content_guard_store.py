@@ -44,7 +44,7 @@ def test_defaults_enabled_when_config_silent(tmp_path):
 
     g = ContentGuard(_Silent(), db_path=tmp_path / "memory.db", autostart=False)
     assert g.enabled is True
-    assert g.threshold == pytest.approx(0.5)
+    assert g.threshold == pytest.approx(0.62)
 
 
 def test_digest_is_stable_and_content_addressed(guard):

@@ -686,20 +686,47 @@ class _ReflectionAdapter:
         self.store = store
 
     def enumerate(self):
-        return [
-            QuarantineItem(
-                self.name, str(r["id"]), r["suggested_strategy"], "reflection",
-                stamp=float(r["id"] or 0),
+        out = []
+        for r in self.store.list_recent(limit=1000000):
+            if not r.get("suggested_strategy"):
+                continue
+            out.append(
+                QuarantineItem(
+                    self.name, str(r["id"]), r["suggested_strategy"], "reflection",
+                    original_fields={
+                        "task_id": r.get("task_id", ""),
+                        "outcome": r.get("outcome", "success"),
+                        "session_id": r.get("session_id", ""),
+                    },
+                    stamp=float(r["id"] or 0),
+                )
             )
-            for r in self.store.list_recent(limit=1000000)
-            if r.get("suggested_strategy")
-        ]
+        return out
 
     def remove(self, item):
         return self.store.delete_reflection(int(item.record_ref))
 
     def restore(self, item, text):
-        return False
+        from datetime import datetime
+
+        from src.memory.reflection import TaskReflection
+
+        fields = item.original_fields or {}
+        self.store.save(
+            TaskReflection(
+                task_id=fields.get("task_id") or f"restored-{item.record_ref}",
+                outcome=fields.get("outcome") or "success",
+                failure_modes=[],
+                success_patterns=[],
+                suggested_strategy=text,
+                step_count=0,
+                tools_used=[],
+                error_count=0,
+                generated_at=datetime.now(),
+            ),
+            session_id=fields.get("session_id") or "restored",
+        )
+        return True
 
 
 class _CardAdapter:

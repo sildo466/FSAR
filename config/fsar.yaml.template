@@ -61,7 +61,7 @@ security:
       custom_patterns: []
   content_screening:
     enabled: true
-    threshold: 0.5
+    threshold: 0.62
     scan_on_startup: true
   file_read_blacklist:
     enabled: true
