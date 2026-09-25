@@ -176,6 +176,15 @@ describe("Notifications feed", () => {
     expect(client.sent).toContainEqual({ type: "notifications.list" });
   });
 
+  it("marks the feed read before requesting it, so the badge clears", () => {
+    render(<Notifications />);
+    expect(client.sent).toContainEqual({ type: "notifications.mark_read" });
+    const types = client.sent.map((m) => m.type);
+    expect(types.indexOf("notifications.mark_read")).toBeLessThan(
+      types.indexOf("notifications.list"),
+    );
+  });
+
   it("renders a stable release notification with localized copy", async () => {
     const screen = render(<Notifications />);
     pushFeed(FEED);

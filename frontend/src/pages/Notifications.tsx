@@ -29,8 +29,12 @@ export function Notifications() {
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
-    send({ type: "content_guard.list" });
+    // Opening the page is what clears the badge. The unread count is owned by
+    // the server, so mark the feed read *before* requesting it — otherwise the
+    // list arrives still unread and the dot flashes.
+    send({ type: "notifications.mark_read" });
     send({ type: "notifications.list" });
+    send({ type: "content_guard.list" });
     return client?.on((msg) => {
       if (msg.type === "content_guard.list_result") {
         setItems(msg.items);
