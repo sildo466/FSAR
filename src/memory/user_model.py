@@ -104,6 +104,11 @@ class UserModel:
                     updated_at=excluded.updated_at
             """, (key, value, confidence, source, now))
             conn.commit()
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="preference", record_ref=key, text=f"{key}: {value}", kind="preference"
+        )
 
     def get_preference(self, key: str, default: str | None = None) -> str | None:
         with self._connect() as conn:
@@ -152,6 +157,9 @@ class UserModel:
                     VALUES (?, ?, 1, ?, ?)
                 """, (pattern, evidence, now, now))
             conn.commit()
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(store="pattern", record_ref=pattern, text=pattern, kind="pattern")
 
     def get_top_patterns(self, limit: int = 20) -> list[dict]:
         with self._connect() as conn:

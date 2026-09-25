@@ -195,7 +195,16 @@ class ReflectionStore:
                 ref.error_count, now,
             ))
             conn.commit()
-            return cur.lastrowid
+            row_id = int(cur.lastrowid)
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="reflection",
+            record_ref=str(row_id),
+            text=ref.suggested_strategy,
+            kind="reflection",
+        )
+        return row_id
 
     def delete_reflection(self, reflection_id: int) -> bool:
         with self._connect() as conn:

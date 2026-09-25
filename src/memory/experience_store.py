@@ -284,7 +284,13 @@ class ExperienceStore:
             row = conn.execute(
                 "SELECT id FROM experiences WHERE name = ?", (exp.name,)
             ).fetchone()
-            return int(row[0])
+            exp_id = int(row[0])
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="experience", record_ref=exp.name, text=exp.body, kind="memory_chunk"
+        )
+        return exp_id
 
     def get_by_name(self, name: str) -> Experience | None:
         with self._connect() as conn:
@@ -649,7 +655,13 @@ class ExperienceStore:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (source, title, body, chunk_index, now, now))
             conn.commit()
-            return int(cur.lastrowid)
+            chunk_id = int(cur.lastrowid)
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="chunk", record_ref=str(chunk_id), text=body, kind="memory_chunk"
+        )
+        return chunk_id
 
     def list_chunks(self, *, source: str | None = None,
                     limit: int = 100) -> list[MemoryChunk]:

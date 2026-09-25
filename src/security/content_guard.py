@@ -95,6 +95,7 @@ class ContentGuard:
         self._report: dict = {}
         self._queue: "queue.Queue | None" = None
         self._thread: threading.Thread | None = None
+        self._adapters: list | None = None
         self._init_db()
         if autostart:
             self._start_worker()
@@ -324,8 +325,15 @@ class ContentGuard:
 
     # ---------- serving ----------
 
+    def adapters(self) -> list:
+        """Built once: the semantic adapter opens a chroma client, so rebuilding
+        this on every memory write would be costly."""
+        if self._adapters is None:
+            self._adapters = default_adapters(self.config)
+        return self._adapters
+
     def _adapter_for(self, name: str, adapters=None):
-        for adapter in adapters if adapters is not None else default_adapters(self.config):
+        for adapter in adapters if adapters is not None else self.adapters():
             if adapter.name == name:
                 return adapter
         return None
@@ -333,20 +341,21 @@ class ContentGuard:
     def submit(self, *, store: str, record_ref: str, text: str, kind: str) -> None:
         if not self.enabled or not text.strip():
             return
-        self._enqueue(store, str(record_ref), text, kind)
+        self._enqueue(None, store, str(record_ref), text, kind)
 
     def submit_for_test(self, adapter, *, store, record_ref, text, kind) -> None:
         if not self.enabled or not text.strip():
             return
-        self._enqueue(store, str(record_ref), text, kind, adapter=adapter)
+        self._enqueue(adapter, store, str(record_ref), text, kind)
 
-    def _enqueue(self, store, record_ref, text, kind, *, adapter=None) -> None:
+    def _enqueue(self, adapter, store, record_ref, text, kind) -> None:
+        """Adapters are resolved lazily, at removal time only.
+
+        Building them here would open a chroma client on every memory write, and
+        most writes are never flagged.
+        """
         if self._thread is None or not self._thread.is_alive():
             self._start_worker()
-        if adapter is None:
-            adapter = self._adapter_for(store)
-            if adapter is None:
-                return
         self._queue.put((adapter, store, record_ref, text, kind))
 
     def flush_or_raise(self, timeout: float = 10.0) -> None:
@@ -407,7 +416,7 @@ class ContentGuard:
             return {"scanned": 0, "quarantined": 0, "unavailable": 0, "total": 0}
 
         if adapters is None:
-            adapters = default_adapters(self.config)
+            adapters = self.adapters()
 
         totals = {"scanned": 0, "quarantined": 0, "unavailable": 0}
         total_items = 0

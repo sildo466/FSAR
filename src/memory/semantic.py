@@ -93,6 +93,11 @@ class SemanticMemory:
         except Exception as e:
             logger.warning(f"Semantic add failed: {e}")
             return ""
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="semantic_doc", record_ref=doc_id, text=text, kind="semantic_doc"
+        )
         return doc_id
 
     def search(self, query: str, n: int = 5,
