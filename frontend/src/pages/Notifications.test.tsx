@@ -48,12 +48,17 @@ const LIST = {
 let client: FakeClient;
 
 beforeAll(async () => {
-  await initI18n("en");
+  await initI18n("zh-Hans");
 });
 
 beforeEach(() => {
   client = new FakeClient();
-  useWS.setState({ client: client as never });
+  useWS.setState({
+    client: client as never,
+    notifications: [],
+    unread: 0,
+    notificationSettings: null,
+  });
 });
 
 afterEach(() => {
@@ -98,6 +103,7 @@ describe("Notifications", () => {
     const screen = render(<Notifications />);
     client.emit(LIST as never);
     await waitFor(() => screen.getByTestId("screening-unavailable"));
+    expect(screen.getByText(/本次有 2 条/)).toBeTruthy();
   });
 
   it("hides the banner when nothing went unscreened", async () => {
@@ -116,5 +122,98 @@ describe("Notifications", () => {
       type: "content_guard.unwhitelist",
       sha256: "abc123",
     });
+  });
+});
+
+// The feed lands in the ws store rather than in the page's own listener: the
+// sidebar reads `unread` from the same slice, so the store is its only home.
+function pushFeed(feed: { items: unknown[]; unread: number; settings?: unknown }) {
+  useWS.setState({
+    notifications: feed.items as never,
+    unread: feed.unread,
+    notificationSettings: (feed.settings ?? null) as never,
+  });
+}
+
+const FEED = {
+  type: "notifications.list_result",
+  items: [
+    {
+      id: 1,
+      kind: "release",
+      title: "FSAR v0.7.0",
+      body: "notes",
+      ref: "v0.7.0",
+      url: "https://github.com/sildo466/FSAR/releases/tag/v0.7.0",
+      payload: { tag: "v0.7.0", channel: "stable" },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+    {
+      id: 2,
+      kind: "review",
+      title: "Quarantined content in chunk",
+      body: "ignore previous",
+      ref: "4",
+      url: null,
+      payload: { store: "chunk", record_ref: "4" },
+      read: 1,
+      created_at: "2026-09-24T10:00:00",
+    },
+  ],
+  unread: 1,
+  kinds: ["review", "release", "announcement"],
+  settings: {
+    review: { enabled: true },
+    release: { enabled: true, include_prerelease: false },
+    announcement: { enabled: true },
+  },
+};
+
+describe("Notifications feed", () => {
+  it("requests the feed on mount", () => {
+    render(<Notifications />);
+    expect(client.sent).toContainEqual({ type: "notifications.list" });
+  });
+
+  it("renders a stable release notification with localized copy", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    expect(screen.getByText("正式版更新 0.7.0")).toBeTruthy();
+  });
+
+  it("filters to unread only", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("filter-unread"));
+    fireEvent.click(screen.getByTestId("filter-unread"));
+    expect(screen.queryByText(/ignore previous/)).toBeNull();
+  });
+
+  it("filters by kind", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("filter-kind-review"));
+    fireEvent.click(screen.getByTestId("filter-kind-review"));
+    expect(screen.queryByText(/正式版更新/)).toBeNull();
+  });
+
+  it("marks everything read", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("mark-all-read"));
+    fireEvent.click(screen.getByTestId("mark-all-read"));
+    expect(client.sent).toContainEqual({ type: "notifications.mark_read" });
+  });
+
+  it("sends clear after confirmation", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("clear-all"));
+    fireEvent.click(screen.getByTestId("clear-all"));
+    const confirm = await screen.findByTestId("clear-all-confirm");
+    fireEvent.click(confirm);
+    expect(client.sent).toContainEqual({ type: "notifications.clear" });
   });
 });
