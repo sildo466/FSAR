@@ -333,6 +333,29 @@ class ContentGuard:
             conn.commit()
             return int(cur.lastrowid)
 
+    def _announce_quarantine(self, qid: int, item: QuarantineItem, verdict) -> None:
+        """Mirror a quarantine into the notification feed.
+
+        Best effort: the quarantine write is a security control and must stand
+        on its own, so a notification failure is logged and swallowed.
+        """
+        try:
+            from src.notifications.store import NotificationStore
+
+            NotificationStore(self.db_path).add(
+                kind="review",
+                title=f"Quarantined content in {item.store}",
+                body=item.text,
+                ref=str(qid),
+                payload={
+                    "store": item.store,
+                    "record_ref": str(item.record_ref),
+                    "confidence": float(verdict.confidence),
+                },
+            )
+        except Exception as exc:
+            logger.warning(f"quarantine notification failed for qid={qid}: {exc}")
+
     def _row_to_dict(self, row: sqlite3.Row) -> dict:
         out = dict(row)
         raw = out.get("original_fields")
@@ -441,7 +464,7 @@ class ContentGuard:
             if not verdict.flagged:
                 continue
             try:
-                self.record(
+                qid = self.record(
                     item.store,
                     item.record_ref,
                     item.text,
@@ -454,6 +477,7 @@ class ContentGuard:
                     f"quarantine write failed for {item.store}:{item.record_ref}: {exc}"
                 )
                 continue
+            self._announce_quarantine(qid, item, verdict)
             try:
                 target = adapter if adapter is not None else self._adapter_for(item.store)
                 ok = bool(target and target.remove(item))
