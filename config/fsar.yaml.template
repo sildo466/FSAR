@@ -71,6 +71,16 @@ security:
     no_trust_mode: false
   small_agent_review:
     enabled: false
+notifications:
+  review:
+    enabled: true
+  release:
+    enabled: true
+    include_prerelease: false
+  announcement:
+    enabled: true
+github:
+  token: ""
 
 llm:
   active: ""
