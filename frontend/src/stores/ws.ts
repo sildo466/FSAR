@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
-import { WSClient, type AppVersion, type ServerMsg } from "../lib/ws-client";
+import {
+  WSClient,
+  type AppVersion,
+  type NotificationItem,
+  type NotificationSettings,
+  type ServerMsg,
+} from "../lib/ws-client";
 import { useSkinStore } from "./skin";
 
 type Status = "connecting" | "connected" | "disconnected";
@@ -9,6 +15,9 @@ interface WSStore {
   status: Status;
   config: Record<string, unknown> | null;
   version: AppVersion | null;
+  notifications: NotificationItem[];
+  unread: number;
+  notificationSettings: NotificationSettings | null;
   client: WSClient | null;
   init: () => void;
   send: (msg: Parameters<WSClient["send"]>[0]) => void;
@@ -51,6 +60,9 @@ export const useWS = create<WSStore>((set, get) => ({
   status: "connecting",
   config: null,
   version: null,
+  notifications: [],
+  unread: 0,
+  notificationSettings: null,
   client: null,
   init: () => {
     if (get().client || initPromise) return;
@@ -100,6 +112,17 @@ export const useWS = create<WSStore>((set, get) => ({
             ...current,
             llm: { ...llm, providers: msg.providers, active: msg.active },
           },
+        });
+      } else if (msg.type === "notifications.list_result") {
+        set({
+          notifications: msg.items,
+          unread: msg.unread,
+          notificationSettings: msg.settings,
+        });
+      } else if (msg.type === "notifications.read_result") {
+        set({
+          unread: msg.unread,
+          notifications: get().notifications.map((item) => ({ ...item, read: 1 as const })),
         });
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });

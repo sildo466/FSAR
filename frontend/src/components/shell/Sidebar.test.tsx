@@ -12,7 +12,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   cleanup();
-  useWS.setState({ version: null });
+  useWS.setState({ version: null, unread: 0 });
 });
 
 it("renders the base tag from the snapshot", () => {
@@ -44,4 +44,24 @@ it("renders nothing when the snapshot has no version", () => {
     </MemoryRouter>,
   );
   expect(screen.getByTestId("app-version").textContent).toBe("");
+});
+
+it("shows a red dot when there are unread notifications", () => {
+  useWS.setState({ unread: 3 });
+  const screen = render(
+    <MemoryRouter>
+      <Sidebar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByTestId("notifications-dot")).toBeTruthy();
+});
+
+it("hides the red dot when nothing is unread", () => {
+  useWS.setState({ unread: 0 });
+  const screen = render(
+    <MemoryRouter>
+      <Sidebar />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByTestId("notifications-dot")).toBeNull();
 });

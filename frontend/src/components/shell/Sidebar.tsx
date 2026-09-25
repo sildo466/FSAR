@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { NavLink } from "react-router-dom";
-import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock, Sparkles, Users, ShieldAlert } from "lucide-react";
+import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock, Sparkles, Users, Megaphone } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
@@ -11,7 +11,7 @@ const items = [
   { to: "/group", labelKey: "nav.group", icon: Users },
   { to: "/reflection", labelKey: "nav.reflection", icon: Activity },
   { to: "/memory", labelKey: "nav.memory", icon: Brain },
-  { to: "/notifications", labelKey: "nav.notifications", icon: ShieldAlert },
+  { to: "/notifications", labelKey: "nav.notifications", icon: Megaphone },
   { to: "/library", labelKey: "nav.library", icon: BookOpen },
   { to: "/cards", labelKey: "nav.cards", icon: UserCircle2 },
   { to: "/insights", labelKey: "nav.insights", icon: BarChart3 },
@@ -25,6 +25,7 @@ const items = [
 export function Sidebar() {
   const { t } = useTranslation();
   const version = useWS((s) => s.version);
+  const unread = useWS((s) => s.unread);
   return (
     <motion.nav
       initial={{ x: -24, opacity: 0 }}
@@ -50,6 +51,12 @@ export function Sidebar() {
               title={t(it.labelKey)}
             >
               <it.icon size={16} strokeWidth={1.5} />
+              {it.to === "/notifications" && unread > 0 && (
+                <span
+                  data-testid="notifications-dot"
+                  className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500"
+                />
+              )}
             </NavLink>
           </li>
         ))}

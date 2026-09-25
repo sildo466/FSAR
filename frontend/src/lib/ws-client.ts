@@ -112,6 +112,11 @@ export type ClientMsg =
   | { type: "content_guard.restore"; id: number }
   | { type: "content_guard.purge"; id: number }
   | { type: "content_guard.unwhitelist"; sha256: string }
+  | { type: "notifications.list" }
+  | { type: "notifications.mark_read"; ids?: number[] }
+  | { type: "notifications.clear" }
+  | { type: "updates.check" }
+  | { type: "updates.apply"; tag: string }
   | { type: "heartbeat" };
 
 export interface WorkspaceInfo {
@@ -265,6 +270,24 @@ export interface AppVersion {
   source: "git" | "pyproject";
 }
 
+export interface NotificationItem {
+  id: number;
+  kind: "review" | "release" | "announcement";
+  title: string;
+  body: string;
+  ref: string | null;
+  url: string | null;
+  payload: Record<string, unknown> | null;
+  read: 0 | 1;
+  created_at: string;
+}
+
+export interface NotificationSettings {
+  review: { enabled: boolean };
+  release: { enabled: boolean; include_prerelease: boolean };
+  announcement: { enabled: boolean };
+}
+
 export type ServerMsg =
   | { type: "snapshot"; config: Record<string, unknown>; version?: AppVersion; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] } }
   | { type: "integration.list_result"; items: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> }
@@ -399,6 +422,10 @@ export type ServerMsg =
       enabled: boolean;
     }
   | { type: "content_guard.action_result"; action: string; id: number | string; ok: boolean }
+  | { type: "notifications.list_result"; items: NotificationItem[]; unread: number; kinds: string[]; settings: NotificationSettings }
+  | { type: "notifications.read_result"; unread: number }
+  | { type: "updates.check_result"; added: number; announcements: number; error?: string }
+  | { type: "updates.apply_result"; ok: boolean; tag?: string; branch?: string; head?: string; dropped_branch?: string | null; kept_branch?: string | null; error?: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };
 
