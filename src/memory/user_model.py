@@ -125,6 +125,12 @@ class UserModel:
             )
         return out
 
+    def delete_preference(self, key: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM preferences WHERE key = ?", (key,))
+            conn.commit()
+            return cur.rowcount > 0
+
     # ---------- patterns ----------
 
     def record_pattern(self, pattern: str, evidence: str):
@@ -160,6 +166,12 @@ class UserModel:
             }
             for r in rows
         ]
+
+    def delete_pattern(self, pattern: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM patterns WHERE pattern = ?", (pattern,))
+            conn.commit()
+            return cur.rowcount > 0
 
     # ---------- profile (reflections) ----------
 

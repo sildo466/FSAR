@@ -673,6 +673,25 @@ class ExperienceStore:
             for r in rows
         ]
 
+    def list_all_chunks(self) -> list[MemoryChunk]:
+        """Every memory chunk, unbounded.
+
+        Separate from list_chunks() because that one paginates by default and a
+        security scan must not silently truncate.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, source, title, body, chunk_index, created_at, updated_at "
+                "FROM memory_chunks ORDER BY id"
+            ).fetchall()
+        return [
+            MemoryChunk(
+                id=r[0], source=r[1], title=r[2], body=r[3],
+                chunk_index=r[4], created_at=r[5], updated_at=r[6],
+            )
+            for r in rows
+        ]
+
     def search_chunks(self, keyword: str, *, limit: int = 10) -> list[MemoryChunk]:
         """Keyword search on memory_chunks.
 

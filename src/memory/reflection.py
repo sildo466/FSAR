@@ -197,6 +197,14 @@ class ReflectionStore:
             conn.commit()
             return cur.lastrowid
 
+    def delete_reflection(self, reflection_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM task_reflections WHERE id = ?", (reflection_id,)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def list_recent(self, limit: int = 20,
                     session_id: str | None = None) -> list[dict]:
         with self._connect() as conn:

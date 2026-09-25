@@ -131,6 +131,33 @@ class SemanticMemory:
         except Exception:
             return 0
 
+    def list_all(self) -> list[tuple[str, str, dict]]:
+        """Every stored document as (doc_id, text, metadata)."""
+        if not self.available:
+            return []
+        try:
+            res = self._collection.get(include=["documents", "metadatas"])
+        except Exception as e:
+            logger.warning(f"Semantic list_all failed: {e}")
+            return []
+        ids = res.get("ids") or []
+        docs = res.get("documents") or []
+        metas = res.get("metadatas") or []
+        return [
+            (ids[i], docs[i] if i < len(docs) else "", metas[i] if i < len(metas) else {})
+            for i in range(len(ids))
+        ]
+
+    def delete(self, doc_ids: list[str]) -> int:
+        if not self.available or not doc_ids:
+            return 0
+        try:
+            self._collection.delete(ids=list(doc_ids))
+        except Exception as e:
+            logger.warning(f"Semantic delete failed: {e}")
+            return 0
+        return len(doc_ids)
+
     def clear(self):
         """清空所有语义记忆（用于 reset）"""
         if not self.available or self._client is None:
