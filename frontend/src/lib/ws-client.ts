@@ -257,8 +257,16 @@ export interface ContentScanReport {
   enabled?: boolean;
 }
 
+export interface AppVersion {
+  tag: string;
+  base: string;
+  channel: "stable" | "beta";
+  exact: boolean;
+  source: "git" | "pyproject";
+}
+
 export type ServerMsg =
-  | { type: "snapshot"; config: Record<string, unknown>; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] } }
+  | { type: "snapshot"; config: Record<string, unknown>; version?: AppVersion; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] } }
   | { type: "integration.list_result"; items: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> }
   | { type: "integration.saved"; id: number; integration?: Record<string, unknown> }
   | { type: "integration.deleted"; id: number }

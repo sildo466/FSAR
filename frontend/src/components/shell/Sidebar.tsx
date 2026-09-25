@@ -4,6 +4,7 @@ import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, U
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
+import { useWS } from "../../stores/ws";
 
 const items = [
   { to: "/", labelKey: "nav.chat", icon: MessageSquare },
@@ -23,6 +24,7 @@ const items = [
 
 export function Sidebar() {
   const { t } = useTranslation();
+  const version = useWS((s) => s.version);
   return (
     <motion.nav
       initial={{ x: -24, opacity: 0 }}
@@ -52,7 +54,13 @@ export function Sidebar() {
           </li>
         ))}
       </ul>
-      <span className="font-mono text-[9px] tracking-[0.18em] text-text-faint">0.2.3</span>
+      <span
+        data-testid="app-version"
+        title={version?.tag ?? ""}
+        className="font-mono text-[9px] tracking-[0.18em] text-text-faint"
+      >
+        {version ? version.base.replace(/^v/, "") : ""}
+      </span>
     </motion.nav>
   );
 }

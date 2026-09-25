@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
-import { WSClient, type ServerMsg } from "../lib/ws-client";
+import { WSClient, type AppVersion, type ServerMsg } from "../lib/ws-client";
 import { useSkinStore } from "./skin";
 
 type Status = "connecting" | "connected" | "disconnected";
@@ -8,6 +8,7 @@ type Status = "connecting" | "connected" | "disconnected";
 interface WSStore {
   status: Status;
   config: Record<string, unknown> | null;
+  version: AppVersion | null;
   client: WSClient | null;
   init: () => void;
   send: (msg: Parameters<WSClient["send"]>[0]) => void;
@@ -49,6 +50,7 @@ function applyDotPatch(
 export const useWS = create<WSStore>((set, get) => ({
   status: "connecting",
   config: null,
+  version: null,
   client: null,
   init: () => {
     if (get().client || initPromise) return;
@@ -63,7 +65,11 @@ export const useWS = create<WSStore>((set, get) => ({
         if (msg.onboarding) {
           nextConfig.onboarding = msg.onboarding;
         }
-        set({ config: nextConfig, status: "connected" });
+        set({
+          config: nextConfig,
+          version: msg.version ?? null,
+          status: "connected",
+        });
       } else if (msg.type === "onboarding.state") {
         const current = (get().config ?? {}) as Record<string, unknown>;
         set({
