@@ -13,6 +13,7 @@ import { Group } from "./pages/Group";
 import { GroupRoom } from "./pages/GroupRoom";
 import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
+import { Notifications } from "./pages/Notifications";
 import { Library } from "./pages/Library";
 import { Insights } from "./pages/Insights";
 import { Cards } from "./pages/Cards";
@@ -52,6 +53,7 @@ function AppShell() {
             <Route path="/group/:roomId" element={<GroupRoom />} />
             <Route path="/reflection" element={<Reflection />} />
             <Route path="/memory" element={<Memory />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/library" element={<Library />} />
             <Route path="/cards" element={<Cards />} />
             <Route path="/insights" element={<Insights />} />
