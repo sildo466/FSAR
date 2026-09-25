@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { NavLink } from "react-router-dom";
-import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock, Sparkles, Users } from "lucide-react";
+import { MessageSquare, Activity, Brain, BookOpen, BarChart3, Settings, Gauge, UserCircle2, Layers3, Clock, Sparkles, Users, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
@@ -10,6 +10,7 @@ const items = [
   { to: "/group", labelKey: "nav.group", icon: Users },
   { to: "/reflection", labelKey: "nav.reflection", icon: Activity },
   { to: "/memory", labelKey: "nav.memory", icon: Brain },
+  { to: "/notifications", labelKey: "nav.notifications", icon: ShieldAlert },
   { to: "/library", labelKey: "nav.library", icon: BookOpen },
   { to: "/cards", labelKey: "nav.cards", icon: UserCircle2 },
   { to: "/insights", labelKey: "nav.insights", icon: BarChart3 },

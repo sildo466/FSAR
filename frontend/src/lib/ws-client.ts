@@ -108,6 +108,10 @@ export type ClientMsg =
   | { type: "group.cancel"; room_id: number }
   | { type: "group.regenerate"; room_id: number; message_id: number }
   | { type: "group.rate"; room_id: number; message_id: number; score: number; reason?: string }
+  | { type: "content_guard.list" }
+  | { type: "content_guard.restore"; id: number }
+  | { type: "content_guard.purge"; id: number }
+  | { type: "content_guard.unwhitelist"; sha256: string }
   | { type: "heartbeat" };
 
 export interface WorkspaceInfo {
@@ -222,6 +226,31 @@ export interface OnboardingStatePayload {
   completed: boolean;
   completed_steps: string[];
   current_step: string | null;
+}
+
+export interface ContentQuarantineInfo {
+  id: number;
+  store: string;
+  record_ref: string;
+  text: string;
+  verdict_confidence: number;
+  screened_by: string;
+  created_at: string;
+}
+
+export interface ContentWhitelistInfo {
+  sha256: string;
+  added_by: string;
+  created_at: string;
+}
+
+export interface ContentScanReport {
+  scanned?: number;
+  quarantined?: number;
+  /** How many items could not be judged this run (no provider, timeout). */
+  unavailable?: number;
+  total?: number;
+  enabled?: boolean;
 }
 
 export type ServerMsg =
@@ -349,6 +378,15 @@ export type ServerMsg =
   | { type: "group.context"; room_id: number; used_tokens: number; window_tokens: number }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }
+  | {
+      type: "content_guard.list_result";
+      items: ContentQuarantineInfo[];
+      whitelist: ContentWhitelistInfo[];
+      report: ContentScanReport;
+      stores: string[];
+      enabled: boolean;
+    }
+  | { type: "content_guard.action_result"; action: string; id: number | string; ok: boolean }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };
 
