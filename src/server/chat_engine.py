@@ -208,7 +208,10 @@ DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
 DEFAULT_CONTEXT_WINDOW = 128000
-DEFAULT_MAX_OUTPUT_TOKENS = 100000
+# A reasoning model burns the whole budget on reasoning tokens before emitting
+# visible text, so this must be well above 4096 — but kept under the output cap
+# hosted models enforce, since exceeding it is a hard HTTP 400 on OpenAI.
+DEFAULT_MAX_OUTPUT_TOKENS = 12800
 # Seconds without any streamed delta before the agent turn is aborted. Guards
 # against a stalled provider call blocking the executor thread forever (the
 # pump would never enqueue "done" and the loop would hang with no error).
