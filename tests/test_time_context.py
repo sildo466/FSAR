@@ -171,3 +171,27 @@ def test_fact_lines_never_address_the_user_as_you():
         lowered = facts.lower()
         assert "you" not in lowered
         assert "your" not in lowered
+
+
+def test_the_day_itself_gets_a_directive():
+    block = build_time_block(now=NOW, birthday_raw="09-26")
+    assert "Today is the user's birthday" in block
+    assert "wish them a happy birthday" in block
+
+
+def test_the_directive_is_absent_on_every_other_day():
+    for raw in ("09-27", "09-25", "03-14"):
+        assert "wish them a happy birthday" not in build_time_block(
+            now=NOW, birthday_raw=raw,
+        )
+
+
+def test_the_directive_stays_out_of_the_fact_lines():
+    """The facts are shared with every room member and address the user in the
+    third person; the directive addresses the character, so it lives in the
+    clause instead."""
+    facts = _facts(build_time_block(now=NOW, birthday_raw="09-26"))
+    assert "wish them a happy birthday" not in facts
+    lowered = facts.lower()
+    assert "you" not in lowered
+    assert "your" not in lowered

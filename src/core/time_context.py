@@ -23,6 +23,11 @@ GROUP_DEDUPE_LINE = (
     "If someone in this conversation has already greeted them back, do not repeat it."
 )
 
+BIRTHDAY_CLAUSE = (
+    "- Today is the user's birthday. If you get a chance, wish them a happy "
+    "birthday, in your own voice and your own world's words."
+)
+
 WEEKDAYS = (
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
 )
@@ -170,12 +175,14 @@ def build_time_block(
         f" — {time_of_day(now.hour)}, in the user's local time.",
     ]
     birthday = parse_birthday(birthday_raw)
+    is_birthday_today = False
     if birthday is not None:
         month, day = birthday
         lines.append(
             f"The user's birthday is {month:02d}-{day:02d}"
             f"{_birthday_suffix(month, day, now)}."
         )
+        is_birthday_today = next_birthday_in_days(month, day, now) == 0
     if gap_seconds is not None and gap_seconds >= gap_floor_seconds:
         previous = (now - timedelta(seconds=gap_seconds)).strftime("%Y-%m-%d")
         lines.append(
@@ -183,6 +190,8 @@ def build_time_block(
             f"({previous})."
         )
     clause = LIVING_IN_TIME
+    if is_birthday_today:
+        clause = f"{clause}\n{BIRTHDAY_CLAUSE}"
     if group_mode:
         clause = f"{clause} {GROUP_DEDUPE_LINE}"
     return f"{TIME_OPEN}\n" + "\n".join(lines) + f"\n{TIME_CLOSE}\n\n{clause}"
