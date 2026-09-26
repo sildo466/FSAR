@@ -98,7 +98,7 @@ async def write_character_letters(
     if client is None:
         return 0
 
-    from src.server.group_engine import _one_completion
+    from src.server.group_engine import _one_completion, strip_tool_call_markup
 
     instruction = letters_instruction(locale)
     gate = asyncio.Semaphore(max(1, concurrency))
@@ -108,8 +108,10 @@ async def write_character_letters(
         nonlocal written
         async with gate:
             try:
+                # No tools are offered here, so the prompt must not advertise
+                # any — a character told it has update_emotion writes the call.
                 system = await engine._build_character_prompt(
-                    "", instruction, character,
+                    "", instruction, character, tools_enabled=False,
                 )
                 text = await asyncio.to_thread(
                     _one_completion, client, provider_id, model, instruction, system,
@@ -117,7 +119,7 @@ async def write_character_letters(
             except Exception as e:
                 logger.debug(f"birthday letter failed for {character.name}: {e}")
                 return
-        body = (text or "").strip()
+        body = strip_tool_call_markup(text or "")
         if not body:
             return
         row_id = store.add(

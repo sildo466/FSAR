@@ -2945,6 +2945,7 @@ class ChatEngine:
 
     async def _build_character_prompt(
         self, conv_id: str, user_input: str, character: Any,
+        tools_enabled: bool = True,
     ) -> str:
         """Character prompt: candidates → persona judge → pack → persona-first assembly.
 
@@ -2973,6 +2974,7 @@ class ChatEngine:
             user_card=user_card,
             memory_block=slots["memory"],
             workspace_line=self._character_workspace_line(),
+            tools_enabled=tools_enabled,
             time_block=self._time_block(conv_id),
         )
 

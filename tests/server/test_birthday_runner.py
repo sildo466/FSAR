@@ -23,8 +23,10 @@ def _store(tmp_path: Path) -> NotificationStore:
     return NotificationStore(tmp_path / "memory.db")
 
 
-def _stub_prompt(template: str):
-    async def build(conv_id, user_input, character):
+def _stub_prompt(template: str, seen: list | None = None):
+    async def build(conv_id, user_input, character, tools_enabled=True):
+        if seen is not None:
+            seen.append(tools_enabled)
         return template.format(name=character.name)
     return build
 
@@ -176,3 +178,45 @@ def test_the_most_used_characters_come_first(tmp_path, monkeypatch):
     ordered = [c.name for c in br._characters_by_use(engine)]
     assert ordered[0] == "Often"
     assert "Rare" in ordered
+
+
+def test_letters_are_written_without_advertising_tools(tmp_path, monkeypatch):
+    """Telling a character it has update_emotion while offering no tools makes
+    it write the call out as text, which is how a letter came back as markup."""
+    engine = _engine_with_characters(tmp_path, monkeypatch, ["Mira"])
+    monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "m", "stub"))
+    seen: list = []
+    monkeypatch.setattr(
+        engine, "_build_character_prompt", _stub_prompt("you are {name}", seen),
+    )
+    monkeypatch.setattr(group_engine, "_one_completion", lambda *a, **k: "hello")
+
+    asyncio.run(br.write_character_letters(
+        ws=_FakeWS(), config=engine.config, engine=engine, store=_store(tmp_path),
+        locale="en", year=2026,
+    ))
+
+    assert seen == [False]
+
+
+def test_a_letter_that_is_only_a_tool_call_is_not_stored(tmp_path, monkeypatch):
+    MARKER = chr(0xFF5C) * 2 + "DSML" + chr(0xFF5C) * 2
+    engine = _engine_with_characters(tmp_path, monkeypatch, ["Mira"])
+    monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "m", "stub"))
+    monkeypatch.setattr(engine, "_build_character_prompt", _stub_prompt("you are {name}"))
+    leaked = chr(10).join([
+        f"<{MARKER} calls>",
+        f'<{MARKER} invoke name="update_emotion">',
+        f"</{MARKER} invoke>",
+        f"</{MARKER} calls>",
+    ])
+    monkeypatch.setattr(group_engine, "_one_completion", lambda *a, **k: leaked)
+    store = _store(tmp_path)
+
+    written = asyncio.run(br.write_character_letters(
+        ws=_FakeWS(), config=engine.config, engine=engine, store=store,
+        locale="en", year=2026,
+    ))
+
+    assert written == 0
+    assert store.list(kind="birthday") == []

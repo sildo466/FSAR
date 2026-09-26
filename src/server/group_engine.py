@@ -63,6 +63,11 @@ _FUNCTION_CALL_RE = re.compile(
     r"<function_call>.*?</function_call>", re.DOTALL | re.IGNORECASE,
 )
 
+# DeepSeek serialises its native tool calls wrapped in this delimiter (two
+# full-width vertical bars around DSML) and with no angle-bracket open tag, so
+# the patterns above miss them entirely.
+_DSML_MARKER = "｜｜DSML｜｜"
+
 
 def strip_tool_call_markup(text: str) -> str:
     """Remove tool-call markup the model wrote into its visible reply.
@@ -74,6 +79,10 @@ def strip_tool_call_markup(text: str) -> str:
     cleaned = _TOOL_CALL_RE.sub("", text)
     cleaned = _FUNCTION_CALL_RE.sub("", cleaned)
     cleaned = _TOOL_CALL_UNCLOSED_RE.sub("", cleaned)
+    if _DSML_MARKER in cleaned:
+        cleaned = "\n".join(
+            line for line in cleaned.splitlines() if _DSML_MARKER not in line
+        )
     return cleaned.strip()
 
 

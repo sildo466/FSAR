@@ -138,6 +138,29 @@ def test_strip_tool_call_leaves_normal_text_alone() -> None:
     assert strip_tool_call_markup(raw) == raw
 
 
+def test_strip_tool_call_removes_a_deepseek_dsml_block() -> None:
+    """DeepSeek writes native tool calls in its own delimiter instead of a
+    <tool_call> tag, and a birthday letter came back as nothing but that."""
+    marker = "｜｜DSML｜｜"
+    raw = "\n".join([
+        f"<{marker} calls>",
+        f'<{marker} invoke name="update_emotion">',
+        f'<{marker} parameter name="reason">it is their birthday</{marker} parameter>',
+        f"</{marker} invoke>",
+        f"</{marker} calls>",
+    ])
+    assert strip_tool_call_markup(raw) == ""
+
+
+def test_strip_tool_call_keeps_prose_around_a_dsml_block() -> None:
+    marker = "｜｜DSML｜｜"
+    raw = "生日快乐。\n" + "\n".join([
+        f"<{marker} calls>",
+        f"</{marker} calls>",
+    ])
+    assert strip_tool_call_markup(raw) == "生日快乐。"
+
+
 def test_turn_instruction_does_not_imply_the_remark_was_aimed_at_you() -> None:
     """Bystanders answered as the injured party because "Reply now" framed the
     preceding remark as addressed to whoever was picked to speak."""
