@@ -64,6 +64,15 @@ def parse_birthday(raw) -> tuple[int, int] | None:
     return month, day
 
 
+def birthday_in_year(year: int, month: int, day: int) -> date:
+    """The date of (month, day) in `year`. Feb 29 falls back to Mar 1 in a
+    common year, which is the only place that rule lives."""
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return date(year, 3, 1)
+
+
 def next_birthday_in_days(month: int, day: int, now: datetime) -> int:
     """Days until the next occurrence, 0 when it is today.
 
@@ -72,10 +81,7 @@ def next_birthday_in_days(month: int, day: int, now: datetime) -> int:
     """
     today = now.date()
     for year in (today.year, today.year + 1):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            candidate = date(year, 3, 1)
+        candidate = birthday_in_year(year, month, day)
         if candidate >= today:
             return (candidate - today).days
     return 0
