@@ -21,7 +21,7 @@ export function ElectionStrip({ candidates, running }: Props) {
       aria-label={t("group.electionAria")}
       className="sticky top-0 z-20 border-b border-border bg-[color:var(--glass)]/35 px-4 py-2 backdrop-blur sm:px-8"
     >
-      <div className="mx-auto flex max-w-[900px] items-center gap-2 overflow-x-auto">
+      <div className="no-scrollbar mx-auto flex max-w-[900px] items-center gap-2 overflow-x-auto">
         <div className="mr-1 flex shrink-0 items-center gap-2 font-mono text-[10px] uppercase text-text-faint">
           {running && (
             <span className="relative flex h-2 w-2">

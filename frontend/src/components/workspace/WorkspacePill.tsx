@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { ChevronDown, FolderLock, ShieldCheck } from "lucide-react";
+import { motion } from "framer-motion";
 import { useSessions } from "../../stores/sessions";
 import { useWorkspace } from "../../stores/workspace";
 import { useWS } from "../../stores/ws";
@@ -50,7 +51,12 @@ export function WorkspacePill() {
         <ChevronDown size={12} />
       </button>
       {open && (
-        <div className="glass-strong absolute right-0 top-10 z-50 w-[310px] overflow-hidden rounded-2xl shadow-[0_18px_54px_var(--glow-faint)]">
+        <motion.div
+          initial={{ opacity: 0, y: -6, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.16, ease: "easeOut" }}
+          className="absolute right-0 top-10 z-50 w-[310px] overflow-hidden rounded-2xl border border-border bg-surface-2 backdrop-blur-xl shadow-[0_18px_54px_var(--glow-faint)]"
+        >
           <div className="border-b border-border px-4 py-3"><p className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-muted">{t("workspacePill.title")}</p></div>
           {workspaces.map((workspace) => (
             <button key={workspace.id} onClick={() => select(workspace.id)} className="flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left last:border-0 hover:bg-glass">
@@ -59,7 +65,7 @@ export function WorkspacePill() {
             </button>
           ))}
           <Link to="/settings/workspace" className="block px-4 py-3 text-[11px] text-text-muted hover:text-text">{t("workspacePill.manage")} →</Link>
-        </div>
+        </motion.div>
       )}
     </div>
   );
