@@ -2966,6 +2966,7 @@ class ChatEngine:
             character=character,
             include_strategy=False,
             include_experience=False,
+            conv_id=conv_id,
         )
         return build_character_prompt(
             character=character,
@@ -3564,6 +3565,7 @@ class ChatEngine:
             include_strategy=include_strategy,
             include_experience=include_experience,
             recall_memory=semantic,
+            conv_id=conv_id,
         )
         memory_block = slots["memory"]
         strategy_block = slots["strategy"]
@@ -3650,10 +3652,12 @@ class ChatEngine:
         self.injection_pipeline = self._build_injection_pipeline()
 
     def _memory_block(self, query: str, *, semantic_top_k: int = 5,
-                      character: Any = None) -> str:
+                      character: Any = None,
+                      conv_id: str | None = None) -> str:
         return self._injection_slots(
             query, semantic_top_k=semantic_top_k, character=character,
             include_strategy=False, include_experience=False,
+            conv_id=conv_id,
         )["memory"]
 
     def _strategy_injector_for(self, intensity: str | None = None) -> StrategyInjector:
@@ -3682,7 +3686,7 @@ class ChatEngine:
         self, query: str, *, mode: str = "agent", semantic_top_k: int = 5,
         character: Any = None, intensity: str | None = None,
         include_strategy: bool = True, include_experience: bool = True,
-        recall_memory: bool = True,
+        recall_memory: bool = True, conv_id: str | None = None,
     ) -> dict[str, str]:
         """Build the memory/strategy/experience slots from one shared candidate pool.
 
@@ -3711,6 +3715,8 @@ class ChatEngine:
                     )
                 result = self.recall.recall_for_context(
                     query, semantic_top_k=semantic_top_k, session_ids=session_ids,
+                    history_session=conv_id,
+                    history_skip=len(self._short_cache.get(conv_id, [])) if conv_id else 0,
                 )
             return self.injection_pipeline.build_slots(
                 query, result,

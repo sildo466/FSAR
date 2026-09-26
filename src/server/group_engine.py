@@ -302,6 +302,7 @@ class GroupEngine:
 
         memory_block = await asyncio.to_thread(
             chat._memory_block, user_input, character=character,
+            conv_id=room.session_id,
         )
         system_prompt = build_character_prompt(
             character=character,

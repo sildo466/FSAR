@@ -32,11 +32,13 @@ class RecallResult:
     patterns: list[dict] = field(default_factory=list)
     profile: dict[str, str] = field(default_factory=dict)
     memory_chunks: list[dict] = field(default_factory=list)
+    older_history: list[dict] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
         return not (self.profile or self.preferences or self.patterns
-                    or self.similar_conversations or self.memory_chunks)
+                    or self.similar_conversations or self.memory_chunks
+                    or self.older_history)
 
 
 class MemoryRecall:
@@ -54,16 +56,54 @@ class MemoryRecall:
         self.feedback = feedback or FeedbackStore()
         self.experience_store = experience_store or ExperienceStore()
 
+    def _older_history(self, *, session_id: str | None, skip: int,
+                       limit: int) -> list[dict]:
+        """The most recent messages that are already out of the live context
+        window, oldest first. Read from the SQLite log only.
+
+        A session is required: without one this would pull messages out of a
+        different conversation and inject them into this one.
+        """
+        if limit <= 0 or not session_id:
+            return []
+        skip = max(0, skip)
+        try:
+            records = self.long_term.get_recent(
+                limit=skip + limit, session_id=session_id,
+            )
+        except Exception as e:
+            logger.debug(f"older history lookup failed: {e}")
+            return []
+        window = records[: max(0, len(records) - skip)]
+        return [
+            {"text": r.content, "timestamp": r.timestamp, "role": r.role}
+            for r in window[-limit:]
+        ]
+
     def recall_for_context(self, query: str, *,
                            include_semantic: bool = True,
                            semantic_top_k: int = 5,
-                           session_ids: set[str] | None = None) -> RecallResult:
+                           session_ids: set[str] | None = None,
+                           history_session: str | None = None,
+                           history_skip: int = 0,
+                           history_limit: int = 5) -> RecallResult:
         """Recall memories relevant to query — used for injecting into LLM context.
 
         When `session_ids` is provided, semantic history is restricted to
         those conversations (character-scoped recall); otherwise it is global.
+
+        `history_session`/`history_skip` pull the recent past straight out of the
+        SQLite conversation log, skipping the `history_skip` newest rows because
+        those are already in the live message list. Each row carries its own
+        timestamp, so the caller can date them without the vector store.
         """
         result = RecallResult()
+
+        result.older_history = self._older_history(
+            session_id=history_session,
+            skip=history_skip,
+            limit=history_limit,
+        )
 
         # Profile & preferences & patterns (cheap, always fetched)
         result.profile = self.user_model.get_profile()

@@ -50,8 +50,12 @@ def candidates_from_recall(result: RecallResult) -> list[Candidate]:
     for i, p in enumerate(result.patterns, start=1):
         out.append(Candidate("pattern", f"T{i}", f"- {p['pattern']} (x{p['count']})", PRIORITY["pattern"]))
     for i, c in enumerate(result.similar_conversations, start=1):
-        age = relative_age_prefix((c.get("metadata") or {}).get("ts"), now)
-        out.append(Candidate("history", f"H{i}", f"- {age}{c.get('text', '')}", PRIORITY["history"]))
+        out.append(Candidate("history", f"H{i}", f"- {c.get('text', '')}", PRIORITY["history"]))
+    for i, h in enumerate(result.older_history, start=1):
+        age = relative_age_prefix(h.get("timestamp"), now)
+        out.append(Candidate(
+            "history", f"D{i}", f"- {age}{h.get('text', '')}", PRIORITY["history"],
+        ))
 
     return out
 

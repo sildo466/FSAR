@@ -130,3 +130,68 @@ def test_group_speak_omits_the_block_when_disabled(
     engine.config.patch("time.enabled", False)
     system = _group_speak_prompt(engine, monkeypatch, "Kai")
     assert "<time>" not in system
+
+
+def test_injection_slots_asks_for_the_older_history(monkeypatch):
+    """The dated-history source needs the session and the size of the live
+    window, so the engine has to pass both down."""
+    built = ChatEngine(FsarConfig(), RiskBridge())
+    conv_id = built.session_store.create().id
+    built.session_store.append_message(conv_id, "user", "hello")
+    built._ensure_short(conv_id)
+
+    from src.memory.recall import RecallResult
+
+    seen: dict = {}
+
+    def fake_recall(query, **kwargs):
+        seen.update(kwargs)
+        return RecallResult()
+
+    monkeypatch.setattr(built.recall, "recall_for_context", fake_recall)
+    monkeypatch.setattr(
+        built.injection_pipeline, "build_slots",
+        lambda *a, **k: {"memory": "", "strategy": "", "experience": ""},
+    )
+    built._injection_slots("hi", conv_id=conv_id)
+
+    assert seen["history_session"] == conv_id
+    assert seen["history_skip"] == len(built._short_cache[conv_id])
+
+
+@pytest.fixture()
+def memory_engine(tmp_path: Path, monkeypatch) -> ChatEngine:
+    """A real engine over a real recall path with an offline judge, so the
+    dated-history source can be asserted end to end without a model call."""
+    monkeypatch.setattr("src.memory.semantic.DATA_DIR", tmp_path)
+    db_path = tmp_path / "memory.db"
+    monkeypatch.setattr(
+        FsarConfig, "memory_sqlite_path", property(lambda self: str(db_path)),
+    )
+    built = ChatEngine(FsarConfig(), RiskBridge())
+    from src.memory.judge import NullJudge
+    from src.memory.pipeline import InjectionPipeline
+
+    built.injection_pipeline = InjectionPipeline(
+        judge=NullJudge(),
+        budget_chars=built.config.inject_budget_chars,
+        candidate_cap=built.config.inject_candidate_cap,
+        score_floor=built.config.inject_score_floor,
+        max_item_chars=built.config.inject_max_item_chars,
+    )
+    return built
+
+
+def test_older_history_lands_in_the_memory_block(memory_engine: ChatEngine):
+    """The dated memories come out of SQLite, so this holds with the embedder
+    unreachable — which is the whole point of the split."""
+    engine = memory_engine
+    conv_id = engine.session_store.create().id
+    for i in range(14):
+        engine.session_store.append_message(conv_id, "user", f"note number {i}")
+    engine._ensure_short(conv_id)
+
+    block = engine._memory_block("hi", conv_id=conv_id)
+
+    assert "(1 minute ago) note number 3" in block
+    assert "note number 13" not in block
