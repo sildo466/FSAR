@@ -7,6 +7,7 @@ import { WizardShell } from '../components/onboarding/WizardShell'
 import { StepProvider } from '../components/onboarding/StepProvider'
 import { StepEmbedding } from '../components/onboarding/StepEmbedding'
 import { StepUserCard } from '../components/onboarding/StepUserCard'
+import { StepBirthday } from '../components/onboarding/StepBirthday'
 import { StepCharacterCard } from '../components/onboarding/StepCharacterCard'
 import { StepTts } from '../components/onboarding/StepTts'
 import { StepAsr } from '../components/onboarding/StepAsr'
@@ -17,7 +18,7 @@ import { ArrowRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { BreathGlow, Pill } from '../components/ui/primitives'
 
-const STEP_ORDER = ['provider', 'embedding', 'character_card', 'user_card', 'tts', 'asr'] as const
+const STEP_ORDER = ['provider', 'embedding', 'character_card', 'user_card', 'birthday', 'tts', 'asr'] as const
 type WizardStepName = typeof STEP_ORDER[number]
 
 export function Onboarding() {
@@ -173,6 +174,7 @@ export function Onboarding() {
         {step === 'provider' && <StepProvider />}
         {step === 'embedding' && <StepEmbedding />}
         {step === 'user_card' && <StepUserCard />}
+        {step === 'birthday' && <StepBirthday onNext={() => { void useWizardState.getState().next() }} onSkip={() => { void useWizardState.getState().next() }} />}
         {step === 'character_card' && <StepCharacterCard />}
         {step === 'tts' && <StepTts onNext={() => { void useWizardState.getState().next() }} onSkip={() => { void useWizardState.getState().next() }} />}
         {step === 'asr' && <StepAsr onNext={finishSpeech} onSkip={finishSpeech} />}

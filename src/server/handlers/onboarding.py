@@ -17,10 +17,11 @@ ALL_STEPS = (
     "embedding",
     "character_card",
     "user_card",
+    "birthday",
     "tts",
     "asr",
 )
-SKIPPABLE_STEPS = {"tts", "asr"}
+SKIPPABLE_STEPS = {"birthday", "tts", "asr"}
 
 
 def _now_iso() -> str:

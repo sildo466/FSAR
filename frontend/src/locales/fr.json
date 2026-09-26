@@ -186,5 +186,11 @@
   "group.roundsUnlimited": "Sans limite — le groupe continue jusqu'à ce qu'il se calme ou que vous l'arrêtiez.",
   "group.roundsCapped": "S'arrête après {count} manches.",
   "group.scenarioHint": "Partagé par tous. Écrivez-le comme une narration — nommez l’utilisateur plutôt que d’écrire « vous ».",
-  "group.waiting": "En attente d'une réponse…"
+  "group.waiting": "En attente d'une réponse…",
+  "onboarding.birthday.title": "Quand est ton anniversaire ?",
+  "onboarding.birthday.description": "Pour que les personnages puissent s'en souvenir. Seulement le jour et le mois — l'année n'est jamais demandée, et tu peux passer cette étape.",
+  "onboarding.birthday.monthLabel": "Mois",
+  "onboarding.birthday.dayLabel": "Jour",
+  "onboarding.birthday.errRange": "Indique une date réelle, mois 1-12 et jour 1-31.",
+  "onboarding.wizard.stepBirthday": "Anniversaire"
 }

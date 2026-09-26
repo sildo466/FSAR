@@ -10,6 +10,7 @@ const STEP_LABEL_KEYS = [
   'onboarding.wizard.stepEmbedding',
   'onboarding.wizard.stepCharacter',
   'onboarding.wizard.stepYou',
+  'onboarding.wizard.stepBirthday',
   'onboarding.wizard.stepVoice',
   'onboarding.wizard.stepListening',
 ] as const;

@@ -69,7 +69,7 @@ export type ClientMsg =
   | { type: "onboarding.get_state" }
   | { type: "onboarding.complete_step"; step: string; data?: Record<string, unknown> }
   | { type: "onboarding.complete" }
-  | { type: "onboarding.skip_step"; step: "tts" | "asr" }
+  | { type: "onboarding.skip_step"; step: "tts" | "asr" | "birthday" }
   | { type: "onboarding.skip" }
   | { type: "embedding.upsert"; provider: "openai" | "lmstudio" | "ollama"; base_url: string; model: string; api_key?: string; timeout?: number }
   | { type: "embedding.probe"; provider?: "openai" | "lmstudio" | "ollama"; base_url?: string; model?: string; api_key?: string }

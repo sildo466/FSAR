@@ -2,7 +2,7 @@
 import { create } from "zustand";
 
 export type WizardStep =
-  | "provider" | "embedding" | "character_card" | "user_card" | "tts" | "asr"
+  | "provider" | "embedding" | "character_card" | "user_card" | "birthday" | "tts" | "asr"
   | "submitting" | "completed" | "error";
 
 export type CharacterMode = "use_default" | "pick_existing" | "create_new" | "import_st";
@@ -80,14 +80,15 @@ interface WizardState {
   reset(): void;
 }
 
-const STEPS = [0, 1, 2, 3, 4, 5];
+const STEPS = [0, 1, 2, 3, 4, 5, 6];
 const STEP_NAME: Record<number, WizardStep> = {
   0: "provider",
   1: "embedding",
   2: "character_card",
   3: "user_card",
-  4: "tts",
-  5: "asr",
+  4: "birthday",
+  5: "tts",
+  6: "asr",
 };
 
 function emptyData(): WizardData {
@@ -146,7 +147,7 @@ export const useWizardState = create<WizardState>((set, get) => ({
       errs.user_card = undefined;
     }
     set({ errors: errs });
-    const nextIdx = STEPS[Math.min(STEPS.indexOf(s.current_step_index) + 1, 5)];
+    const nextIdx = STEPS[Math.min(STEPS.indexOf(s.current_step_index) + 1, 6)];
     set({ current_step_index: nextIdx, step: STEP_NAME[nextIdx] });
     return true;
   },
@@ -161,7 +162,7 @@ export const useWizardState = create<WizardState>((set, get) => ({
   skip: () => {
     const s = get();
     if (s.current_step_index !== 1 && s.current_step_index !== 2) return;
-    const nextIdx = STEPS[Math.min(STEPS.indexOf(s.current_step_index) + 1, 5)];
+    const nextIdx = STEPS[Math.min(STEPS.indexOf(s.current_step_index) + 1, 6)];
     set({ current_step_index: nextIdx, step: STEP_NAME[nextIdx] });
   },
 

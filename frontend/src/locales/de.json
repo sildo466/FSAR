@@ -186,5 +186,11 @@
   "group.roundsUnlimited": "Keine Obergrenze — die Gruppe läuft weiter, bis sie sich beruhigt oder du sie stoppst.",
   "group.roundsCapped": "Endet nach {count} Runden.",
   "group.scenarioHint": "Wird von allen geteilt. Schreib es als Erzählung — nenne den Nutzer beim Namen statt „du“ zu sagen.",
-  "group.waiting": "Warte auf eine Antwort…"
+  "group.waiting": "Warte auf eine Antwort…",
+  "onboarding.birthday.title": "Wann hast du Geburtstag?",
+  "onboarding.birthday.description": "Damit die Charaktere ihn sich merken können. Nur Tag und Monat — nach dem Jahr wird nie gefragt, und du kannst diesen Schritt überspringen.",
+  "onboarding.birthday.monthLabel": "Monat",
+  "onboarding.birthday.dayLabel": "Tag",
+  "onboarding.birthday.errRange": "Bitte ein echtes Datum angeben, Monat 1-12 und Tag 1-31.",
+  "onboarding.wizard.stepBirthday": "Geburtstag"
 }
