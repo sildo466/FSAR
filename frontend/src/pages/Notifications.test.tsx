@@ -135,6 +135,12 @@ function pushFeed(feed: { items: unknown[]; unread: number; settings?: unknown }
   });
 }
 
+/** Items start collapsed; opening one is also what marks it read. */
+async function expand(screen: ReturnType<typeof render>, id: number) {
+  await waitFor(() => screen.getByTestId(`notification-title-${id}`));
+  fireEvent.click(screen.getByTestId(`notification-title-${id}`));
+}
+
 const FEED = {
   type: "notifications.list_result",
   items: [
@@ -176,20 +182,40 @@ describe("Notifications feed", () => {
     expect(client.sent).toContainEqual({ type: "notifications.list" });
   });
 
-  it("marks the feed read before requesting it, so the badge clears", () => {
+  it("marks nothing read just by opening the page", () => {
     render(<Notifications />);
-    expect(client.sent).toContainEqual({ type: "notifications.mark_read" });
-    const types = client.sent.map((m) => m.type);
-    expect(types.indexOf("notifications.mark_read")).toBeLessThan(
-      types.indexOf("notifications.list"),
-    );
+    expect(client.sent).not.toContainEqual({ type: "notifications.mark_read" });
   });
 
-  it("renders a stable release notification with localized copy", async () => {
+  it("hides the body until the item is expanded", async () => {
     const screen = render(<Notifications />);
     pushFeed(FEED);
     await waitFor(() => screen.getByTestId("notification-1"));
-    expect(screen.getByText("正式版更新 0.7.0")).toBeTruthy();
+    expect(screen.queryByText("notes")).toBeNull();
+    fireEvent.click(screen.getByTestId("notification-title-1"));
+    await waitFor(() => screen.getByText("notes"));
+  });
+
+  it("marks an item read when it is expanded", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    fireEvent.click(screen.getByTestId("notification-title-1"));
+    expect(client.sent).toContainEqual({
+      type: "notifications.mark_read",
+      ids: [1],
+    });
+  });
+
+  it("does not re-mark an item that is already read", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-2"));
+    fireEvent.click(screen.getByTestId("notification-title-2"));
+    expect(client.sent).not.toContainEqual({
+      type: "notifications.mark_read",
+      ids: [2],
+    });
   });
 
   it("filters to unread only", async () => {
@@ -197,7 +223,14 @@ describe("Notifications feed", () => {
     pushFeed(FEED);
     await waitFor(() => screen.getByTestId("filter-unread"));
     fireEvent.click(screen.getByTestId("filter-unread"));
-    expect(screen.queryByText(/ignore previous/)).toBeNull();
+    expect(screen.queryByTestId("notification-2")).toBeNull();
+  });
+
+  it("renders a stable release notification with localized copy", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    expect(screen.getByText("正式版更新 0.7.0")).toBeTruthy();
   });
 
   it("filters by kind", async () => {
@@ -277,8 +310,8 @@ describe("Notifications updates", () => {
   it("offers an update button for an updatable release", async () => {
     const screen = render(<Notifications />);
     pushFeed(UPDATE_FEED);
-    await waitFor(() => screen.getByTestId("update-10"));
-    fireEvent.click(screen.getByTestId("update-10"));
+    await expand(screen, 10);
+    fireEvent.click(await screen.findByTestId("update-10"));
     fireEvent.click(await screen.findByTestId("update-10-confirm"));
     expect(client.sent).toContainEqual({ type: "updates.apply", tag: "v0.7.0" });
   });
@@ -286,7 +319,8 @@ describe("Notifications updates", () => {
   it("disables the update button when the version is not newer", async () => {
     const screen = render(<Notifications />);
     pushFeed(BLOCKED_FEED);
-    const button = await waitFor(() => screen.getByTestId("update-11"));
+    await expand(screen, 11);
+    const button = await screen.findByTestId("update-11");
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(button.getAttribute("title")).toMatch(/已不低于|at or above/);
   });
@@ -294,7 +328,7 @@ describe("Notifications updates", () => {
   it("surfaces a failed update", async () => {
     const screen = render(<Notifications />);
     pushFeed(UPDATE_FEED);
-    await waitFor(() => screen.getByTestId("update-10"));
+    await expand(screen, 10);
     client.emit({ type: "updates.apply_result", ok: false, error: "uncommitted" } as never);
     await waitFor(() => screen.getByText(/uncommitted/));
   });
@@ -310,7 +344,7 @@ describe("Notifications updates", () => {
   it("does not parse raw html in an announcement", async () => {
     const screen = render(<Notifications />);
     pushFeed(ANNOUNCEMENT_FEED);
-    await waitFor(() => screen.getByTestId("notification-12"));
+    await expand(screen, 12);
     expect(screen.queryByRole("img")).toBeNull();
   });
 });

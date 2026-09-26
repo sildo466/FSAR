@@ -40,11 +40,24 @@ def _settings(config: Any) -> dict:
     }
 
 
-async def _push_state(ws: WebSocket, store: NotificationStore, kind: str) -> None:
+async def _push_state(
+    ws: WebSocket,
+    store: NotificationStore,
+    *,
+    marked: list[int] | None = None,
+    cleared: bool = False,
+) -> None:
+    """Report the new state plus exactly which ids changed.
+
+    The ids matter: the client marks only those read, so expanding one item
+    does not silently clear the rest of the feed.
+    """
     await ws.send_json(
         {
-            "type": kind,
+            "type": "notifications.read_result",
             "unread": store.unread_count(),
+            "ids": marked or [],
+            "cleared": cleared,
         }
     )
 
@@ -115,13 +128,14 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: Any = None) -> bo
         store = _store(config)
         raw = msg.get("ids")
         ids = [int(item) for item in raw] if isinstance(raw, list) else None
-        store.mark_read(ids)
-        await _push_state(ws, store, "notifications.read_result")
+        marked = store.unread_ids(ids)
+        store.mark_read(marked)
+        await _push_state(ws, store, marked=marked)
         return True
     if t == "notifications.clear":
         store = _store(config)
         store.clear()
-        await _push_state(ws, store, "notifications.read_result")
+        await _push_state(ws, store, cleared=True)
         return True
     if t == "updates.check":
         store = _store(config)

@@ -123,6 +123,22 @@ class NotificationStore:
                 ).fetchone()[0]
             )
 
+    def unread_ids(self, ids: list[int] | None = None) -> list[int]:
+        """Ids currently unread, optionally narrowed to `ids`."""
+        clauses = ["read = 0"]
+        params: list[object] = []
+        if ids is not None:
+            if not ids:
+                return []
+            clauses.append(f"id IN ({','.join('?' * len(ids))})")
+            params.extend(ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM {NOTIFICATIONS_TABLE} WHERE {' AND '.join(clauses)}",
+                params,
+            ).fetchall()
+        return [int(row[0]) for row in rows]
+
     def mark_read(self, ids: list[int] | None = None) -> int:
         with self._connect() as conn:
             if ids is None:

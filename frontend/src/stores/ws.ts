@@ -120,10 +120,19 @@ export const useWS = create<WSStore>((set, get) => ({
           notificationSettings: msg.settings,
         });
       } else if (msg.type === "notifications.read_result") {
-        set({
-          unread: msg.unread,
-          notifications: get().notifications.map((item) => ({ ...item, read: 1 as const })),
-        });
+        if (msg.cleared) {
+          set({ notifications: [], unread: 0 });
+        } else {
+          // Only the ids the server actually changed — expanding one item must
+          // not clear the unread marks on everything else.
+          const done = new Set(msg.ids);
+          set({
+            unread: msg.unread,
+            notifications: get().notifications.map((item) =>
+              done.has(item.id) ? { ...item, read: 1 as const } : item,
+            ),
+          });
+        }
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {

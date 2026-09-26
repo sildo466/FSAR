@@ -423,7 +423,7 @@ export type ServerMsg =
     }
   | { type: "content_guard.action_result"; action: string; id: number | string; ok: boolean }
   | { type: "notifications.list_result"; items: NotificationItem[]; unread: number; kinds: string[]; settings: NotificationSettings }
-  | { type: "notifications.read_result"; unread: number }
+  | { type: "notifications.read_result"; unread: number; ids: number[]; cleared: boolean }
   | { type: "updates.check_result"; added: number; announcements: number; error?: string }
   | { type: "updates.apply_result"; ok: boolean; tag?: string; branch?: string; head?: string; dropped_branch?: string | null; kept_branch?: string | null; error?: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }

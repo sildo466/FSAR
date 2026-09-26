@@ -111,6 +111,18 @@ def test_survives_reopen_and_is_idempotent_on_migration(tmp_path: Path):
     assert NOTIFICATIONS_TABLE in names
 
 
+def test_unread_ids_narrows_and_tracks_state(tmp_path: Path):
+    store = NotificationStore(tmp_path / "m.db")
+    first = store.add(kind="review", title="r", ref="1")
+    second = store.add(kind="review", title="r2", ref="2")
+    assert sorted(store.unread_ids()) == sorted([first, second])
+    assert store.unread_ids([first]) == [first]
+    assert store.unread_ids([]) == []
+    store.mark_read([first])
+    assert store.unread_ids([first]) == []
+    assert store.unread_ids() == [second]
+
+
 def test_newest_first(tmp_path: Path):
     store = NotificationStore(tmp_path / "m.db")
     store.add(kind="review", title="older", ref="1", created_at="2026-01-01T00:00:00")

@@ -57,16 +57,34 @@ async def test_mark_read_clears_unread(config):
     first = store.add(kind="review", title="r", ref="1")
     ws = _FakeWS()
     await handler.dispatch(ws, {"type": "notifications.mark_read", "ids": [first]}, config)
-    assert ws.sent[0] == {"type": "notifications.read_result", "unread": 0}
+    assert ws.sent[0] == {
+        "type": "notifications.read_result",
+        "unread": 0,
+        "ids": [first],
+        "cleared": False,
+    }
+
+
+async def test_mark_read_reports_only_the_ids_it_changed(config):
+    """Expanding one item must not silently clear the rest of the feed."""
+    store = NotificationStore(config.get("memory.sqlite_path"))
+    first = store.add(kind="review", title="r", ref="1")
+    store.add(kind="review", title="r2", ref="2")
+    ws = _FakeWS()
+    await handler.dispatch(ws, {"type": "notifications.mark_read", "ids": [first]}, config)
+    payload = ws.sent[0]
+    assert payload["ids"] == [first]
+    assert payload["unread"] == 1
 
 
 async def test_mark_read_without_ids_marks_everything(config):
     store = NotificationStore(config.get("memory.sqlite_path"))
-    store.add(kind="review", title="r", ref="1")
-    store.add(kind="review", title="r2", ref="2")
+    first = store.add(kind="review", title="r", ref="1")
+    second = store.add(kind="review", title="r2", ref="2")
     ws = _FakeWS()
     await handler.dispatch(ws, {"type": "notifications.mark_read"}, config)
     assert ws.sent[0]["unread"] == 0
+    assert sorted(ws.sent[0]["ids"]) == sorted([first, second])
 
 
 async def test_clear_empties_the_feed(config):
@@ -74,7 +92,12 @@ async def test_clear_empties_the_feed(config):
     store.add(kind="review", title="r", ref="1")
     ws = _FakeWS()
     await handler.dispatch(ws, {"type": "notifications.clear"}, config)
-    assert ws.sent[0] == {"type": "notifications.read_result", "unread": 0}
+    assert ws.sent[0] == {
+        "type": "notifications.read_result",
+        "unread": 0,
+        "ids": [],
+        "cleared": True,
+    }
     assert store.list() == []
 
 

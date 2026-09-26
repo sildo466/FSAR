@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, RotateCcw, ShieldOff, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, RotateCcw, ShieldOff, Trash2 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { AnnouncementBody, announcementTitle } from "./components/Announcement";
 import type {
@@ -25,14 +25,11 @@ export function Notifications() {
   const [filterKind, setFilterKind] = useState<FeedFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Opening the page is what clears the badge. The unread count is owned by
-    // the server, so mark the feed read *before* requesting it — otherwise the
-    // list arrives still unread and the dot flashes.
-    send({ type: "notifications.mark_read" });
     send({ type: "notifications.list" });
     send({ type: "content_guard.list" });
     return client?.on((msg) => {
@@ -52,6 +49,20 @@ export function Notifications() {
   const visible = notifications.filter(
     (n) => (filterKind === "all" || n.kind === filterKind) && (!unreadOnly || n.read === 0),
   );
+
+  /** Expanding an item is what reads it, so the unread mark survives until then. */
+  function toggle(id: number) {
+    const willOpen = !expanded.has(id);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (willOpen) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    if (willOpen && notifications.find((n) => n.id === id)?.read === 0) {
+      send({ type: "notifications.mark_read", ids: [id] });
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -166,65 +177,85 @@ export function Notifications() {
               data-testid={`notification-${n.id}`}
               className="flex flex-col gap-1.5 border-b border-border px-3 py-2.5 last:border-b-0"
             >
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-expanded={expanded.has(n.id)}
+                onClick={() => toggle(n.id)}
+                className="flex w-full items-center gap-2 text-left"
+              >
+                <ChevronRight
+                  size={13}
+                  strokeWidth={1.5}
+                  className={cn(
+                    "shrink-0 text-text-faint transition-transform",
+                    expanded.has(n.id) && "rotate-90",
+                  )}
+                />
                 <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-muted">
                   {t(`notifications.kind.${n.kind}`)}
                 </span>
                 <span data-testid={`notification-title-${n.id}`} className="text-[13px]">
                   {heading}
                 </span>
-                {n.read === 0 && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+                {n.read === 0 && (
+                  <span data-testid={`notification-dot-${n.id}`} className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                )}
                 <span className="ml-auto normal-case text-[10px] text-text-muted">
                   {n.created_at}
                 </span>
-              </div>
-              {n.kind === "release" && (
-                <button
-                  data-testid={`update-${n.id}`}
-                  disabled={payload.updatable !== true || pendingUpdate === n.ref}
-                  title={
-                    payload.updatable === true
-                      ? undefined
-                      : t("notifications.updateBlocked")
-                  }
-                  onClick={() => setPendingUpdate(n.ref)}
-                  className="h-7 w-fit rounded border border-border px-2 text-[12px] hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {t("notifications.update", { version })}
-                </button>
-              )}
+              </button>
 
-              {pendingUpdate === n.ref && (
-                <div className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2">
-                  <span className="text-[11px] text-text-muted">
-                    {t("notifications.update", { version })}
-                  </span>
-                  <button
-                    data-testid={`update-${n.id}-confirm`}
-                    onClick={() =>
-                      send({ type: "updates.apply", tag: String(payload.tag ?? "") })
-                    }
-                    className="h-7 rounded border border-border px-2 text-[12px]"
-                  >
-                    {t("common.continue")}
-                  </button>
-                  <button
-                    onClick={() => setPendingUpdate(null)}
-                    className="h-7 rounded border border-border px-2 text-[12px]"
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </div>
-              )}
+              {expanded.has(n.id) && (
+                <>
+                  {n.kind === "release" && (
+                    <button
+                      data-testid={`update-${n.id}`}
+                      disabled={payload.updatable !== true || pendingUpdate === n.ref}
+                      title={
+                        payload.updatable === true
+                          ? undefined
+                          : t("notifications.updateBlocked")
+                      }
+                      onClick={() => setPendingUpdate(n.ref)}
+                      className="h-7 w-fit rounded border border-border px-2 text-[12px] hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {t("notifications.update", { version })}
+                    </button>
+                  )}
 
-              {n.body &&
-                (n.kind === "announcement" ? (
-                  <AnnouncementBody body={n.body} />
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words bg-surface px-2 py-1.5 font-mono text-[11px]">
-                    {n.body}
-                  </pre>
-                ))}
+                  {pendingUpdate === n.ref && (
+                    <div className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2">
+                      <span className="text-[11px] text-text-muted">
+                        {t("notifications.update", { version })}
+                      </span>
+                      <button
+                        data-testid={`update-${n.id}-confirm`}
+                        onClick={() =>
+                          send({ type: "updates.apply", tag: String(payload.tag ?? "") })
+                        }
+                        className="h-7 rounded border border-border px-2 text-[12px]"
+                      >
+                        {t("common.continue")}
+                      </button>
+                      <button
+                        onClick={() => setPendingUpdate(null)}
+                        className="h-7 rounded border border-border px-2 text-[12px]"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    </div>
+                  )}
+
+                  {n.body &&
+                    (n.kind === "announcement" ? (
+                      <AnnouncementBody body={n.body} />
+                    ) : (
+                      <pre className="whitespace-pre-wrap break-words bg-surface px-2 py-1.5 font-mono text-[11px]">
+                        {n.body}
+                      </pre>
+                    ))}
+                </>
+              )}
             </li>
           );
         })}
