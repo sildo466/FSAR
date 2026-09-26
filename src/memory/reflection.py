@@ -454,7 +454,7 @@ class IdleReflector:
                     {"role": "system", "content": "You are a data analyst. Output JSON only."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=2000,
+                max_tokens=100000,
                 temperature=0.3,
             )
             text = (resp.choices[0].message.content or "").strip()

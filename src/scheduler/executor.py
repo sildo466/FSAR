@@ -103,7 +103,7 @@ class IsolatedExecutor:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "max_tokens": 4096,
+            "max_tokens": 100000,
         }
         if self._tools is not None:
             wanted = set(allowed_tools)

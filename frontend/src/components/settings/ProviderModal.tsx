@@ -60,7 +60,7 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
   const [apiKey, setApiKey] = useState(initial?.api_key ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
   const [contextWindow, setContextWindow] = useState(String(initial?.context_window ?? 128000));
-  const [maxOutputTokens, setMaxOutputTokens] = useState(String(initial?.max_output_tokens ?? 4096));
+  const [maxOutputTokens, setMaxOutputTokens] = useState(String(initial?.max_output_tokens ?? 100000));
   const [models, setModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [inputPer1m, setInputPer1m] = useState<string>(
@@ -81,7 +81,7 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
       setApiKey(initial?.api_key ?? "");
       setModel(initial?.model ?? "");
       setContextWindow(String(initial?.context_window ?? 128000));
-      setMaxOutputTokens(String(initial?.max_output_tokens ?? 4096));
+      setMaxOutputTokens(String(initial?.max_output_tokens ?? 100000));
       setModels([]);
       setFetchingModels(false);
       setInputPer1m(initial?.pricing?.input_per_1m?.toString() ?? "");
@@ -167,7 +167,7 @@ export function ProviderModal({ open, initial, existingIds, onClose, onSaved }: 
       api_key: apiKey,
       model,
       context_window: Number(contextWindow) || 128000,
-      max_output_tokens: Number(maxOutputTokens) || 4096,
+      max_output_tokens: Number(maxOutputTokens) || 100000,
       pricing: {
         input_per_1m: Number(inputPer1m) || 0,
         output_per_1m: Number(outputPer1m) || 0,

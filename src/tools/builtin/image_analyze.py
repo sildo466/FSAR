@@ -112,7 +112,7 @@ class ImageAnalyzeTool(Tool):
                         ],
                     }
                 ],
-                max_tokens=4096,
+                max_tokens=100000,
             )
 
             result = resp.choices[0].message.content or "(no response)"

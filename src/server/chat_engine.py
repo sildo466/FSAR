@@ -208,7 +208,7 @@ DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
 DEFAULT_CONTEXT_WINDOW = 128000
-DEFAULT_MAX_OUTPUT_TOKENS = 4096
+DEFAULT_MAX_OUTPUT_TOKENS = 100000
 # Seconds without any streamed delta before the agent turn is aborted. Guards
 # against a stalled provider call blocking the executor thread forever (the
 # pump would never enqueue "done" and the loop would hang with no error).
@@ -523,7 +523,6 @@ class ChatEngine:
             task_id=f"compact_{conversation_id}",
             transcript=old,
             previous=None,
-            max_output=max(256, min(2048, before_tokens // 2)),
         )
         if not summary or not summary.strip():
             return before_tokens, before_tokens, False
@@ -1417,7 +1416,6 @@ class ChatEngine:
                     task_id=agent_id,
                     transcript=transcript,
                     previous=previous,
-                    max_output=max_output,
                 ),
             )
             if compacted:
@@ -1619,7 +1617,6 @@ class ChatEngine:
                     runtime=runtime,
                     agent_id=agent_id,
                     had_error=had_error,
-                    max_output=max_output,
                 )
                 if review:
                     messages.append({
@@ -1874,7 +1871,6 @@ class ChatEngine:
         task_id: str,
         transcript: list[dict[str, str]],
         previous: str | None,
-        max_output: int,
     ) -> str:
         payload = {
             "previous_checkpoint": previous or "",
@@ -1893,7 +1889,7 @@ class ChatEngine:
                 },
             ],
             tools=[],
-            max_tokens=min(2048, max_output),
+            max_tokens=100000,
             thinking=False,
             model_effort=self._model_thinking_effort(),
             provider_family=self._active_provider_family(),
@@ -2601,7 +2597,6 @@ class ChatEngine:
         runtime: AgentRunState,
         agent_id: str,
         had_error: bool,
-        max_output: int,
     ) -> str:
         await self._emit_agent_status(
             ws, runtime, agent_id, "reflecting", "Reviewing the latest step",
@@ -2644,7 +2639,7 @@ class ChatEngine:
                 {"role": "user", "content": prompt},
             ],
             tools=[],
-            max_tokens=min(768, max_output),
+            max_tokens=100000,
             thinking=profile.thinking,
             model_effort=self._model_thinking_effort(),
             provider_family=self._active_provider_family(),
