@@ -25,6 +25,7 @@ import { IntergrationPage } from "./pages/IntergrationPage";
 import { Scheduler } from "./pages/Scheduler";
 import { Live } from "./pages/Live";
 import { EscapeModal } from "./components/workspace/EscapeModal";
+import { BirthdayLetter } from "./components/birthday/BirthdayLetter";
 import { useWorkspace } from "./stores/workspace";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
 import { useSkinApplication } from "./lib/skin";
@@ -133,6 +134,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AppShell />
+      <BirthdayLetter />
       {required && <Onboarding />}
       {escapeRequest && client && (
         <EscapeModal request={escapeRequest} onDecision={(decision) => {

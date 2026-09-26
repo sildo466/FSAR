@@ -11,7 +11,7 @@ import type {
 } from "../lib/ws-client";
 import { useWS } from "../stores/ws";
 
-type FeedFilter = "all" | "review" | "release" | "announcement";
+type FeedFilter = "all" | "review" | "release" | "announcement" | "birthday";
 
 export function Notifications() {
   const { t } = useTranslation();
@@ -87,7 +87,7 @@ export function Notifications() {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["all", "review", "release", "announcement"] as const).map((kind) => (
+        {(["all", "review", "release", "announcement", "birthday"] as const).map((kind) => (
           <button
             key={kind}
             data-testid={`filter-kind-${kind}`}
