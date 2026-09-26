@@ -73,7 +73,7 @@ async def test_apply_runs_the_plan_and_reports_the_outcome(config, monkeypatch):
 
 async def test_check_reports_counts(config, monkeypatch):
     store = NotificationStore(config.get("memory.sqlite_path"))
-    monkeypatch.setattr(handler, "_store", lambda _cfg: store)
+    monkeypatch.setattr(handler, "notification_store", lambda _cfg: store)
 
     async def _noop(*args, **kwargs):
         return {"added": 0, "announcements": 0}
@@ -111,7 +111,7 @@ async def test_a_failing_channel_keeps_the_other_channels_counts(config, monkeyp
     """The two channels are separate network calls, so a failure on one must
     not discard the releases the other already stored."""
     store = NotificationStore(config.get("memory.sqlite_path"))
-    monkeypatch.setattr(handler, "_store", lambda _cfg: store)
+    monkeypatch.setattr(handler, "notification_store", lambda _cfg: store)
     monkeypatch.setattr(
         "src.utils.version.app_version",
         lambda: {

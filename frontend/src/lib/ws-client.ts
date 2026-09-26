@@ -272,7 +272,7 @@ export interface AppVersion {
 
 export interface NotificationItem {
   id: number;
-  kind: "review" | "release" | "announcement";
+  kind: "review" | "release" | "announcement" | "birthday";
   title: string;
   body: string;
   ref: string | null;
@@ -289,7 +289,7 @@ export interface NotificationSettings {
 }
 
 export type ServerMsg =
-  | { type: "snapshot"; config: Record<string, unknown>; version?: AppVersion; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] } }
+  | { type: "snapshot"; config: Record<string, unknown>; version?: AppVersion; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] }; birthday?: { letter: string | null; skin_id: string | null; letters: boolean } }
   | { type: "integration.list_result"; items: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> }
   | { type: "integration.saved"; id: number; integration?: Record<string, unknown> }
   | { type: "integration.deleted"; id: number }
@@ -423,6 +423,7 @@ export type ServerMsg =
     }
   | { type: "content_guard.action_result"; action: string; id: number | string; ok: boolean }
   | { type: "notifications.list_result"; items: NotificationItem[]; unread: number; kinds: string[]; settings: NotificationSettings }
+  | { type: "notifications.changed" }
   | { type: "notifications.read_result"; unread: number; ids: number[]; cleared: boolean }
   | { type: "updates.check_result"; added: number; announcements: number; error?: string }
   | { type: "updates.apply_result"; ok: boolean; tag?: string; branch?: string; head?: string; dropped_branch?: string | null; kept_branch?: string | null; error?: string }

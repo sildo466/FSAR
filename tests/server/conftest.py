@@ -94,4 +94,11 @@ def isolate_engine(monkeypatch):
     # provider. tests/conftest.py already neutralises the write hooks; this
     # stops the scan itself.
     monkeypatch.setattr(ws_mod, "start_content_scan", lambda: None)
+    # The birthday hook runs on every connect and saves the real config when it
+    # fires, so a developer whose birthday happens to be today would have their
+    # own fsar.yaml rewritten by the test run.
+    monkeypatch.setattr(
+        ws_mod, "_birthday_connect_payload",
+        lambda config: {"letter": None, "skin_id": None, "letters": False},
+    )
     yield

@@ -18,6 +18,7 @@ interface WSStore {
   notifications: NotificationItem[];
   unread: number;
   notificationSettings: NotificationSettings | null;
+  birthdayLetter: string | null;
   client: WSClient | null;
   init: () => void;
   send: (msg: Parameters<WSClient["send"]>[0]) => void;
@@ -63,6 +64,7 @@ export const useWS = create<WSStore>((set, get) => ({
   notifications: [],
   unread: 0,
   notificationSettings: null,
+  birthdayLetter: null,
   client: null,
   init: () => {
     if (get().client || initPromise) return;
@@ -81,6 +83,7 @@ export const useWS = create<WSStore>((set, get) => ({
           config: nextConfig,
           version: msg.version ?? null,
           status: "connected",
+          birthdayLetter: msg.birthday?.letter ?? null,
         });
       } else if (msg.type === "onboarding.state") {
         const current = (get().config ?? {}) as Record<string, unknown>;
@@ -133,6 +136,10 @@ export const useWS = create<WSStore>((set, get) => ({
             ),
           });
         }
+      } else if (msg.type === "notifications.changed") {
+        // The letters are written one at a time and the list is pull-only, so
+        // without this the user would watch an empty page.
+        get().send({ type: "notifications.list" });
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {

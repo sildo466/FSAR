@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import mimetypes
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -578,6 +579,80 @@ async def ws_scheduler(websocket: WebSocket) -> None:
         pass
 
 
+def _birthday_now() -> datetime:
+    """Indirection so tests can pin the date."""
+    return datetime.now()
+
+
+def _birthday_connect_payload(config: Any) -> dict[str, Any]:
+    """Decide and act on the birthday, without any model call.
+
+    Runs on the connect path, so everything here is fast: copying one small
+    directory, a config patch, one notification insert. The letters are started
+    separately as a background task.
+    """
+    from src.core.birthday import SKIN_ID, birthday_actions, letter_for
+    from src.server.birthday_runner import (
+        letters_year,
+        unlock_skin,
+        write_header_notification,
+    )
+    from src.server.handlers.notifications import notification_store
+
+    empty = {"letter": None, "skin_id": None, "letters": False}
+    try:
+        now = _birthday_now()
+        locale = str(config.get("style.locale", "en") or "en")
+        store = notification_store(config)
+        actions = birthday_actions(
+            now,
+            config.get("user.birthday", None),
+            skin_present=(Path(config.get("data.skins_dir", "data/skins"))
+                          / SKIN_ID).exists(),
+            letter_shown_on=config.get("user.birthday_letter_shown", None),
+            letters_year=letters_year(store),
+        )
+        if not (actions.unlock_skin or actions.apply_skin
+                or actions.show_letter or actions.write_letters):
+            return empty
+
+        payload = dict(empty)
+        if actions.unlock_skin:
+            unlock_skin(config)
+        if actions.apply_skin:
+            config.patch("style.skin_id", SKIN_ID)
+            payload["skin_id"] = SKIN_ID
+        if actions.write_letters:
+            write_header_notification(store, now.year, locale)
+        if actions.show_letter:
+            config.patch("user.birthday_letter_shown", now.date().isoformat())
+            payload["letter"] = letter_for(locale)
+        # Signalled separately from the other two: the letters are still due
+        # when the skin was already unlocked and the day itself has passed.
+        payload["letters"] = actions.write_letters
+        config.save()
+        return payload
+    except Exception as e:
+        logger.warning(f"birthday hook failed: {e}")
+        return empty
+
+
+async def _run_birthday_letters(config: Any, ws: WebSocket) -> None:
+    """Background half of the birthday hook: the letters are model calls."""
+    from src.server.birthday_runner import write_character_letters
+    from src.server.handlers.notifications import notification_store
+
+    try:
+        await write_character_letters(
+            ws=ws, config=config, engine=_engine,
+            store=notification_store(config),
+            locale=str(config.get("style.locale", "en") or "en"),
+            year=_birthday_now().year,
+        )
+    except Exception as e:
+        logger.warning(f"birthday letters failed: {e}")
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     client_id = ws.client.host if ws.client else "unknown"
@@ -611,6 +686,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
         return
     await ws.accept(subprotocol="fsar-v1")
     chat_handler.register_socket(ws)
+    birthday = _birthday_connect_payload(_config)
+    if birthday["letters"]:
+        asyncio.create_task(_run_birthday_letters(_config, ws))
     onboarding_state = await onboarding_handler.onboarding_get_state(_config)
     from src.memory.integrations import list_integrations
     from src.providers.pricing import estimate_calls
@@ -643,6 +721,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             "completed_steps": onboarding_state["completed_steps"],
             "current_step": onboarding_state["current_step"],
         },
+        "birthday": birthday,
         **sandbox_handler.snapshot(_ctx, _engine.active_conversation_id()),
     })
     conversation_handler.prune_empty_sessions(
