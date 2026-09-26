@@ -165,13 +165,18 @@ class ElectResult:
     reason: str
 
 
-def _one_completion(client: Any, provider_id: str, model: str, prompt: str) -> str:
+def _one_completion(client: Any, provider_id: str, model: str, prompt: str,
+                    system: str | None = None) -> str:
     from src.utils.llm_factory import chat_completion
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
     result = chat_completion(
         client,
         provider_id=provider_id,
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         max_tokens=100000,
         stream=False,
     )
@@ -183,21 +188,23 @@ def _one_completion(client: Any, provider_id: str, model: str, prompt: str) -> s
 
 async def run_batch_completions(
     client: Any, *, provider_id: str, model: str, prompts: list[str],
+    systems: list[str] | None = None,
 ) -> list[str]:
     """Run independent non-streaming completions concurrently.
 
     Returns one string per prompt; a failed call yields "" so the remaining
     members are unaffected."""
 
-    async def one(prompt: str) -> str:
+    async def one(prompt: str, system: str | None) -> str:
         try:
             return await asyncio.to_thread(
-                _one_completion, client, provider_id, model, prompt,
+                _one_completion, client, provider_id, model, prompt, system,
             )
         except Exception:
             return ""
 
-    return list(await asyncio.gather(*(one(p) for p in prompts)))
+    pairs = list(zip(prompts, systems or [None] * len(prompts)))
+    return list(await asyncio.gather(*(one(p, s) for p, s in pairs)))
 
 
 class _DeltaRelay:

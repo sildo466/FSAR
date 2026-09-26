@@ -48,7 +48,7 @@ async def test_list_returns_items_and_unread(config):
     assert payload["type"] == "notifications.list_result"
     assert len(payload["items"]) == 1
     assert payload["unread"] == 1
-    assert payload["kinds"] == ["review", "release", "announcement"]
+    assert payload["kinds"] == ["review", "release", "announcement", "birthday"]
     assert payload["settings"]["release"]["include_prerelease"] is False
 
 

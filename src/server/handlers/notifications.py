@@ -13,7 +13,8 @@ from src.updates.apply import UpdateRefused, apply_plan, build_plan
 from src.utils.logger import logger
 
 
-def _store(config: Any) -> NotificationStore:
+def notification_store(config: Any) -> NotificationStore:
+    """Build the notification store for a config; the birthday runner shares it."""
     path = config.get("memory.sqlite_path") if config is not None else None
     if not path:
         from src.utils.fsar_home import get_fsar_home
@@ -113,7 +114,7 @@ async def run_update_checks(config, store, *, client=None, screener=None) -> dic
 async def dispatch(ws: WebSocket, msg: dict[str, Any], config: Any = None) -> bool:
     t = msg.get("type")
     if t == "notifications.list":
-        store = _store(config)
+        store = notification_store(config)
         await ws.send_json(
             {
                 "type": "notifications.list_result",
@@ -125,7 +126,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: Any = None) -> bo
         )
         return True
     if t == "notifications.mark_read":
-        store = _store(config)
+        store = notification_store(config)
         raw = msg.get("ids")
         ids = [int(item) for item in raw] if isinstance(raw, list) else None
         marked = store.unread_ids(ids)
@@ -133,12 +134,12 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: Any = None) -> bo
         await _push_state(ws, store, marked=marked)
         return True
     if t == "notifications.clear":
-        store = _store(config)
+        store = notification_store(config)
         store.clear()
         await _push_state(ws, store, cleared=True)
         return True
     if t == "updates.check":
-        store = _store(config)
+        store = notification_store(config)
         try:
             counts = await run_update_checks(config, store)
         except Exception as exc:

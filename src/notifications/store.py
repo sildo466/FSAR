@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 NOTIFICATIONS_TABLE = "notifications"
-KINDS = ("review", "release", "announcement")
+KINDS = ("review", "release", "announcement", "birthday")
 
 
 class NotificationStore:

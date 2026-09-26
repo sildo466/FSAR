@@ -176,6 +176,7 @@ reflection:
 user:
   display_name: ""
   birthday: null
+  birthday_letter_shown: null
 time:
   enabled: true
   gap_floor_minutes: 120
