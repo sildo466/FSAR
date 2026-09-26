@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict, deque
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -207,6 +208,8 @@ async def handle_user_agent_message(
 DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
+ARRIVAL_LRU = 200
+DEFAULT_GAP_FLOOR_MINUTES = 120
 DEFAULT_CONTEXT_WINDOW = 128000
 # A reasoning model burns the whole budget on reasoning tokens before emitting
 # visible text, so this must be well above 4096 — but kept under the output cap
@@ -434,6 +437,7 @@ class ChatEngine:
         self._msg_ids: dict[str, int] = {}
         self._conv_locks: dict[str, asyncio.Lock] = {}
         self._short_cache: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
+        self._arrivals: OrderedDict[str, float | None] = OrderedDict()
         self._task_todos: dict[str, list[dict[str, str]]] = {}
         self._active_agent_runs: dict[str, AgentRunState] = {}
         self._cancelled = False
@@ -3377,7 +3381,54 @@ class ChatEngine:
         else:
             self._short_cache.move_to_end(conv_id)
 
+    def note_arrival(self, conv_id: str) -> None:
+        """Record how long the user was away, before their new message lands.
+
+        Called at every user-message append site. Deriving the gap at prompt
+        time instead would zero it out on a regenerate: by then the previous
+        row is the character's own reply, and the greeting would vanish.
+        """
+        gap: float | None = None
+        try:
+            rows = self.session_store.get_recent_messages(conv_id, limit=1)
+        except Exception as e:
+            logger.debug(f"Arrival lookup failed: {e}")
+            rows = []
+        if rows:
+            delta = (datetime.now() - rows[0].timestamp).total_seconds()
+            if delta >= 0:
+                gap = delta
+        self._arrivals[conv_id] = gap
+        self._arrivals.move_to_end(conv_id)
+        while len(self._arrivals) > ARRIVAL_LRU:
+            self._arrivals.popitem(last=False)
+
+    def arrival_gap(self, conv_id: str) -> float | None:
+        """None when nothing is recorded — a restart, or a path that skipped
+        note_arrival. The block simply omits the gap line then."""
+        return self._arrivals.get(conv_id)
+
+    def _time_block(self, conv_id: str, *, group_mode: bool = False) -> str:
+        from src.core.time_context import build_time_block
+
+        if not bool(self.config.get("time.enabled", True)):
+            return ""
+        try:
+            floor_minutes = int(self.config.get(
+                "time.gap_floor_minutes", DEFAULT_GAP_FLOOR_MINUTES,
+            ))
+        except (TypeError, ValueError):
+            floor_minutes = DEFAULT_GAP_FLOOR_MINUTES
+        return build_time_block(
+            now=datetime.now(),
+            gap_seconds=self.arrival_gap(conv_id),
+            birthday_raw=self.config.get("user.birthday", None),
+            gap_floor_seconds=floor_minutes * 60,
+            group_mode=group_mode,
+        )
+
     def _save_user(self, conv_id: str, content: str) -> None:
+        self.note_arrival(conv_id)
         self._ensure_short(conv_id)
         dq = self._short_cache[conv_id]
         dq.append({"role": "user", "content": content})

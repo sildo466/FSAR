@@ -57,12 +57,14 @@ def _rooms() -> SimpleNamespace:
 def _chat() -> SimpleNamespace:
     appended: list[dict] = []
     rated: list[dict] = []
-    chat = SimpleNamespace(appended=appended, rated=rated)
+    arrivals: list[str] = []
+    chat = SimpleNamespace(appended=appended, rated=rated, arrivals=arrivals)
     def append_message(cid, role, content, **kw):
         appended.append({"conv": cid, "role": role, "content": content})
         return 900 + len(appended)
 
     chat.session_store = SimpleNamespace(append_message=append_message)
+    chat.note_arrival = lambda cid: arrivals.append(cid)
     chat.card_repo = SimpleNamespace(
         get_character=lambda cid: SimpleNamespace(id=cid, name=f"C{cid}"),
         get_user_card=lambda cid: None,
@@ -226,6 +228,7 @@ def test_group_send_persists_user_message_and_starts_chain() -> None:
 
     assert engine.chat.appended == [{"conv": "s1", "role": "user",
                                      "content": "hi"}]
+    assert engine.chat.arrivals == ["s1"]
     assert engine.chain_calls[0]["user_input"] == "hi"
     assert engine.chain_calls[0]["room"].id == 1
 

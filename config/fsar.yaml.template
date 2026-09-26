@@ -175,6 +175,10 @@ reflection:
       threshold_hours: 12
 user:
   display_name: ""
+  birthday: null
+time:
+  enabled: true
+  gap_floor_minutes: 120
 style:
   theme: system
   font_scale: 1.0

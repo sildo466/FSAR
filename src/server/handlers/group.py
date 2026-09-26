@@ -227,6 +227,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             marker, block = chat._render_attachments(files) if files else ("", "")
             stored = f"{content}{marker}"
             llm_content = f"{stored}\n\n{block}" if block else stored
+            await asyncio.to_thread(chat.note_arrival, room.session_id)
             row_id = await asyncio.to_thread(
                 chat.session_store.append_message,
                 room.session_id, "user", stored,
