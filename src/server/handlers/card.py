@@ -57,6 +57,26 @@ def _get_card_repo(ctx: dict[str, Any] | None) -> CardRepo:
     return CardRepo(Path(db_path))
 
 
+def _quarantined_card_ids() -> set[int]:
+    """Character card ids currently sitting in quarantine.
+
+    A screened-out card keeps its row because sessions reference the id, and
+    its text fields are blanked — so listing it would offer the user an empty
+    character. Restored cards are absent from this set and reappear.
+    """
+    from src.server import ws_server
+
+    ids: set[int] = set()
+    for row in ws_server._get_content_guard().list_quarantine():
+        if row.get("store") != "card":
+            continue
+        try:
+            ids.add(int(row["record_ref"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return ids
+
+
 async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | None = None) -> bool:
     t = msg.get("type")
     if not t or not t.startswith("card."):
@@ -67,6 +87,9 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | Non
     if t == "card.list":
         if kind == "character":
             cards = repo.list_characters()
+            hidden = _quarantined_card_ids()
+            if hidden:
+                cards = [c for c in cards if c.id not in hidden]
         elif kind == "user":
             cards = repo.list_user_cards()
         else:
