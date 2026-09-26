@@ -22,7 +22,7 @@ def tmp_ctx(tmp_path: Path):
     return ctx, ws_mod, db
 
 
-def test_insights_snapshot_returns_kpis(tmp_ctx):
+def test_insights_snapshot_returns_kpis(tmp_ctx, monkeypatch):
     _, ws_mod, db = tmp_ctx
     from src.memory.decision_log import DecisionLog
     log = DecisionLog(db_path=str(db))
@@ -32,6 +32,16 @@ def test_insights_snapshot_returns_kpis(tmp_ctx):
     log.record(task_id="t2", session_id="s", step_no=1, chosen_tool="file_ops",
                args_summary="q", latency_ms=200, success=False, error_class="timeout",
                prompt_tokens=400, completion_tokens=50)
+
+    # Token and cache accounting comes from llm_token_usage — the same ledger
+    # the Usage page reads. decision_log carries no cache figures, so sourcing
+    # the cache share from it reported 0% no matter how many cache hits there
+    # were.
+    import src.memory.integrations as integ
+    monkeypatch.setattr(integ, "_db_path", lambda: db)
+    integ.record_token_usage(provider="p", model="m", input_tokens=500, output_tokens=80)
+    integ.record_token_usage(provider="p", model="m", input_tokens=400, output_tokens=50,
+                             cache_read_tokens=70)
 
     client = TestClient(ws_mod.app)
     with client.websocket_connect("/ws") as ws:
@@ -43,9 +53,10 @@ def test_insights_snapshot_returns_kpis(tmp_ctx):
                 k = m["kpis"]
                 assert k["total_decisions"] == 2
                 assert k["success_rate_pct"] == 50.0
-                assert k["total_tokens"] == 1030
+                assert k["total_tokens"] == 1100
                 assert k["total_prompt_tokens"] == 900
                 assert k["total_completion_tokens"] == 130
+                assert k["total_cached_tokens"] == 70
                 # tool_stats list contains file_ops
                 tool_names = [t["tool_name"] for t in m["tool_stats"]]
                 assert "file_ops" in tool_names

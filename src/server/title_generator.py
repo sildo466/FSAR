@@ -98,12 +98,21 @@ class TitleGenerator:
                     {"role": "system", "content": TITLE_SYSTEM},
                     {"role": "user", "content": text[:600]},
                 ],
-                max_tokens=64,
+                max_tokens=100000,
                 temperature=0.3,
             )
             content = (resp.choices[0].message.content or "")
             content = _strip_think(content)
-            return self._clean(content)
+            cleaned = self._clean(content)
+            if not cleaned:
+                # A reasoning model spends the whole budget thinking and emits no
+                # visible text; without this line the fallback looks intentional.
+                usage = getattr(resp, "usage", None)
+                logger.warning(
+                    f"title gen produced no text (usage={usage}); "
+                    f"falling back to the truncated message"
+                )
+            return cleaned
         except Exception as e:
             logger.warning(f"title LLM call failed: {e}")
             return ""

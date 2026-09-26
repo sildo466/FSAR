@@ -21,9 +21,13 @@ def _resolve_db(ctx: dict[str, Any] | None) -> Path:
 
 def _build_snapshot(db_path: Path) -> dict[str, Any]:
     from src.memory.decision_log import DecisionLog
+    from src.memory.integrations import get_token_usage_totals
 
     log = DecisionLog(db_path=db_path)
-    totals = log.get_token_totals()
+    # Token accounting lives in llm_token_usage. decision_log carries no cache
+    # figures, so reading the cache share from it reported 0% forever while the
+    # Usage page showed the real numbers.
+    usage = get_token_usage_totals(db_path=db_path)
     rows_total = log.get_total()
     recent = log.get_recent(limit=10)
     tool_stats = log.get_stats(min_uses=1)
@@ -36,10 +40,10 @@ def _build_snapshot(db_path: Path) -> dict[str, Any]:
     kpis = {
         "total_decisions": rows_total,
         "success_rate_pct": success_rate,
-        "total_tokens": totals["total_tokens"],
-        "total_prompt_tokens": totals["prompt_tokens"],
-        "total_completion_tokens": totals["completion_tokens"],
-        "total_cached_tokens": totals["cached_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "total_prompt_tokens": usage["input_tokens"],
+        "total_completion_tokens": usage["output_tokens"],
+        "total_cached_tokens": usage["cache_read_tokens"],
     }
 
     md_lines: list[str] = ["## Active Strategies", ""]
