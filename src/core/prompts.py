@@ -106,6 +106,7 @@ def build_system_prompt(
     skill_index_block: str = "",
     workspace_context: str = "",
     slim: bool = False,
+    time_block: str = "",
 ) -> str:
     """Single source of truth for system prompt assembly (spec §6.1)."""
     from src.core.persona import assemble_persona_block
@@ -129,6 +130,8 @@ def build_system_prompt(
         parts.append(experience_block)
     if skill_index_block:
         parts.append(skill_index_block)
+    if time_block:
+        parts.append(time_block.strip())
     return "\n\n".join(parts)
 
 
@@ -185,6 +188,7 @@ def build_character_prompt(
     room_scene: str = "",
     tools_enabled: bool = True,
     group_mode: bool = False,
+    time_block: str = "",
 ) -> str:
     """Assemble the character-mode system prompt (persona-first ordering).
 
@@ -227,4 +231,6 @@ def build_character_prompt(
         parts.append(memory_block.strip())
     if workspace_line:
         parts.append(workspace_line.strip())
+    if time_block:
+        parts.append(time_block.strip())
     return "\n\n".join(parts)
