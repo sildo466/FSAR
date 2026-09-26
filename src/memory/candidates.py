@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
+from src.core.time_context import relative_age_prefix
 from src.memory.recall import RecallResult
 from src.utils.logger import logger
 
@@ -34,9 +36,13 @@ class Candidate:
 
 def candidates_from_recall(result: RecallResult) -> list[Candidate]:
     out: list[Candidate] = []
+    now = datetime.now()
 
     for i, c in enumerate(result.memory_chunks, start=1):
-        out.append(Candidate("fact", f"F{i}", f"- {c['title']}: {c['body']}", PRIORITY["fact"]))
+        age = relative_age_prefix(c.get("created_at"), now)
+        out.append(Candidate(
+            "fact", f"F{i}", f"- {age}{c['title']}: {c['body']}", PRIORITY["fact"],
+        ))
     for i, (k, v) in enumerate(result.profile.items(), start=1):
         out.append(Candidate("profile", f"U{i}", f"- {k}: {v}", PRIORITY["profile"]))
     for i, (k, v) in enumerate(result.preferences.items(), start=1):
@@ -44,7 +50,8 @@ def candidates_from_recall(result: RecallResult) -> list[Candidate]:
     for i, p in enumerate(result.patterns, start=1):
         out.append(Candidate("pattern", f"T{i}", f"- {p['pattern']} (x{p['count']})", PRIORITY["pattern"]))
     for i, c in enumerate(result.similar_conversations, start=1):
-        out.append(Candidate("history", f"H{i}", f"- {c.get('text', '')}", PRIORITY["history"]))
+        age = relative_age_prefix((c.get("metadata") or {}).get("ts"), now)
+        out.append(Candidate("history", f"H{i}", f"- {age}{c.get('text', '')}", PRIORITY["history"]))
 
     return out
 

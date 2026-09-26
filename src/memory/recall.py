@@ -76,7 +76,12 @@ class MemoryRecall:
             try:
                 hits = self.experience_store.search_chunks(query, limit=5)
                 result.memory_chunks = [
-                    {"title": c.title, "body": c.body, "source": c.source}
+                    {
+                        "title": c.title,
+                        "body": c.body,
+                        "source": c.source,
+                        "created_at": c.created_at,
+                    }
                     for c in hits
                 ]
             except Exception as e:
