@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useState } from "react";
-import { Plus, Cpu, Plug, Shield, Palette, Wrench, Database, FolderLock, AudioLines, MessagesSquare } from "lucide-react";
+import { Plus, Cpu, Plug, Shield, Palette, Wrench, Database, FolderLock, AudioLines, MessagesSquare, User } from "lucide-react";
 import { useWS } from "../stores/ws";
 import { ProviderModal } from "../components/settings/ProviderModal";
 import { VisionModelSection } from "../components/settings/VisionModelSection";
@@ -10,6 +10,7 @@ import { PermissionsTab } from "../components/settings/PermissionsTab";
 import { StyleTab } from "../components/settings/StyleTab";
 import { AdvancedTab } from "../components/settings/AdvancedTab";
 import { EmbeddingTab } from "../components/settings/EmbeddingTab";
+import { YouTab } from "../components/settings/YouTab";
 import { cn } from "../lib/cn";
 import { SpeechTab } from "../components/speech/SpeechTab";
 import { ChannelsTab } from "./components/channels/ChannelsTab";
@@ -31,7 +32,7 @@ interface Provider {
   format?: string;
 }
 
-type Tab = "models" | "embedding" | "speech" | "channels" | "mcp" | "permissions" | "style" | "advanced";
+type Tab = "models" | "embedding" | "speech" | "channels" | "mcp" | "permissions" | "style" | "you" | "advanced";
 
 const TABS: { id: Tab; labelKey: string; icon: typeof Cpu }[] = [
   { id: "models", labelKey: "settings.models", icon: Cpu },
@@ -42,6 +43,7 @@ const TABS: { id: Tab; labelKey: string; icon: typeof Cpu }[] = [
   { id: "permissions", labelKey: "settings.permissions", icon: Shield },
   { id: "workspace" as Tab, labelKey: "settings.workspace", icon: FolderLock },
   { id: "style", labelKey: "settings.style", icon: Palette },
+  { id: "you", labelKey: "settings.you", icon: User },
   { id: "advanced", labelKey: "settings.advanced", icon: Wrench },
 ];
 
@@ -255,6 +257,7 @@ export function Settings({ initialTab = "models" }: { initialTab?: Tab }) {
           {tab === "mcp" && <MCPTab />}
           {tab === "permissions" && <PermissionsTab />}
           {tab === "style" && <StyleTab />}
+          {tab === "you" && <YouTab />}
           {tab === "advanced" && <AdvancedTab />}
         </section>
       </div>
