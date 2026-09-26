@@ -396,7 +396,7 @@ def chat_completion(
             cache_retention=retention,
             base_url=base_url,
             tools=payload.get("tools"),
-            max_tokens=payload.get("max_tokens") or 100000,
+            max_tokens=payload.get("max_tokens") or 12800,
             temperature=payload.get("temperature"),
         ))
 
@@ -679,7 +679,7 @@ def chat_completion_anthropic(
     cache_retention: str = "short",
     base_url: str = "",
     tools: Any = None,
-    max_tokens: int = 100000,
+    max_tokens: int = 12800,
     temperature: Any = None,
 ) -> Any:
     """Drop-in for OpenAI chat.completions when provider=anthropic.
