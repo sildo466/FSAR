@@ -310,6 +310,7 @@ class GroupEngine:
             room_scene=getattr(room, "scenario_prompt", ""),
             tools_enabled=False,
             group_mode=True,
+            time_block=chat._time_block(room.session_id, group_mode=True),
         )
         client, model, provider_id = chat.client_and_model()
         _, max_output = chat._model_limits()

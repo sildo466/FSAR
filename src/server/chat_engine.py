@@ -2972,6 +2972,7 @@ class ChatEngine:
             user_card=user_card,
             memory_block=slots["memory"],
             workspace_line=self._character_workspace_line(),
+            time_block=self._time_block(conv_id),
         )
 
     async def _run_character(
@@ -3576,6 +3577,7 @@ class ChatEngine:
             experience_block=experience_block,
             workspace_context=self._workspace_context(conv_id),
             slim=slim,
+            time_block=self._time_block(conv_id),
         )
         if self._session_cwd_hint:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
