@@ -214,6 +214,8 @@ def test_speak_bounds_the_room_short_cache(monkeypatch) -> None:
     chat.client_and_model = lambda: (SimpleNamespace(base_url=""), "m", "p")
     chat._active_provider_family = lambda: "openai"
     chat._memory_block = lambda query, **kw: ""
+    # Empty block: the time facts are covered by test_time_delivery.
+    chat._time_block = lambda conv_id, group_mode=False: ""
     chat._model_limits = lambda: (128000, 100000)
     chat._short_cache = {"s1": []}
 

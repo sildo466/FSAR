@@ -46,6 +46,9 @@ def _chat() -> SimpleNamespace:
     chat.client_and_model = lambda: (SimpleNamespace(base_url=""), "m", "p")
     chat._active_provider_family = lambda: "openai"
     chat._memory_block = lambda query, **kw: "- user likes tea"
+    # Empty block: the time facts are covered by test_time_delivery, and an
+    # empty one keeps every prompt assertion below byte-identical.
+    chat._time_block = lambda conv_id, group_mode=False: ""
     chat._model_limits = lambda: (128000, 100000)
     chat._conv_context_tokens: dict[str, int] = {}
 
