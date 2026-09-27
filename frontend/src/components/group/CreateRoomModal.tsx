@@ -47,7 +47,7 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
       user_card_id: userCardId,
       character_ids: selected,
       agent_mode: agentMode,
-      lan_enabled: agentMode && lanEnabled,
+      lan_enabled: lanEnabled,
     });
     setName("");
     setDescription("");
@@ -167,7 +167,6 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
               type="checkbox"
               data-testid="room-lan-enabled"
               checked={lanEnabled}
-              disabled={!agentMode}
               onChange={(e) => setLanEnabled(e.target.checked)}
               className="mt-0.5"
             />

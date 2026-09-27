@@ -187,7 +187,7 @@ export function GroupRoom() {
             <Users size={13} strokeWidth={1.6} />
             {members.length}
           </button>
-          {room?.agent_mode && (
+          {(room?.agent_mode || room?.lan_enabled) && (
             <button
               data-testid="toggle-agent-panel"
               onClick={() => setAgentPanelOpen((v) => !v)}

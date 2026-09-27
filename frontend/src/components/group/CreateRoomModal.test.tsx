@@ -130,22 +130,22 @@ it("reports agent_mode when the box is ticked", () => {
   );
 });
 
-it("keeps LAN off while agent mode is off", () => {
+it("does not couple the two switches: LAN works on its own", () => {
   seedCards();
   const onSubmit = vi.fn();
   render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
   fireEvent.change(screen.getByTestId("create-room-name"), {
-    target: { value: "Work" },
+    target: { value: "Guest" },
   });
   fireEvent.click(screen.getByLabelText("Mira"));
   fireEvent.click(screen.getByTestId("room-lan-enabled"));
   fireEvent.click(screen.getByTestId("create-room-submit"));
   expect(onSubmit).toHaveBeenCalledWith(
-    expect.objectContaining({ agent_mode: false, lan_enabled: false })
+    expect.objectContaining({ agent_mode: false, lan_enabled: true })
   );
 });
 
-it("reports LAN when agent mode is on and the box is ticked", () => {
+it("reports both switches when both are ticked", () => {
   seedCards();
   const onSubmit = vi.fn();
   render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
