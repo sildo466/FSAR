@@ -11,9 +11,13 @@ from src.security.content_guard import SCAN_STORES
 
 
 def _guard():
-    from src.server import ws_server
+    # Imported here rather than at module level to keep startup cheap, and from
+    # content_guard rather than from the server module: the server imports its
+    # handlers, so reaching back into it would load the whole server a second
+    # time (see tests/server/test_server_import_hygiene.py).
+    from src.security.content_guard import get_guard
 
-    return ws_server._get_content_guard()
+    return get_guard()
 
 
 async def dispatch(ws: WebSocket, msg: dict[str, Any], ctx: dict[str, Any] | None = None) -> bool:

@@ -64,10 +64,10 @@ def _quarantined_card_ids() -> set[int]:
     its text fields are blanked — so listing it would offer the user an empty
     character. Restored cards are absent from this set and reappear.
     """
-    from src.server import ws_server
+    from src.security.content_guard import get_guard
 
     ids: set[int] = set()
-    for row in ws_server._get_content_guard().list_quarantine():
+    for row in get_guard().list_quarantine():
         if row.get("store") != "card":
             continue
         try:

@@ -17,6 +17,7 @@ def _send(ws, msg):
 @pytest.fixture
 def seeded(tmp_path, monkeypatch):
     import src.server.ws_server as ws_mod
+    from src.security import content_guard
     from src.security.content_guard import ContentGuard
     from src.security.content_screen import ScreenVerdict
 
@@ -39,7 +40,10 @@ def seeded(tmp_path, monkeypatch):
         "chunk", "5", "bad payload", kind="memory_chunk", verdict=ScreenVerdict(False, 0.9)
     )
     g.set_report({"scanned": 12, "quarantined": 1, "unavailable": 2, "total": 12})
-    monkeypatch.setattr(ws_mod, "_get_content_guard", lambda: g)
+    # The handlers reach the guard through content_guard.get_guard(), not
+    # through the server module — see tests/server/test_server_import_hygiene.py
+    # for why the difference matters.
+    monkeypatch.setattr(content_guard, "get_guard", lambda: g)
     return g, ws_mod
 
 
