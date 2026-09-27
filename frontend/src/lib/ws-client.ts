@@ -245,6 +245,11 @@ export interface GroupMessage {
   character_id?: number | null;
   character_name?: string | null;
   user_name?: string | null;
+  /** "agent" marks a line written by an external room member rather than by a
+   *  character card. It shares role="assistant" so it renders on the same side
+   *  as the characters, but carries no character_id. */
+  speaker_kind?: "agent" | null;
+  member_ref?: string;
   timestamp?: string;
   streaming?: boolean;
   thinking?: boolean;

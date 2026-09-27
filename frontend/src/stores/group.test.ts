@@ -21,6 +21,7 @@ const emptyState = {
   chainRunning: {},
   loadingHistory: {},
   context: {},
+  agentMembers: {},
 };
 
 describe("applyGroupEvent", () => {
@@ -450,5 +451,45 @@ describe("group chat regressions", () => {
       used: 1234,
       window: 128000,
     });
+  });
+});
+
+describe("agent member messages", () => {
+  beforeEach(() => {
+    useGroup.setState(emptyState);
+  });
+
+  it("puts an external member's line on the assistant side, named", () => {
+    useGroup.getState().applyServerMsg({
+      type: "group.user_message",
+      room_id: 1,
+      message_id: "4",
+      row_id: 4,
+      content: "on it",
+      user_name: "Claude",
+      speaker_kind: "agent",
+      member_ref: "claude-laptop",
+    });
+    const live = useGroup.getState().messages[1];
+    expect(live).toHaveLength(1);
+    expect(live[0].role).toBe("assistant");
+    expect(live[0].character_name).toBe("Claude");
+    expect(live[0].speaker_kind).toBe("agent");
+    expect(live[0].member_ref).toBe("claude-laptop");
+  });
+
+  it("still treats a plain user message as the user side", () => {
+    useGroup.getState().applyServerMsg({
+      type: "group.user_message",
+      room_id: 1,
+      message_id: "5",
+      row_id: 5,
+      content: "hi",
+      user_name: "You",
+    });
+    const live = useGroup.getState().messages[1];
+    expect(live[0].role).toBe("user");
+    expect(live[0].user_name).toBe("You");
+    expect(live[0].speaker_kind ?? null).toBeNull();
   });
 });

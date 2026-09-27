@@ -207,14 +207,20 @@ export const useGroup = create<GroupState>((set, get) => {
       }));
     } else if (msg.type === "group.user_message") {
       const id = msg.message_id ?? `user_${msg.row_id ?? msg.content.length}`;
+      const isAgent = msg.speaker_kind === "agent";
       set((s) => {
         const prior = s.messages[msg.room_id] ?? [];
         if (prior.some((m) => m.id === id)) return {};
         const entry: GroupMessage = {
           id,
-          role: "user",
+          // An external member speaks on its own side of the transcript: same
+          // side as the characters, named after the member.
+          role: isAgent ? "assistant" : "user",
           content: msg.content,
-          user_name: msg.user_name ?? undefined,
+          character_name: isAgent ? msg.user_name ?? undefined : undefined,
+          user_name: isAgent ? undefined : msg.user_name ?? undefined,
+          speaker_kind: isAgent ? "agent" : null,
+          member_ref: msg.member_ref ?? undefined,
           row_id: msg.row_id ?? undefined,
         };
         return {
