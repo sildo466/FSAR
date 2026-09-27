@@ -3,26 +3,45 @@
 
 Kept apart from room_app.py so the app's surface — what exists at all — can be
 read in one place, and so every handler has to pass through the same
-auth_guard. Index, state and messages land here; the doc lives in agent_doc.py.
+auth_guard. Index, state and messages live here; the doc is in agent_doc.py.
+
+room_app is referenced as a module, not by importing its constants by value:
+the budgets are patched in tests, and a by-value import would freeze them.
 """
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from fastapi import HTTPException, Request
 
-from src.server.room_app import READ_BUDGET, RoomDeps, audit, auth_guard, require_room
+from src.server import room_app
+from src.server.room_app import RoomDeps
+
+# A refusal from P1's shared entry point is a plain code; the LAN surface has
+# to give it a status. Anything unmapped is a bad request rather than a 500 —
+# the caller sent something the room would not take.
+_P1_CODE_STATUS = {
+    "empty": 400,
+    "too_long": 413,
+    "bad_json": 400,
+    "muted": 403,
+    "no_member": 404,
+    "no_room": 404,
+    "not_ready": 503,
+}
 
 
 def register_routes(app: Any, deps: RoomDeps) -> None:
     _index(app, deps)
     _state(app, deps)
+    _messages(app, deps)
 
 
-def _read_budget(deps: RoomDeps, outcome: Any, request: Request) -> None:
+def _read_budget(deps: RoomDeps, outcome: Any) -> None:
     """One place for the per-credential read budget, shared by the readers."""
-    limit, per_seconds, burst = READ_BUDGET
+    limit, per_seconds, burst = room_app.READ_BUDGET
     if not deps.budget.allow(
         f"read:{outcome.token_id}", limit=limit, per_seconds=per_seconds,
         burst=burst,
@@ -33,14 +52,14 @@ def _read_budget(deps: RoomDeps, outcome: Any, request: Request) -> None:
 def _index(app: Any, deps: RoomDeps) -> None:
     @app.get("/room/index")
     async def room_index(request: Request) -> dict[str, Any]:
-        outcome = auth_guard(deps, request)
-        _read_budget(deps, outcome, request)
+        outcome = room_app.auth_guard(deps, request)
+        _read_budget(deps, outcome)
 
-        room = require_room(deps, request, outcome.room_id, outcome)
+        room = room_app.require_room(deps, request, outcome.room_id, outcome)
         member = deps.members.get(room.id, outcome.member_ref)
-        audit(deps, request, action="lan_read", result="allow", reason="ok",
-              room_id=room.id, member_ref=outcome.member_ref,
-              token_id=outcome.token_id)
+        room_app.audit(deps, request, action="lan_read", result="allow",
+                       reason="ok", room_id=room.id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id)
         return {
             "rooms": [
                 {
@@ -85,12 +104,13 @@ def _state(app: Any, deps: RoomDeps) -> None:
     async def room_state(
         request: Request, room_id: int, since: int = 0,
     ) -> dict[str, Any]:
-        outcome = auth_guard(deps, request)
-        _read_budget(deps, outcome, request)
+        outcome = room_app.auth_guard(deps, request)
+        _read_budget(deps, outcome)
 
-        room = require_room(deps, request, room_id, outcome)
+        room = room_app.require_room(deps, request, room_id, outcome)
         agent_names = {
-            member.ref: member.display_name for member in deps.members.members(room.id)
+            member.ref: member.display_name
+            for member in deps.members.members(room.id)
         }
         rows = deps.rooms.session_store.get_session_messages(room.session_id)
         cursor = max(0, int(since))
@@ -98,9 +118,10 @@ def _state(app: Any, deps: RoomDeps) -> None:
         truncated = len(pending) > deps.history_limit
         page = pending[: deps.history_limit]
 
-        audit(deps, request, action="lan_read", result="allow", reason="ok",
-              room_id=room.id, member_ref=outcome.member_ref,
-              token_id=outcome.token_id, detail=f"since={cursor}")
+        room_app.audit(deps, request, action="lan_read", result="allow",
+                       reason="ok", room_id=room.id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id,
+                       detail=f"since={cursor}")
         return {
             "room_id": room.id,
             "room_name": room.name,
@@ -119,3 +140,76 @@ def _state(app: Any, deps: RoomDeps) -> None:
                 for row in page
             ],
         }
+
+
+def _messages(app: Any, deps: RoomDeps) -> None:
+    @app.post("/room/{room_id}/messages")
+    async def post_message(request: Request, room_id: int) -> dict[str, Any]:
+        # Authorization precedes the idempotency cache on purpose: a revoked
+        # credential must not be able to replay an answer it once earned.
+        outcome = room_app.auth_guard(deps, request)
+        room = room_app.require_room(deps, request, room_id, outcome)
+
+        idempotency_key = request.headers.get("idempotency-key", "").strip()
+        if not idempotency_key:
+            raise HTTPException(
+                status_code=400, detail="idempotency_key_required",
+            )
+
+        limit, per_seconds, burst = room_app.SPEAK_BUDGET
+        if not deps.budget.allow(
+            f"speak:{outcome.token_id}", limit=limit, per_seconds=per_seconds,
+            burst=burst,
+        ):
+            raise HTTPException(status_code=429, detail="rate_limited")
+        room_limit, room_window, room_burst = room_app.ROOM_SPEAK_BUDGET
+        if not deps.budget.allow(
+            f"room-speak:{room.id}", limit=room_limit,
+            per_seconds=room_window, burst=room_burst,
+        ):
+            raise HTTPException(status_code=429, detail="rate_limited")
+
+        raw = await request.body()
+        payload = room_app.read_json_object(request, raw)
+        if set(payload) - {"content"}:
+            raise HTTPException(status_code=400, detail="unknown_field")
+        content = str(payload.get("content", ""))
+        if len(content.encode("utf-8")) > room_app.MAX_CONTENT_BYTES:
+            raise HTTPException(status_code=413, detail="too_long")
+
+        scope = f"room:{room.id}:member:{outcome.member_ref}"
+        digest = hashlib.sha256(raw).hexdigest()
+        if deps.idempotency is not None:
+            verdict, stored = deps.idempotency.lookup(
+                scope, idempotency_key, digest,
+            )
+            if verdict == "replay" and stored is not None:
+                return stored
+            if verdict == "conflict":
+                raise HTTPException(
+                    status_code=409, detail="idempotency_conflict",
+                )
+
+        from src.server.handlers.group import post_member_message
+
+        result = await post_member_message(
+            room_id=room.id, member_ref=outcome.member_ref, content=content,
+            ws=None,
+        )
+        if not result.get("ok"):
+            code = str(result.get("code", "error"))
+            room_app.audit(deps, request, action="lan_message", result="deny",
+                           reason=code, room_id=room.id,
+                           member_ref=outcome.member_ref,
+                           token_id=outcome.token_id)
+            raise HTTPException(
+                status_code=_P1_CODE_STATUS.get(code, 400), detail=code,
+            )
+
+        body = {"row_id": result.get("row_id")}
+        if deps.idempotency is not None:
+            deps.idempotency.remember(scope, idempotency_key, digest, 200, body)
+        room_app.audit(deps, request, action="lan_message", result="allow",
+                       reason="ok", room_id=room.id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id)
+        return body

@@ -76,6 +76,21 @@ def test_an_established_key_keeps_its_own_bucket_when_the_table_is_full() -> Non
     assert budget.allow("a", limit=9, per_seconds=60, burst=1, now=0.0) is False
 
 
+def test_a_sub_second_window_refills_at_its_own_rate() -> None:
+    """A window below a second must not be rounded up to one: 1 per 0.2s is
+    five per second, not one."""
+    budget = RateBudget()
+    assert budget.allow("k", limit=1, per_seconds=0.2, burst=1, now=0.0) is True
+    assert budget.allow("k", limit=1, per_seconds=0.2, burst=1, now=0.0) is False
+    assert budget.allow("k", limit=1, per_seconds=0.2, burst=1, now=0.25) is True
+
+
+def test_a_zero_window_does_not_divide_by_zero() -> None:
+    budget = RateBudget()
+    assert budget.allow("k", limit=1, per_seconds=0, burst=1, now=0.0) is True
+    assert budget.allow("k", limit=1, per_seconds=0, burst=1, now=0.0) is False
+
+
 def test_a_burst_of_zero_still_allows_one() -> None:
     """A budget nobody can use is a bug, not a policy."""
     budget = RateBudget()

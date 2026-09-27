@@ -50,7 +50,10 @@ class RateBudget:
         """Consume one unit from `key`'s bucket, or refuse when it is empty."""
         current = time.monotonic() if now is None else now
         capacity = max(1.0, float(burst))
-        rate = max(0.0, float(limit)) / max(1.0, float(per_seconds))
+        # Guard only against a zero or negative window. Clamping it up to a
+        # second would silently make every sub-second budget stricter than
+        # configured, which is a wrong answer rather than a safe one.
+        rate = max(0.0, float(limit)) / max(1e-6, float(per_seconds))
 
         resolved = self._resolve_key(key)
         bucket = self._buckets.get(resolved)
