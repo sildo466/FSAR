@@ -43,6 +43,25 @@ def _agent_names(room_id: int) -> dict[str, str]:
     return {m.ref: m.display_name for m in _agent_members.members(room_id)}
 
 
+def _agent_list_payload(room_id: int) -> dict[str, Any]:
+    """Every agent member plus its token metadata — never a token secret."""
+    return {
+        "agents": [
+            {
+                "ref": m.ref,
+                "display_name": m.display_name,
+                "state": m.state,
+                "tokens": (
+                    _member_tokens.list_for(room_id, m.ref)
+                    if _member_tokens is not None
+                    else []
+                ),
+            }
+            for m in (_agent_members.members(room_id) if _agent_members else [])
+        ],
+    }
+
+
 def _room_payload(
     room: Any, rooms: RoomStore, agent_members: Any = None,
 ) -> dict[str, Any]:
@@ -435,6 +454,80 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     "type": "group.updated",
                     "room": _room_payload(room, rooms, _agent_members),
                 })
+            return True
+
+        if t == "group.agent.add":
+            room_id = int(msg["room_id"])
+            ref = str(msg.get("ref", "")).strip()
+            display = str(msg.get("display_name", "")).strip() or ref
+            if not ref:
+                await ws.send_json({
+                    "type": "group.error", "room_id": room_id,
+                    "code": "bad_ref", "message": "Member ref must not be empty.",
+                })
+                return True
+            if _agent_members is None:
+                return True
+            try:
+                await asyncio.to_thread(
+                    _agent_members.add, room_id, ref=ref, display_name=display,
+                )
+            except Exception:
+                await ws.send_json({
+                    "type": "group.error", "room_id": room_id,
+                    "code": "duplicate_ref",
+                    "message": "That member ref is already in this room.",
+                })
+                return True
+            room = rooms.get(room_id)
+            if room is not None:
+                await ws.send_json({
+                    "type": "group.updated",
+                    "room": _room_payload(room, rooms, _agent_members),
+                })
+            return True
+
+        if t == "group.agent.list":
+            room_id = int(msg["room_id"])
+            await ws.send_json({
+                "type": "group.agent.list.ok", "room_id": room_id,
+                **_agent_list_payload(room_id),
+            })
+            return True
+
+        if t == "group.agent.token.issue":
+            room_id = int(msg["room_id"])
+            ref = str(msg.get("member_ref", ""))
+            if _agent_members is None or _agent_members.get(room_id, ref) is None:
+                await ws.send_json({
+                    "type": "group.error", "room_id": room_id,
+                    "code": "no_member", "message": "Unknown agent member.",
+                })
+                return True
+            issued = await asyncio.to_thread(
+                _member_tokens.issue, room_id, ref,
+                label=str(msg.get("label", "")),
+            )
+            # The only place a member token is ever sent in the clear. The GUI
+            # shows it once; it is never stored or logged.
+            await ws.send_json({
+                "type": "group.agent.token.issued",
+                "room_id": room_id,
+                "member_ref": ref,
+                "token_id": issued.token_id,
+                "token": issued.token,
+            })
+            return True
+
+        if t == "group.agent.token.revoke":
+            room_id = int(msg["room_id"])
+            await asyncio.to_thread(
+                _member_tokens.revoke, int(msg["token_id"]),
+            )
+            await ws.send_json({
+                "type": "group.agent.list.ok", "room_id": room_id,
+                **_agent_list_payload(room_id),
+            })
             return True
 
         if t == "group.stop_all":
