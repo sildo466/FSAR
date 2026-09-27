@@ -150,6 +150,47 @@ def test_multibyte_content_is_measured_in_bytes(wired) -> None:
     assert response.status_code == 413
 
 
+@pytest.mark.parametrize("payload", [123, None, True, ["hi"], {"a": 1}])
+def test_a_content_that_is_not_a_string_is_refused(wired, payload) -> None:
+    """str() used to be applied to whatever arrived, so {"content": 123} came
+    back 200 and "123" was said in the room."""
+    response = wired.client.post(
+        f"/room/{wired.room.id}/messages", json={"content": payload},
+        headers=_headers(wired.token),
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "bad_content"
+    assert wired.posts == []
+
+
+def test_an_oversized_body_is_stopped_while_it_is_read(wired, monkeypatch) -> None:
+    """The cap has to apply to the read, not to a body already in memory."""
+    monkeypatch.setattr(room_app_module, "MAX_BODY_BYTES", 200)
+    response = wired.client.post(
+        f"/room/{wired.room.id}/messages",
+        content='{"content": "' + "x" * 500 + '"}',
+        headers={**_headers(wired.token), "Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert response.json()["code"] == "too_long"
+    assert wired.posts == []
+
+
+def test_a_refused_payload_does_not_spend_the_allowance(wired, monkeypatch) -> None:
+    """The budget bounds what reaches the room, so a request the room never
+    saw must not draw on it — otherwise retrying a mangled body locks the
+    caller out of the send that was fine."""
+    monkeypatch.setattr(room_app_module, "SPEAK_BUDGET", (1, 60.0, 1))
+    bad = wired.client.post(
+        f"/room/{wired.room.id}/messages",
+        json={"content": "hi", "room_id": 999},
+        headers=_headers(wired.token, "bad"),
+    )
+    assert bad.status_code == 400
+    assert bad.json()["code"] == "unknown_field"
+    assert _post(wired, content="hi", key="good").status_code == 200
+
+
 def test_a_muted_member_is_403(wired, monkeypatch) -> None:
     async def muted_post(*, room_id, member_ref, content, ws=None):
         return {"ok": False, "code": "muted", "row_id": None}

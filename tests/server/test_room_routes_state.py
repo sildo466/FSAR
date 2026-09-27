@@ -51,7 +51,7 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _state(wired, query: str = ""):
+def _state(wired, query: str = "?since=0"):
     return wired.client.get(
         f"/room/{wired.room.id}/state{query}", headers=_auth(wired.token)
     )
@@ -148,10 +148,45 @@ def test_an_empty_room_returns_the_cursor_it_was_given(tmp_path) -> None:
     assert body["next_since"] == 17
 
 
-def test_a_negative_cursor_is_clamped(tmp_path) -> None:
+def test_a_missing_cursor_is_refused(tmp_path) -> None:
+    """Absent used to mean 0, so one request could read out a whole room and
+    look like a normal answer."""
     wired = _wire(tmp_path)
     wired.sessions.append_message(wired.room.session_id, "user", "hello")
-    assert len(_state(wired, "?since=-5").json()["messages"]) == 1
+    response = _state(wired, "")
+    assert response.status_code == 400
+    assert response.json()["code"] == "since_required"
+
+
+def test_a_negative_cursor_is_refused(tmp_path) -> None:
+    wired = _wire(tmp_path)
+    wired.sessions.append_message(wired.room.session_id, "user", "hello")
+    response = _state(wired, "?since=-5")
+    assert response.status_code == 400
+    assert response.json()["code"] == "bad_since"
+
+
+def test_a_non_numeric_cursor_is_a_uniform_400(tmp_path) -> None:
+    """Not FastAPI's 422: that body names pydantic, its `loc` and its `input`,
+    and it is the only reply on this surface shaped like that."""
+    wired = _wire(tmp_path)
+    response = _state(wired, "?since=abc")
+    assert response.status_code == 400
+    body = response.json()
+    assert set(body) == {"code", "request_id"}
+    assert body["code"] == "bad_since"
+
+
+def test_a_non_numeric_room_id_is_a_uniform_400(tmp_path) -> None:
+    wired = _wire(tmp_path)
+    response = wired.client.get("/room/abc/state?since=0", headers=_auth(wired.token))
+    assert response.status_code == 400
+    assert response.json()["code"] == "bad_room_id"
+
+
+def test_a_bad_room_id_is_not_answered_before_authentication(tmp_path) -> None:
+    wired = _wire(tmp_path)
+    assert wired.client.get("/room/abc/state?since=0").status_code == 401
 
 
 def test_another_room_is_404(tmp_path) -> None:

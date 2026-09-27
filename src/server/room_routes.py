@@ -40,6 +40,23 @@ def register_routes(app: Any, deps: RoomDeps) -> None:
     _doc(app, deps)
 
 
+def _row_id(raw: str | None, field: str) -> int:
+    """A number from the path or the query, refused the way everything else is.
+
+    Declaring these as typed parameters hands validation to FastAPI, which
+    answers before authentication with a pydantic error body — a different
+    shape from every other refusal on this surface, and one that names the
+    framework underneath it.
+    """
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        value = -1
+    if value < 0:
+        raise HTTPException(status_code=400, detail=f"bad_{field}")
+    return value
+
+
 def _read_budget(deps: RoomDeps, outcome: Any) -> None:
     """One place for the per-credential read budget, shared by the readers."""
     limit, per_seconds, burst = room_app.READ_BUDGET
@@ -103,18 +120,24 @@ def _speaker_name(
 def _state(app: Any, deps: RoomDeps) -> None:
     @app.get("/room/{room_id}/state")
     async def room_state(
-        request: Request, room_id: int, since: int = 0,
+        request: Request, room_id: str, since: str | None = None,
     ) -> dict[str, Any]:
         outcome = room_app.auth_guard(deps, request)
+        rid = _row_id(room_id, "room_id")
         _read_budget(deps, outcome)
 
-        room = room_app.require_room(deps, request, room_id, outcome)
+        room = room_app.require_room(deps, request, rid, outcome)
         agent_names = {
             member.ref: member.display_name
             for member in deps.members.members(room.id)
         }
         rows = deps.rooms.session_store.get_session_messages(room.session_id)
-        cursor = max(0, int(since))
+        # Required, not defaulted: an absent or negative cursor used to mean
+        # "everything", which reads whole rooms out in one response and hides
+        # the caller's own mistake behind a plausible answer.
+        if since is None:
+            raise HTTPException(status_code=400, detail="since_required")
+        cursor = _row_id(since, "since")
         pending = [row for row in rows if int(row.id) > cursor]
         truncated = len(pending) > deps.history_limit
         page = pending[: deps.history_limit]
@@ -145,11 +168,12 @@ def _state(app: Any, deps: RoomDeps) -> None:
 
 def _messages(app: Any, deps: RoomDeps) -> None:
     @app.post("/room/{room_id}/messages")
-    async def post_message(request: Request, room_id: int) -> dict[str, Any]:
+    async def post_message(request: Request, room_id: str) -> dict[str, Any]:
         # Authorization precedes the idempotency cache on purpose: a revoked
         # credential must not be able to replay an answer it once earned.
         outcome = room_app.auth_guard(deps, request)
-        room = room_app.require_room(deps, request, room_id, outcome)
+        rid = _row_id(room_id, "room_id")
+        room = room_app.require_room(deps, request, rid, outcome)
 
         idempotency_key = request.headers.get("idempotency-key", "").strip()
         if not idempotency_key:
@@ -157,6 +181,22 @@ def _messages(app: Any, deps: RoomDeps) -> None:
                 status_code=400, detail="idempotency_key_required",
             )
 
+        raw = await room_app.read_body(request)
+        payload = room_app.read_json_object(request, raw)
+        if set(payload) - {"content"}:
+            raise HTTPException(status_code=400, detail="unknown_field")
+        content = payload.get("content")
+        if not isinstance(content, str):
+            # str() would turn 123 into "123" and null into "None" and say it
+            # out loud in the room, so a wrong type is the caller's error.
+            raise HTTPException(status_code=400, detail="bad_content")
+        if len(content.encode("utf-8")) > room_app.MAX_CONTENT_BYTES:
+            raise HTTPException(status_code=413, detail="too_long")
+
+        # The budgets bound the room's work, so they are spent only on a
+        # request the room would take. Spent earlier, a client retrying a
+        # malformed payload would burn its allowance on refusals and lose the
+        # send that was fine.
         limit, per_seconds, burst = room_app.SPEAK_BUDGET
         if not deps.budget.allow(
             f"speak:{outcome.token_id}", limit=limit, per_seconds=per_seconds,
@@ -169,14 +209,6 @@ def _messages(app: Any, deps: RoomDeps) -> None:
             per_seconds=room_window, burst=room_burst,
         ):
             raise HTTPException(status_code=429, detail="rate_limited")
-
-        raw = await request.body()
-        payload = room_app.read_json_object(request, raw)
-        if set(payload) - {"content"}:
-            raise HTTPException(status_code=400, detail="unknown_field")
-        content = str(payload.get("content", ""))
-        if len(content.encode("utf-8")) > room_app.MAX_CONTENT_BYTES:
-            raise HTTPException(status_code=413, detail="too_long")
 
         scope = f"room:{room.id}:member:{outcome.member_ref}"
         digest = hashlib.sha256(raw).hexdigest()

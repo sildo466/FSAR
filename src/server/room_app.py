@@ -170,6 +170,24 @@ def require_room(
     return room
 
 
+async def read_body(request: Request) -> bytes:
+    """Read the body with the size cap enforced as it arrives.
+
+    `await request.body()` buffers whatever the caller sent before any check
+    can run, so the limit would only ever describe a body already in memory.
+    Read in chunks and stop at the cap instead. MAX_BODY_BYTES is read at call
+    time so a patched value applies."""
+    limit = MAX_BODY_BYTES
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="too_long")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def read_json_object(request: Request, raw: bytes) -> dict[str, Any]:
     """Strict body parsing: unknown fields, duplicate keys and non-objects are
     refused, because an extra field is how a caller tries to name a room."""

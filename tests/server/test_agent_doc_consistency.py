@@ -106,14 +106,20 @@ def test_the_doc_never_promises_what_p2_does_not_have(tmp_path) -> None:
 
 def test_the_documented_limits_match_the_budgets() -> None:
     """The prose and the numbers have to move together."""
-    speak_limit, speak_window, _ = room_app.SPEAK_BUDGET
-    room_limit, room_window, _ = room_app.ROOM_SPEAK_BUDGET
+    speak_limit, speak_window, speak_burst = room_app.SPEAK_BUDGET
+    room_limit, room_window, room_burst = room_app.ROOM_SPEAK_BUDGET
+    read_limit, read_window, read_burst = room_app.READ_BUDGET
     flat = _flat(AGENT_MD)
-    assert speak_window == 60 and room_window == 60, (
+    assert speak_window == 60 and room_window == 60 and read_window == 60, (
         "the document says 'per minute'; change it and this test together"
     )
     assert f"{speak_limit} messages per minute per member" in flat
     assert f"{room_limit} per minute for the whole room" in flat
+    # The bursts too: the document used to quote only the sustained rate, so a
+    # caller budgeting for 20 a minute hit the wall on its fifth quick send.
+    assert f"a burst of {speak_burst}" in flat
+    assert f"a burst of {room_burst}" in flat
+    assert f"{read_limit} per minute with a burst of {read_burst}" in flat
     assert f"{room_app.MAX_CONTENT_BYTES // 1024} KiB" in flat
 
 
