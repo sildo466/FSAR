@@ -375,6 +375,57 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 })
             return True
 
+        if t == "group.agent.mute":
+            room_id = int(msg["room_id"])
+            ref = str(msg.get("member_ref", ""))
+            if _agent_members is None or _agent_members.get(room_id, ref) is None:
+                await ws.send_json({
+                    "type": "group.error", "room_id": room_id,
+                    "code": "no_member", "message": "Unknown agent member.",
+                })
+                return True
+            state = "muted" if msg.get("muted") else "active"
+            await asyncio.to_thread(_agent_members.set_state, room_id, ref, state)
+            room = rooms.get(room_id)
+            if room is not None:
+                await ws.send_json({
+                    "type": "group.updated",
+                    "room": _room_payload(room, rooms, _agent_members),
+                })
+            return True
+
+        if t == "group.agent.remove":
+            room_id = int(msg["room_id"])
+            ref = str(msg.get("member_ref", ""))
+            if _agent_members is None or _agent_members.get(room_id, ref) is None:
+                await ws.send_json({
+                    "type": "group.error", "room_id": room_id,
+                    "code": "no_member", "message": "Unknown agent member.",
+                })
+                return True
+            await asyncio.to_thread(_agent_members.remove, room_id, ref)
+            # Two locks together: dropping the membership already makes the
+            # ingress refuse the member, but a live token would still show up
+            # as valid in the panel.
+            if _member_tokens is not None:
+                for row in await asyncio.to_thread(
+                    _member_tokens.list_for, room_id, ref,
+                ):
+                    await asyncio.to_thread(_member_tokens.revoke, int(row["id"]))
+            room = rooms.get(room_id)
+            if room is not None:
+                await ws.send_json({
+                    "type": "group.updated",
+                    "room": _room_payload(room, rooms, _agent_members),
+                })
+            return True
+
+        if t == "group.stop_all":
+            for room_id in list(_tasks):
+                engine.cancel(room_id)
+            await ws.send_json({"type": "group.stop_all.ack"})
+            return True
+
         if t == "group.regenerate":
             room_id = int(msg["room_id"])
             room = rooms.get(room_id)
