@@ -554,13 +554,26 @@ class GroupEngine:
         rows = chat.session_store.get_session_messages(room.session_id)
         names, user_name, agent_names = self._speaker_names(room)
         if first_input is not None:
-            if rows and rows[-1].role == "user":
-                rows = rows[:-1]
+            speaker = ""
+            if rows:
+                last = rows[-1]
+                if last.role == "user":
+                    rows = rows[:-1]
+                elif getattr(last, "speaker_kind", None) == "agent":
+                    # A member's line is stored as role="assistant", so the
+                    # test above does not see it. Left in, it reaches the
+                    # speaker twice — once as a transcript line and once as the
+                    # trigger — and reported itself as a verbatim echo.
+                    rows = rows[:-1]
+                    speaker = agent_names.get(
+                        getattr(last, "speaker_ref", None) or "",
+                        UNKNOWN_SPEAKER,
+                    )
             history = format_group_history(
                 rows, names_by_id=names, user_name=user_name,
                 agent_names=agent_names,
             )
-            return history, first_input, ""
+            return history, first_input, speaker
         if not rows:
             return [], "", ""
         last = rows[-1]

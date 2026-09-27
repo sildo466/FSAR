@@ -47,9 +47,17 @@ def _chat(members: list[CharacterCard]) -> SimpleNamespace:
     return chat
 
 
-def _engine(chat, members: list[CharacterCard]) -> GroupEngine:
+def _engine(chat, members: list[CharacterCard], *, agent_members=None) -> GroupEngine:
     rooms = SimpleNamespace(members=lambda room_id: [c.id for c in members])
-    return GroupEngine(chat, rooms)
+    return GroupEngine(chat, rooms, agent_members)
+
+
+def _agent_members(refs: dict[str, str] | None = None):
+    records = [
+        SimpleNamespace(ref=ref, display_name=name)
+        for ref, name in (refs or {"claude-laptop": "Claude"}).items()
+    ]
+    return SimpleNamespace(members=lambda room_id: list(records))
 
 
 def _patch(monkeypatch, *, eager: int, spoken: list[str]):
@@ -372,3 +380,52 @@ def test_history_excludes_the_trigger_message(monkeypatch) -> None:
     assert [m["content"] for m in captured[1]["history"]] == [
         "[user]: look", "[Kai]: prior", "[user]: hi",
     ]
+
+
+def test_an_agent_members_line_is_the_trigger_and_not_also_history(
+    monkeypatch,
+) -> None:
+    """A member's line is stored as role="assistant", so the user-row test above
+    never saw it. Left in, the line reached the speaker twice — once as a
+    transcript line and once as the trigger — and characters reported hearing
+    their own words handed back to them."""
+    members = _members()
+    chat = _chat(members)
+    chat._rows.extend([
+        MessageRow(id=1, session_id="s1", role="user", content="anything new?"),
+        MessageRow(id=2, session_id="s1", role="assistant", content="deploy it",
+                   speaker_kind="agent", speaker_ref="claude-laptop"),
+    ])
+    captured: list[dict] = []
+
+    async def fake_elect(self, ws, **kwargs):
+        return [
+            ge.ElectResult(character_id=c.id, character_name=c.name,
+                           eagerness=10, reason="r")
+            for c in kwargs["candidates"]
+        ]
+
+    monkeypatch.setattr(GroupEngine, "elect", fake_elect)
+
+    async def fake_speak(self, ws, **kwargs):
+        captured.append({
+            "history": kwargs["history"],
+            "user_input": kwargs["user_input"],
+            "trigger_speaker": kwargs["trigger_speaker"],
+        })
+        return "group_x", "line"
+
+    monkeypatch.setattr(GroupEngine, "speak", fake_speak)
+
+    engine = _engine(chat, members, agent_members=_agent_members())
+    asyncio.run(GroupEngine.run_chain(
+        engine, FakeWebSocket(), room=_room(max_rounds=1),
+        user_input="deploy it", mentioned=[], user_card=None,
+    ))
+
+    first = captured[0]
+    assert [m["content"] for m in first["history"]] == ["[user]: anything new?"]
+    assert first["user_input"] == "deploy it"
+    # And the speaker is named, so the trigger does not read as the user's own
+    # words — the member is not the user.
+    assert first["trigger_speaker"] == "Claude"
