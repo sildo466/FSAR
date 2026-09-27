@@ -21,6 +21,8 @@ class Room:
     user_card_id: int | None = None
     pinned: bool = False
     max_rounds: int = 0
+    agent_mode: bool = False
+    lan_enabled: bool = False
     created_at: str = ""
     updated_at: str = ""
 
@@ -34,6 +36,8 @@ class Room:
             "user_card_id": self.user_card_id,
             "pinned": self.pinned,
             "max_rounds": self.max_rounds,
+            "agent_mode": self.agent_mode,
+            "lan_enabled": self.lan_enabled,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -96,6 +100,14 @@ class RoomStore:
             conn.execute(
                 "ALTER TABLE rooms ADD COLUMN max_rounds INTEGER NOT NULL DEFAULT 0"
             )
+        if "agent_mode" not in cols:
+            conn.execute(
+                "ALTER TABLE rooms ADD COLUMN agent_mode INTEGER NOT NULL DEFAULT 0"
+            )
+        if "lan_enabled" not in cols:
+            conn.execute(
+                "ALTER TABLE rooms ADD COLUMN lan_enabled INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
 
     @staticmethod
@@ -109,6 +121,8 @@ class RoomStore:
             user_card_id=r["user_card_id"],
             pinned=bool(r["pinned"]),
             max_rounds=int(r["max_rounds"] or 0),
+            agent_mode=bool(r["agent_mode"]),
+            lan_enabled=bool(r["lan_enabled"]),
             created_at=r["created_at"],
             updated_at=r["updated_at"],
         )
@@ -122,6 +136,8 @@ class RoomStore:
         user_card_id: int | None = None,
         character_ids: list[int],
         max_rounds: int = 0,
+        agent_mode: bool = False,
+        lan_enabled: bool = False,
     ) -> Room:
         now = datetime.now().isoformat()
         session = self.session_store.create(kind="group")
@@ -129,10 +145,11 @@ class RoomStore:
             cur = conn.execute(
                 "INSERT INTO rooms "
                 "(name, description, scenario_prompt, session_id, user_card_id, "
-                "pinned, max_rounds, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                "pinned, max_rounds, agent_mode, lan_enabled, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
                 (name, description, scenario_prompt, session.id,
-                 user_card_id, max(0, int(max_rounds)), now, now),
+                 user_card_id, max(0, int(max_rounds)),
+                 int(bool(agent_mode)), int(bool(lan_enabled)), now, now),
             )
             room_id = cur.lastrowid
             for cid in character_ids:
@@ -170,6 +187,8 @@ class RoomStore:
         user_card_id: int | None = None,
         pinned: bool | None = None,
         max_rounds: int | None = None,
+        agent_mode: bool | None = None,
+        lan_enabled: bool | None = None,
     ) -> Room | None:
         current = self.get(room_id)
         if current is None:
@@ -177,7 +196,8 @@ class RoomStore:
         with self._connect() as conn:
             conn.execute(
                 "UPDATE rooms SET name = ?, description = ?, scenario_prompt = ?, "
-                "user_card_id = ?, pinned = ?, max_rounds = ?, updated_at = ? "
+                "user_card_id = ?, pinned = ?, max_rounds = ?, agent_mode = ?, "
+                "lan_enabled = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     current.name if name is None else name,
@@ -187,6 +207,9 @@ class RoomStore:
                     int(current.pinned if pinned is None else pinned),
                     int(current.max_rounds if max_rounds is None
                         else max(0, int(max_rounds))),
+                    int(current.agent_mode if agent_mode is None else bool(agent_mode)),
+                    int(current.lan_enabled if lan_enabled is None
+                        else bool(lan_enabled)),
                     datetime.now().isoformat(),
                     room_id,
                 ),
