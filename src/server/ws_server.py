@@ -113,6 +113,23 @@ _lan_idempotency = IdempotencyStore(_config.memory_sqlite_path)
 _lan_budget = RateBudget()
 
 
+def _lan_notify(title: str, body: str, ref: str) -> None:
+    """Raises the address-change alert in the owner's notifications.
+
+    kind="review" is reused on purpose: KINDS is a whitelist and the
+    notifications page filters on a hardcoded list, so a new kind would mean
+    touching both plus six locale files for no gain. This lands in "needs your
+    attention", which is exactly what it is."""
+    from src.notifications.store import NotificationStore
+
+    try:
+        NotificationStore(_config.memory_sqlite_path).add(
+            kind="review", title=title, body=body, ref=ref,
+        )
+    except Exception as e:
+        logger.warning(f"lan alert failed: {e}")
+
+
 def _lan_deps() -> RoomDeps:
     """Rebuilt per listener start so the app gets the live stores."""
     return RoomDeps(
@@ -124,6 +141,7 @@ def _lan_deps() -> RoomDeps:
         budget=_lan_budget,
         idempotency=_lan_idempotency,
         cards=_engine.card_repo,
+        notify=_lan_notify,
     )
 
 

@@ -35,6 +35,10 @@ MAX_CONTENT_BYTES = 16 * 1024
 MAX_BODY_BYTES = 64 * 1024
 IDEMPOTENCY_TTL_SECONDS = 24 * 3600
 STATE_PAGE_LIMIT = 100
+# One alert per credential+address per minute. A rejected request is something
+# an attacker can repeat, and an alert per attempt would fill the owner's
+# notifications instead of informing them.
+ALERT_BUDGET = (1, 60.0, 1)
 
 
 @dataclass
@@ -78,6 +82,39 @@ def audit(deps: RoomDeps, request: Request, **fields: Any) -> None:
         pass
 
 
+def ip_mismatch_alert(deps: RoomDeps, outcome: AuthOutcome, ip: str) -> None:
+    """Tell the owner that a credential arrived from a new address.
+
+    This is the compensation for choosing TOFU: its refusal is otherwise
+    silent, and a silent refusal reads like a network problem. The body
+    carries no credential — notifications get screenshotted and forwarded.
+    """
+    if deps.notify is None:
+        return
+    limit, per_seconds, burst = ALERT_BUDGET
+    if not deps.budget.allow(
+        f"alert:{outcome.token_id}:{ip}", limit=limit,
+        per_seconds=per_seconds, burst=burst,
+    ):
+        return
+    bound = outcome.bound_ip or "an unknown address"
+    member = None
+    if deps.members is not None and outcome.room_id is not None:
+        member = deps.members.get(outcome.room_id, outcome.member_ref)
+    display = getattr(member, "display_name", "") or outcome.member_ref
+    try:
+        deps.notify(
+            f"Room credential used from a new address ({display})",
+            f"Member {outcome.member_ref}: bound to {bound}; this request came "
+            f"from {ip}. Rebind it if the machine moved, or revoke it if it "
+            f"did not.",
+            f"lan-ip-mismatch:{outcome.token_id}:{ip}",
+        )
+    except Exception:
+        # Best effort: an alert must never turn a refusal into a 500.
+        pass
+
+
 def auth_guard(deps: RoomDeps, request: Request) -> AuthOutcome:
     """Blocklist -> credential -> expiry -> address anchor, in that order.
 
@@ -104,6 +141,8 @@ def auth_guard(deps: RoomDeps, request: Request) -> AuthOutcome:
         audit(deps, request, action="lan_auth", result="deny",
               reason=outcome.reason, room_id=outcome.room_id,
               member_ref=outcome.member_ref, token_id=outcome.token_id)
+        if outcome.reason == "ip_mismatch":
+            ip_mismatch_alert(deps, outcome, ip)
         raise HTTPException(status_code=401, detail="unauthorized")
 
     return outcome
