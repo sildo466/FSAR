@@ -46,6 +46,8 @@ class MessageRow:
     timestamp: datetime = field(default_factory=datetime.now)
     summary: str = ""
     tags: str = ""
+    speaker_kind: str | None = None
+    speaker_ref: str | None = None
 
     def to_dict(self) -> dict:
         data = {
@@ -104,6 +106,7 @@ class SessionStore:
             self._migrate_context_tokens(conn)
             self._migrate_unlocked_tools(conn)
             self._migrate_message_attribution(conn)
+            self._migrate_member_speaker(conn)
             self._migrate_session_kind(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
@@ -153,6 +156,28 @@ class SessionStore:
             "CREATE INDEX IF NOT EXISTS idx_conversations_character "
             "ON conversations(character_card_id)"
         )
+        conn.commit()
+
+    def _migrate_member_speaker(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: let a row name a speaker that is not a character card.
+
+        Agent room members have no character_cards row, so character_card_id
+        cannot carry them. Existing rows keep character_card_id and leave both
+        new columns NULL — readers must accept either shape.
+        """
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "conversations" not in tables:
+            return
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+        if "speaker_kind" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN speaker_kind TEXT")
+        if "speaker_ref" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN speaker_ref TEXT")
         conn.commit()
 
     def get_unlocked_tools(self, session_id: str) -> set[str]:
@@ -424,6 +449,7 @@ class SessionStore:
     def append_message(
         self, conversation_id: str, role: str, content: str,
         summary: str = "", tags: str = "", character_card_id: int | None = None,
+        speaker_kind: str | None = None, speaker_ref: str | None = None,
     ) -> int | None:
         """Insert into conversations table with session_fk set; returns row id."""
         if self.get(conversation_id) is None:
@@ -434,10 +460,11 @@ class SessionStore:
             cur = conn.execute(
                 "INSERT INTO conversations "
                 "(session_id, session_fk, role, content, summary, tags, timestamp, "
-                "character_card_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "character_card_id, speaker_kind, speaker_ref) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (conversation_id, conversation_id, role, content, summary, tags,
-                 datetime.now().isoformat(), character_card_id),
+                 datetime.now().isoformat(), character_card_id, speaker_kind,
+                 speaker_ref),
             )
             conn.commit()
             self.touch(conversation_id)
@@ -490,7 +517,7 @@ class SessionStore:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags "
+                "timestamp, summary, tags, speaker_kind, speaker_ref "
                 "FROM conversations WHERE session_fk = ? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (conversation_id, limit),
@@ -504,7 +531,7 @@ class SessionStore:
             if limit:
                 rows = conn.execute(
                     "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags "
+                "timestamp, summary, tags, speaker_kind, speaker_ref "
                     "FROM conversations WHERE session_fk = ? "
                     "ORDER BY timestamp ASC LIMIT ?",
                     (conversation_id, limit),
@@ -512,7 +539,7 @@ class SessionStore:
             else:
                 rows = conn.execute(
                     "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags "
+                "timestamp, summary, tags, speaker_kind, speaker_ref "
                     "FROM conversations WHERE session_fk = ? ORDER BY timestamp ASC",
                     (conversation_id,),
                 ).fetchall()
@@ -543,4 +570,6 @@ class SessionStore:
             timestamp=datetime.fromisoformat(r[5]),
             summary=r[6] or "",
             tags=r[7] or "",
+            speaker_kind=r[8],
+            speaker_ref=r[9],
         )
