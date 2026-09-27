@@ -144,10 +144,58 @@ def test_a_lost_first_bind_race_is_not_a_failure(store) -> None:
     assert authorize_member(store, issued.token, source_ip=ANCHOR).ok is True
 
 
+def test_a_banned_token(store) -> None:
+    issued = _issue(store)
+    assert store.ban(issued.token_id, "abuse") is True
+    outcome = authorize_member(store, issued.token, source_ip=ANCHOR)
+    assert outcome.ok is False
+    assert outcome.reason == "token_banned"
+    # The audit still learns whose credential it was.
+    assert outcome.member_ref == "claude-laptop"
+
+
+def test_a_ban_is_not_a_revoke(store) -> None:
+    """Two different things: one the owner did, one this side did for them.
+    The owner has to be able to tell them apart to lift only the second."""
+    issued = _issue(store)
+    store.ban(issued.token_id, "abuse")
+    record = store.resolve_record(issued.token)
+    assert record.revoked_at is None
+    assert record.banned_at is not None
+    assert record.banned_reason == "abuse"
+
+
+def test_a_revoked_and_banned_token_reports_revoked(store) -> None:
+    issued = _issue(store)
+    store.revoke(issued.token_id)
+    store.ban(issued.token_id, "abuse")
+    assert authorize_member(
+        store, issued.token, source_ip=ANCHOR
+    ).reason == "token_revoked"
+
+
+def test_a_banned_token_neither_anchors_nor_marks_a_use(store) -> None:
+    """A refusal changes nothing — including this one."""
+    issued = _issue(store)
+    store.ban(issued.token_id, "injection")
+    authorize_member(store, issued.token, source_ip=ANCHOR)
+    record = store.resolve_record(issued.token)
+    assert record.bound_ip is None
+    assert record.last_used_at is None
+
+
+def test_lifting_a_ban_restores_the_credential(store) -> None:
+    issued = _issue(store)
+    store.ban(issued.token_id, "abuse")
+    assert store.unban(issued.token_id) is True
+    assert authorize_member(store, issued.token, source_ip=ANCHOR).ok is True
+    assert store.resolve_record(issued.token).banned_reason is None
+
+
 def test_the_reason_enum_is_exactly_these(store) -> None:
     assert set(REASONS) == {
-        "ok", "no_token", "token_unknown", "token_revoked", "token_expired",
-        "ip_mismatch",
+        "ok", "no_token", "token_unknown", "token_revoked", "token_banned",
+        "token_expired", "ip_mismatch",
     }
 
 

@@ -50,6 +50,8 @@ class TokenRecord:
     bound_ip: str | None = None
     last_used_at: str | None = None
     last_used_ip: str | None = None
+    banned_at: str | None = None
+    banned_reason: str | None = None
 
 
 class MemberTokenStore:
@@ -102,6 +104,13 @@ class MemberTokenStore:
             conn.execute("ALTER TABLE room_member_tokens ADD COLUMN bound_ip TEXT")
         if "last_used_ip" not in cols:
             conn.execute("ALTER TABLE room_member_tokens ADD COLUMN last_used_ip TEXT")
+        # A ban is not a revoke. Revoking is the owner taking a credential away;
+        # a ban is this side taking it away, and the owner has to be able to
+        # tell the two apart in order to lift one without the other.
+        if "banned_at" not in cols:
+            conn.execute("ALTER TABLE room_member_tokens ADD COLUMN banned_at TEXT")
+        if "banned_reason" not in cols:
+            conn.execute("ALTER TABLE room_member_tokens ADD COLUMN banned_reason TEXT")
 
     def issue(
         self, room_id: int, member_ref: str, *, label: str = "",
@@ -141,6 +150,8 @@ class MemberTokenStore:
             bound_ip=row["bound_ip"],
             last_used_at=row["last_used_at"],
             last_used_ip=row["last_used_ip"],
+            banned_at=row["banned_at"],
+            banned_reason=row["banned_reason"],
         )
 
     def resolve_record(self, token: str) -> TokenRecord | None:
@@ -167,6 +178,8 @@ class MemberTokenStore:
         """
         record = self.resolve_record(token)
         if record is None or record.revoked_at is not None:
+            return None
+        if record.banned_at is not None:
             return None
         if record.expires_at is not None:
             if datetime.fromisoformat(record.expires_at) <= datetime.now(timezone.utc):
@@ -206,7 +219,7 @@ class MemberTokenStore:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, label, created_at, last_used_at, revoked_at, "
-                "expires_at, bound_ip, last_used_ip "
+                "expires_at, bound_ip, last_used_ip, banned_at, banned_reason "
                 "FROM room_member_tokens WHERE room_id = ? AND member_ref = ? "
                 "ORDER BY created_at ASC",
                 (room_id, member_ref),
@@ -219,6 +232,32 @@ class MemberTokenStore:
                 "UPDATE room_member_tokens SET revoked_at = ? "
                 "WHERE id = ? AND revoked_at IS NULL",
                 (_now(), token_id),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def ban(self, token_id: int, reason: str = "") -> bool:
+        """Take a credential away because of what it said, not because the
+        owner asked for it.
+
+        Revoked, it would be indistinguishable from a credential the owner
+        deliberately removed, and there would be nothing in the UI to undo:
+        unban() is what makes the ban a decision the owner keeps."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE room_member_tokens SET banned_at = ?, banned_reason = ? "
+                "WHERE id = ? AND banned_at IS NULL",
+                (_now(), str(reason or ""), int(token_id)),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def unban(self, token_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE room_member_tokens SET banned_at = NULL, "
+                "banned_reason = NULL WHERE id = ? AND banned_at IS NOT NULL",
+                (int(token_id),),
             )
             conn.commit()
         return cur.rowcount > 0

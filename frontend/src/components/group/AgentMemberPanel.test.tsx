@@ -121,6 +121,42 @@ it("lists token metadata and asks to revoke one", () => {
   expect(screen.queryByTestId("revoke-token-5")).toBeNull();
 });
 
+it("offers to lift a ban, and carries the reason the line was read as", () => {
+  const unban = vi.fn();
+  const revoke = vi.fn();
+  useGroup.setState({
+    unbanMemberToken: unban,
+    revokeMemberToken: revoke,
+    agentMembers: {
+      1: [
+        {
+          ...active,
+          tokens: [
+            {
+              id: 7,
+              label: "phone",
+              created_at: "t",
+              last_used_at: null,
+              revoked_at: null,
+              banned_at: "t3",
+              banned_reason: "server_attack",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  render(<AgentMemberPanel room={room([active])} onClose={() => {}} />);
+  // The category is the owner's only clue about whether the ban was fair, so
+  // it has to reach them.
+  expect(screen.getByTestId("token-7")).toHaveAttribute("title", "server_attack");
+  // A ban is the owner's to lift; it is not a second revoke.
+  expect(screen.queryByTestId("revoke-token-7")).toBeNull();
+  fireEvent.click(screen.getByTestId("unban-token-7"));
+  expect(unban).toHaveBeenCalledWith(1, "claude-laptop", 7);
+  expect(revoke).not.toHaveBeenCalled();
+});
+
 it("adds a member from the form", () => {
   const add = vi.fn();
   useGroup.setState({ addAgentMember: add });

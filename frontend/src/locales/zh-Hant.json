@@ -943,6 +943,8 @@
   "group.tokenOnce": "我已複製",
   "group.tokenOnceWarning": "{{ref}} 的權杖——現在就複製，關閉後再也看不到。",
   "group.revokeToken": "撤銷",
+  "group.unbanToken": "解封",
+  "group.bannedToken": "已封禁",
   "group.tokensLabel": "權杖",
   "group.stopAll": "停止全部發言",
   "group.members": "成員",

@@ -16,6 +16,7 @@ REASONS = (
     "no_token",
     "token_unknown",
     "token_revoked",
+    "token_banned",
     "token_expired",
     "ip_mismatch",
 )
@@ -55,6 +56,13 @@ def authorize_member(
     if record.revoked_at is not None:
         return AuthOutcome(
             ok=False, reason="token_revoked", room_id=record.room_id,
+            member_ref=record.member_ref, token_id=record.token_id,
+        )
+    if record.banned_at is not None:
+        # Checked here rather than in the route so that a ban closes every
+        # route at once, and so the audit says "banned" and not "revoked".
+        return AuthOutcome(
+            ok=False, reason="token_banned", room_id=record.room_id,
             member_ref=record.member_ref, token_id=record.token_id,
         )
 

@@ -109,6 +109,34 @@ def test_list_for_reports_expiry_and_binding() -> None:
     assert row["expires_at"] is not None
 
 
+def test_list_for_reports_a_ban_so_the_panel_can_offer_to_lift_it() -> None:
+    store = _store()
+    issued = store.issue(1, "claude-laptop")
+    store.ban(issued.token_id, "server_attack")
+    row = store.list_for(1, "claude-laptop")[0]
+    assert row["banned_at"] is not None
+    assert row["banned_reason"] == "server_attack"
+    store.unban(issued.token_id)
+    row = store.list_for(1, "claude-laptop")[0]
+    assert row["banned_at"] is None
+    assert row["banned_reason"] is None
+
+
+def test_banning_twice_keeps_the_first_reason() -> None:
+    store = _store()
+    issued = store.issue(1, "claude-laptop")
+    assert store.ban(issued.token_id, "abuse") is True
+    assert store.ban(issued.token_id, "flooding") is False
+    assert store.resolve_record(issued.token).banned_reason == "abuse"
+
+
+def test_unbanning_what_is_not_banned_is_false() -> None:
+    store = _store()
+    issued = store.issue(1, "claude-laptop")
+    assert store.unban(issued.token_id) is False
+    assert store.unban(999) is False
+
+
 def test_a_p1_row_migrates_and_reads_back(tmp_path: Path) -> None:
     """The real migration risk: a row written before these columns existed."""
     db = tmp_path / "old.db"
@@ -145,6 +173,8 @@ def test_a_p1_row_migrates_and_reads_back(tmp_path: Path) -> None:
     assert record.expires_at is None
     assert record.bound_ip is None
     assert record.last_used_ip is None
+    assert record.banned_at is None
+    assert record.banned_reason is None
     # A pre-P2 token has no expiry, so the P1 accessor keeps accepting it.
     assert store.resolve(token) == (4, "old-member")
 

@@ -11,6 +11,7 @@ the budgets are patched in tests, and a by-value import would freeze them.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import Any
 
@@ -222,6 +223,16 @@ def _messages(app: Any, deps: RoomDeps) -> None:
                 raise HTTPException(
                     status_code=409, detail="idempotency_conflict",
                 )
+
+        # Last, because it is the one expensive step: the budgets above bound
+        # how often it can be reached, and a replay never runs it again.
+        if deps.visitor_screen is not None:
+            verdict = await asyncio.to_thread(
+                deps.visitor_screen.screen, content,
+            )
+            if verdict.flagged:
+                room_app.ban_visitor(deps, request, outcome, verdict, content)
+                raise HTTPException(status_code=403, detail="banned")
 
         from src.server.handlers.group import post_member_message
 

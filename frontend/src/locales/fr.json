@@ -210,6 +210,8 @@
   "group.tokenOnce": "Je l'ai copié",
   "group.tokenOnceWarning": "Jeton de {{ref}} — copiez-le maintenant, il ne sera plus jamais affiché.",
   "group.revokeToken": "Révoquer",
+  "group.unbanToken": "Débloquer",
+  "group.bannedToken": "banni",
   "group.tokensLabel": "Jetons",
   "group.stopAll": "Arrêter toutes les réponses",
   "group.members": "Membres",

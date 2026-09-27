@@ -210,6 +210,8 @@
   "group.tokenOnce": "Ich habe es kopiert",
   "group.tokenOnceWarning": "Token für {{ref}} — jetzt kopieren, er wird nie wieder angezeigt.",
   "group.revokeToken": "Widerrufen",
+  "group.unbanToken": "Entsperren",
+  "group.bannedToken": "gesperrt",
   "group.tokensLabel": "Tokens",
   "group.stopAll": "Alle Antworten stoppen",
   "group.members": "Mitglieder",

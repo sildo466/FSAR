@@ -133,6 +133,8 @@ def _lan_notify(title: str, body: str, ref: str) -> None:
 
 def _lan_deps() -> RoomDeps:
     """Rebuilt per listener start so the app gets the live stores."""
+    from src.security.visitor_screen import VisitorScreener
+
     return RoomDeps(
         tokens=_member_tokens,
         blocklist=_lan_blocklist,
@@ -143,6 +145,7 @@ def _lan_deps() -> RoomDeps:
         idempotency=_lan_idempotency,
         cards=_engine.card_repo,
         notify=_lan_notify,
+        visitor_screen=VisitorScreener(_config),
     )
 
 

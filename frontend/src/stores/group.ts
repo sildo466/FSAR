@@ -69,6 +69,7 @@ interface GroupState {
   removeAgentMember: (roomId: number, ref: string) => void;
   issueMemberToken: (roomId: number, ref: string) => void;
   revokeMemberToken: (roomId: number, ref: string, tokenId: number) => void;
+  unbanMemberToken: (roomId: number, ref: string, tokenId: number) => void;
   stopAllChains: () => void;
   refreshLanStatus: () => void;
   refreshLanBlocklist: () => void;
@@ -381,6 +382,14 @@ export const useGroup = create<GroupState>((set, get) => {
     revokeMemberToken: (roomId, ref, tokenId) =>
       attached?.send({
         type: "group.agent.token.revoke",
+        room_id: roomId,
+        member_ref: ref,
+        token_id: tokenId,
+      }),
+
+    unbanMemberToken: (roomId, ref, tokenId) =>
+      attached?.send({
+        type: "group.agent.token.unban",
         room_id: roomId,
         member_ref: ref,
         token_id: tokenId,

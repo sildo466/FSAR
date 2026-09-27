@@ -550,6 +550,17 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             })
             return True
 
+        if t == "group.agent.token.unban":
+            room_id = int(msg["room_id"])
+            await asyncio.to_thread(
+                _member_tokens.unban, int(msg["token_id"]),
+            )
+            await ws.send_json({
+                "type": "group.agent.list.ok", "room_id": room_id,
+                **_agent_list_payload(room_id),
+            })
+            return True
+
         if t == "group.stop_all":
             for room_id in list(_tasks):
                 engine.cancel(room_id)

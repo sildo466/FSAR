@@ -17,6 +17,7 @@ from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
 from src.memory.session_store import SessionStore
 from src.security.rate_budget import RateBudget
+from src.security.visitor_screen import VisitorVerdict
 from src.server import room_app as room_app_module
 from src.server.handlers import group as group_handler
 from src.server.room_app import RoomDeps, create_room_app
@@ -283,3 +284,77 @@ def test_the_speech_is_audited_without_the_credential(wired) -> None:
     blob = json.dumps(wired.deps.audit.list(limit=50), ensure_ascii=False)
     assert "lan_message" in blob
     assert wired.token not in blob
+
+
+# --- the visitor screen -----------------------------------------------------
+
+
+class _Screen:
+    """Stands in for the judge, so what is under test is what the route does
+    with a verdict rather than how the verdict was reached."""
+
+    def __init__(self, verdict: VisitorVerdict) -> None:
+        self.verdict = verdict
+        self.seen: list[str] = []
+
+    def screen(self, text: str) -> VisitorVerdict:
+        self.seen.append(text)
+        return self.verdict
+
+
+def _flagged() -> VisitorVerdict:
+    return VisitorVerdict(flagged=True, category="abuse", confidence=0.95,
+                          route="llm", reason="calls the owner worthless")
+
+
+def test_a_flagged_line_is_refused_and_bans_the_credential(wired) -> None:
+    notes: list[tuple[str, str, str]] = []
+    wired.deps.visitor_screen = _Screen(_flagged())
+    wired.deps.notify = lambda title, body, ref: notes.append((title, body, ref))
+
+    response = _post(wired)
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "banned"
+    assert wired.posts == [], "the line must not reach the room"
+    record = wired.tokens.resolve_record(wired.token)
+    assert record.banned_at is not None
+    assert record.banned_reason == "abuse"
+    assert record.revoked_at is None, "a ban is not a revoke"
+    assert len(notes) == 1
+    assert "abuse" in notes[0][1]
+    assert "hello room" in notes[0][1], "the owner has to see what was said"
+
+
+def test_a_ban_closes_every_route_at_once(wired) -> None:
+    wired.deps.visitor_screen = _Screen(_flagged())
+    assert _post(wired).status_code == 403
+    assert wired.client.get(
+        f"/room/{wired.room.id}/state?since=0",
+        headers={"Authorization": f"Bearer {wired.token}"},
+    ).status_code == 401
+
+
+def test_a_line_the_screen_clears_is_posted(wired) -> None:
+    wired.deps.visitor_screen = _Screen(VisitorVerdict(route="clear"))
+    assert _post(wired).status_code == 200
+    assert len(wired.posts) == 1
+
+
+def test_a_replay_is_not_screened_again(wired) -> None:
+    screen = _Screen(VisitorVerdict(route="clear"))
+    wired.deps.visitor_screen = screen
+    _post(wired, content="hi", key="same")
+    _post(wired, content="hi", key="same")
+    assert screen.seen == ["hi"]
+
+
+def test_a_rate_limited_post_is_never_screened(wired, monkeypatch) -> None:
+    """The screen is the expensive step, so it sits behind the budget: a caller
+    that is already over its rate must not be able to spend model calls."""
+    monkeypatch.setattr(room_app_module, "SPEAK_BUDGET", (1, 60.0, 1))
+    screen = _Screen(VisitorVerdict(route="clear"))
+    wired.deps.visitor_screen = screen
+    assert _post(wired, content="one", key="one").status_code == 200
+    assert _post(wired, content="two", key="two").status_code == 429
+    assert screen.seen == ["one"]

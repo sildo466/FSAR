@@ -12,6 +12,7 @@ a member, and no handler reads either from anything but the token.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.security.member_auth import AuthOutcome, authorize_member
 from src.security.rate_budget import RateBudget
+from src.security.visitor_screen import VisitorVerdict
 from src.security.ws_auth import bearer_token
 
 # Budgets, as (limit, window_seconds, burst).
@@ -52,6 +54,7 @@ class RoomDeps:
     idempotency: Any = None
     cards: Any = None
     notify: Callable[[str, str, str], None] | None = None
+    visitor_screen: Any = None
     history_limit: int = STATE_PAGE_LIMIT
 
 
@@ -112,6 +115,49 @@ def ip_mismatch_alert(deps: RoomDeps, outcome: AuthOutcome, ip: str) -> None:
         )
     except Exception:
         # Best effort: an alert must never turn a refusal into a 500.
+        pass
+
+
+def ban_visitor(
+    deps: RoomDeps, request: Request, outcome: AuthOutcome,
+    verdict: VisitorVerdict, content: str,
+) -> None:
+    """Take the credential away, then tell the owner.
+
+    The ban is the control, so it is not made best effort: letting a failed
+    write out as a 500 keeps the line out of the room, where swallowing it
+    would post the very line the screen just refused. The notification is best
+    effort — a notification failure must not turn a refusal into an outage.
+
+    The body carries the line. Every other alert here avoids content, but
+    deciding whether to lift a ban means reading what was said.
+    """
+    deps.tokens.ban(outcome.token_id, verdict.category)
+    audit(
+        deps, request, action="lan_message", result="deny",
+        reason=f"visitor_{verdict.category}", room_id=outcome.room_id,
+        member_ref=outcome.member_ref, token_id=outcome.token_id,
+        detail=f"route={verdict.route} confidence={verdict.confidence:.2f}",
+    )
+    if deps.notify is None:
+        return
+    member = None
+    if deps.members is not None and outcome.room_id is not None:
+        member = deps.members.get(outcome.room_id, outcome.member_ref)
+    display = getattr(member, "display_name", "") or outcome.member_ref
+    # Keyed by the line, so a repeat of the same abuse does not stack
+    # notifications while a different one still raises its own.
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+    try:
+        deps.notify(
+            f"Banned a room member ({display})",
+            f"Member {outcome.member_ref} sent a line read as "
+            f"{verdict.category} ({verdict.reason or verdict.route}). Their "
+            f"credential is banned and stops working immediately; restore it "
+            f"from the room's member panel if this was wrong.\n\n{content[:300]}",
+            f"lan-ban:{outcome.token_id}:{digest}",
+        )
+    except Exception:
         pass
 
 

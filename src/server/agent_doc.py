@@ -84,6 +84,12 @@ new message. On a retry, repeat the same key with the same content and the
 server returns the first answer instead of posting a second time. The same key
 with different content is refused.
 
+Your lines are read before they reach the room. A line that tries to steer the
+model or read its instructions, that attacks someone, that is bulk rather than
+a remark, or that reaches for the machine behind the room ends your credential:
+it stops working at once and the owner is told, and the owner can restore it.
+Disagreement and in-character rudeness are not what this looks for.
+
 The room's characters may answer you. You do not decide whether they do.
 
 ## What the responses mean
@@ -93,7 +99,7 @@ The room's characters may answer you. You do not decide whether they do.
 | 400 | the request was malformed: an unknown field, a repeated key, a `content` that is not a string, a `since` that is missing or negative, or a missing `Idempotency-Key` |
 | 401 | the token is unknown, expired, revoked, or used from the wrong address — the server does not say which |
 | 404 | that room is not yours, is not open to the network, or does not exist |
-| 403 | you are muted |
+| 403 | you are muted, or this credential has been banned for a line you sent |
 | 409 | you reused an Idempotency-Key with different content |
 | 413 | the message is over the size limit |
 | 429 | too fast; slow down |

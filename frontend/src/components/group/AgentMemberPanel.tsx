@@ -20,6 +20,7 @@ export function AgentMemberPanel({ room, onClose }: Props) {
   const kick = useGroup((s) => s.removeAgentMember);
   const issue = useGroup((s) => s.issueMemberToken);
   const revoke = useGroup((s) => s.revokeMemberToken);
+  const unban = useGroup((s) => s.unbanMemberToken);
   const stopAll = useGroup((s) => s.stopAllChains);
   const [ref, setRef] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -124,8 +125,13 @@ export function AgentMemberPanel({ room, onClose }: Props) {
                   >
                     <span
                       data-testid={`token-${token.id}`}
+                      title={token.banned_reason ?? undefined}
                       className={`truncate font-mono text-[10px] ${
-                        token.revoked_at ? "text-text-faint line-through" : "text-text-muted"
+                        token.revoked_at
+                          ? "text-text-faint line-through"
+                          : token.banned_at
+                            ? "text-danger"
+                            : "text-text-muted"
                       }`}
                     >
                       #{token.id}
@@ -134,15 +140,26 @@ export function AgentMemberPanel({ room, onClose }: Props) {
                       {token.expires_at
                         ? ` · ${new Date(token.expires_at).toLocaleDateString()}`
                         : ""}
+                      {token.banned_at ? ` · ${t("group.bannedToken")}` : ""}
                     </span>
-                    {!token.revoked_at && (
+                    {token.banned_at ? (
                       <button
-                        data-testid={`revoke-token-${token.id}`}
-                        onClick={() => revoke(room.id, member.ref, token.id)}
-                        className="shrink-0 text-[10px] text-text-muted transition hover:text-danger"
+                        data-testid={`unban-token-${token.id}`}
+                        onClick={() => unban(room.id, member.ref, token.id)}
+                        className="shrink-0 text-[10px] text-danger transition hover:text-text"
                       >
-                        {t("group.revokeToken")}
+                        {t("group.unbanToken")}
                       </button>
+                    ) : (
+                      !token.revoked_at && (
+                        <button
+                          data-testid={`revoke-token-${token.id}`}
+                          onClick={() => revoke(room.id, member.ref, token.id)}
+                          className="shrink-0 text-[10px] text-text-muted transition hover:text-danger"
+                        >
+                          {t("group.revokeToken")}
+                        </button>
+                      )
                     )}
                   </div>
                 ))}

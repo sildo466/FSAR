@@ -943,6 +943,8 @@
   "group.tokenOnce": "I have copied it",
   "group.tokenOnceWarning": "Token for {{ref}} — copy it now, it is never shown again.",
   "group.revokeToken": "Revoke",
+  "group.unbanToken": "Unban",
+  "group.bannedToken": "banned",
   "group.tokensLabel": "Tokens",
   "group.stopAll": "Stop all replies",
   "group.members": "Members",

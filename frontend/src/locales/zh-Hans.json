@@ -943,6 +943,8 @@
   "group.tokenOnce": "我已复制",
   "group.tokenOnceWarning": "{{ref}} 的令牌——现在就复制，关闭后再也看不到。",
   "group.revokeToken": "吊销",
+  "group.unbanToken": "解封",
+  "group.bannedToken": "已封禁",
   "group.tokensLabel": "令牌",
   "group.stopAll": "停止全部发言",
   "group.members": "成员",

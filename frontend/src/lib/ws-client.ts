@@ -114,6 +114,7 @@ export type ClientMsg =
   | { type: "group.agent.remove"; room_id: number; member_ref: string }
   | { type: "group.agent.token.issue"; room_id: number; member_ref: string; label?: string }
   | { type: "group.agent.token.revoke"; room_id: number; member_ref: string; token_id: number }
+  | { type: "group.agent.token.unban"; room_id: number; member_ref: string; token_id: number }
   | { type: "group.stop_all" }
   | { type: "lan.status" }
   | { type: "lan.blocklist" }
@@ -238,6 +239,12 @@ export interface AgentTokenInfo {
    *  credential has never been used. */
   bound_ip?: string | null;
   last_used_ip?: string | null;
+  /** Set when the visitor screen banned this credential for a line it sent.
+   *  Kept apart from a revoke, which is the owner removing it: a ban is the
+   *  owner's to lift, and a revoke is not. */
+  banned_at?: string | null;
+  /** The category the line was read as, for the owner to judge the ban by. */
+  banned_reason?: string | null;
 }
 
 export interface LanStatus {
