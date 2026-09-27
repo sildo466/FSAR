@@ -154,6 +154,49 @@ it("stops every chain on demand", () => {
   expect(stop).toHaveBeenCalled();
 });
 
+it("shows which address a token is bound to and when it expires", () => {
+  useGroup.setState({
+    agentMembers: {
+      1: [
+        {
+          ...active,
+          tokens: [
+            {
+              id: 4, label: "laptop", created_at: "t", last_used_at: null,
+              revoked_at: null, bound_ip: "192.168.1.20",
+              expires_at: "2026-10-04T10:00:00+00:00", last_used_ip: null,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  render(<AgentMemberPanel room={room([active])} onClose={() => {}} />);
+  expect(screen.getByTestId("token-4")).toHaveTextContent("192.168.1.20");
+  expect(screen.getByTestId("token-4")).toHaveTextContent("2026");
+});
+
+it("marks a token that has never been used", () => {
+  useGroup.setState({
+    agentMembers: {
+      1: [
+        {
+          ...active,
+          tokens: [
+            {
+              id: 5, label: "", created_at: "t", last_used_at: null,
+              revoked_at: null, bound_ip: null, expires_at: null,
+              last_used_ip: null,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  render(<AgentMemberPanel room={room([active])} onClose={() => {}} />);
+  expect(screen.getByTestId("token-5")).toHaveTextContent("#5");
+});
+
 it("says so when there are no agent members yet", () => {
   render(<AgentMemberPanel room={room([])} onClose={() => {}} />);
   expect(screen.getByTestId("agent-members-empty")).toBeInTheDocument();

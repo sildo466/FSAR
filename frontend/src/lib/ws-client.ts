@@ -115,6 +115,12 @@ export type ClientMsg =
   | { type: "group.agent.token.issue"; room_id: number; member_ref: string; label?: string }
   | { type: "group.agent.token.revoke"; room_id: number; member_ref: string; token_id: number }
   | { type: "group.stop_all" }
+  | { type: "lan.status" }
+  | { type: "lan.blocklist" }
+  | { type: "lan.block_ip"; ip: string; reason?: string }
+  | { type: "lan.unblock_ip"; ip: string }
+  | { type: "lan.rebind_ip"; token_id: number; ip: string }
+  | { type: "auth_audit.list"; limit?: number; room_id?: number }
   | { type: "content_guard.list" }
   | { type: "content_guard.restore"; id: number }
   | { type: "content_guard.purge"; id: number }
@@ -226,6 +232,45 @@ export interface AgentTokenInfo {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  /** Seven days from issue by default. Null means it never expires. */
+  expires_at?: string | null;
+  /** The address the first successful connection came from, or null while the
+   *  credential has never been used. */
+  bound_ip?: string | null;
+  last_used_ip?: string | null;
+}
+
+export interface LanStatus {
+  listening: boolean;
+  host: string;
+  port: number;
+  /** SHA-256 of the self-signed certificate, for the owner to read out loud. */
+  fingerprint: string;
+  /** How many rooms are open to the network. Zero means no socket at all. */
+  lan_rooms: number;
+  /** Why the listener is not up, when it should be. */
+  error: string;
+  addresses: string[];
+  agent_md_hint: string;
+}
+
+export interface LanBlockEntry {
+  ip: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface AuthAuditEvent {
+  seq: number;
+  created_at: string;
+  action: string;
+  result: string;
+  reason: string;
+  room_id: number | null;
+  member_ref: string | null;
+  token_id: number | null;
+  source_ip: string | null;
+  detail: string;
 }
 
 /** A member plus its token metadata. Never carries the token itself. */
@@ -445,13 +490,17 @@ export type ServerMsg =
   | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
   | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; failed?: boolean; emotion_state?: Record<string, number> | null }
   | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "cancelled" | "error" }
-  | { type: "group.user_message"; room_id: number; message_id?: string | null; row_id?: number | null; content: string; user_name?: string | null }
+  | { type: "group.user_message"; room_id: number; message_id?: string | null; row_id?: number | null; content: string; user_name?: string | null; speaker_kind?: "agent" | null; member_ref?: string }
   | { type: "group.context"; room_id: number; used_tokens: number; window_tokens: number }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
   | { type: "group.agent.list.ok"; room_id: number; agents: AgentMemberDetail[] }
   /** The plaintext token appears here once and is never stored anywhere. */
   | { type: "group.agent.token.issued"; room_id: number; member_ref: string; token_id: number; token: string }
   | { type: "group.stop_all.ack" }
+  | { type: "lan.status.ok"; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
+  | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
+  | { type: "lan.error"; code: string; message: string }
+  | { type: "auth_audit.list.ok"; events: AuthAuditEvent[] }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }
   | {
       type: "content_guard.list_result";

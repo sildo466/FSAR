@@ -123,12 +123,17 @@ export function AgentMemberPanel({ room, onClose }: Props) {
                     className="flex items-center justify-between gap-2"
                   >
                     <span
+                      data-testid={`token-${token.id}`}
                       className={`truncate font-mono text-[10px] ${
                         token.revoked_at ? "text-text-faint line-through" : "text-text-muted"
                       }`}
                     >
                       #{token.id}
                       {token.label ? ` · ${token.label}` : ""}
+                      {token.bound_ip ? ` · ${token.bound_ip}` : ""}
+                      {token.expires_at
+                        ? ` · ${new Date(token.expires_at).toLocaleDateString()}`
+                        : ""}
                     </span>
                     {!token.revoked_at && (
                       <button

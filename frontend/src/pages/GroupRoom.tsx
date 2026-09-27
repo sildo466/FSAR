@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bot, Users } from "lucide-react";
+import { ArrowLeft, Bot, Radio, Users } from "lucide-react";
 import { useGroup } from "../stores/group";
 import { useCardsStore } from "../stores/cards";
 import { fetchWSToken, useWS } from "../stores/ws";
@@ -14,6 +14,7 @@ import {
 import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
+import { LanPanel } from "../components/group/LanPanel";
 import { MemberPanel } from "../components/group/MemberPanel";
 
 export function GroupRoom() {
@@ -37,6 +38,7 @@ export function GroupRoom() {
   const [input, setInput] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [lanOpen, setLanOpen] = useState(false);
   // Held here, not in the store: the plaintext token must never sit in shared
   // state where another component or a devtools snapshot could read it.
   const [tokenOnce, setTokenOnce] = useState<{
@@ -195,6 +197,14 @@ export function GroupRoom() {
               {room.agent_members?.length ?? 0}
             </button>
           )}
+          <button
+            data-testid="toggle-lan-panel"
+            onClick={() => setLanOpen((v) => !v)}
+            className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-text-muted transition hover:bg-glass hover:text-text"
+          >
+            <Radio size={13} strokeWidth={1.6} />
+            {t("lan.title")}
+          </button>
           {gauge && gauge.window > 0 && (
             <span
               data-testid="group-token-meter"
@@ -293,6 +303,8 @@ export function GroupRoom() {
       {agentPanelOpen && room && (
         <AgentMemberPanel room={room} onClose={() => setAgentPanelOpen(false)} />
       )}
+
+      {lanOpen && <LanPanel onClose={() => setLanOpen(false)} />}
 
       {tokenOnce && (
         <div

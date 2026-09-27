@@ -2,9 +2,12 @@
 import { create } from "zustand";
 import type {
   AgentMemberDetail,
+  AuthAuditEvent,
   ClientMsg,
   ElectionCandidate,
   GroupMessage,
+  LanBlockEntry,
+  LanStatus,
   RoomSummary,
   ServerMsg,
   WSClient,
@@ -23,6 +26,13 @@ interface GroupState {
   /** Token metadata per room, keyed by member ref order as sent. Never holds a
    *  plaintext token — the issued event goes straight to a panel-local state. */
   agentMembers: Record<number, AgentMemberDetail[]>;
+  /** Network access: the listener's state, blocked addresses, and the recent
+   *  refusals that explain why a member cannot get in. */
+  lan: {
+    status: LanStatus | null;
+    blocklist: LanBlockEntry[];
+    audit: AuthAuditEvent[];
+  };
 
   init: (client: WSClient) => () => void;
   refreshRooms: () => void;
@@ -60,6 +70,12 @@ interface GroupState {
   issueMemberToken: (roomId: number, ref: string) => void;
   revokeMemberToken: (roomId: number, ref: string, tokenId: number) => void;
   stopAllChains: () => void;
+  refreshLanStatus: () => void;
+  refreshLanBlocklist: () => void;
+  refreshAuthAudit: (limit?: number) => void;
+  blockIp: (ip: string, reason: string) => void;
+  unblockIp: (ip: string) => void;
+  rebindIp: (tokenId: number, ip: string) => void;
   rate: (roomId: number, rowId: number, score: number, reason?: string) => void;
   regenerate: (roomId: number, rowId: number) => void;
   send: (msg: ClientMsg) => void;
@@ -157,6 +173,24 @@ export const useGroup = create<GroupState>((set, get) => {
       set((s) => ({
         agentMembers: { ...s.agentMembers, [msg.room_id]: msg.agents },
       }));
+    } else if (msg.type === "lan.status.ok") {
+      const { type: _type, ...status } = msg;
+      set((s) => ({ lan: { ...s.lan, status: status as LanStatus } }));
+    } else if (msg.type === "lan.blocklist.ok") {
+      set((s) => ({ lan: { ...s.lan, blocklist: msg.entries } }));
+    } else if (msg.type === "auth_audit.list.ok") {
+      set((s) => ({ lan: { ...s.lan, audit: msg.events } }));
+    } else if (msg.type === "lan.error") {
+      // Surfaced on the panel rather than swallowed: these are the errors a
+      // user can act on (a bad address, a listener that would not start).
+      set((s) => ({
+        lan: {
+          ...s.lan,
+          status: s.lan.status
+            ? { ...s.lan.status, error: msg.message }
+            : s.lan.status,
+        },
+      }));
     } else if (msg.type === "group.deleted") {
       set((s) => {
         const { [msg.room_id]: _messages, ...messages } = s.messages;
@@ -253,6 +287,7 @@ export const useGroup = create<GroupState>((set, get) => {
     loadingHistory: {},
     context: {},
     agentMembers: {},
+    lan: { status: null, blocklist: [], audit: [] },
 
     init: (client) => {
       attached = client;
@@ -352,6 +387,20 @@ export const useGroup = create<GroupState>((set, get) => {
       }),
 
     stopAllChains: () => attached?.send({ type: "group.stop_all" }),
+
+    refreshLanStatus: () => attached?.send({ type: "lan.status" }),
+
+    refreshLanBlocklist: () => attached?.send({ type: "lan.blocklist" }),
+
+    refreshAuthAudit: (limit) =>
+      attached?.send({ type: "auth_audit.list", limit: limit ?? 100 }),
+
+    blockIp: (ip, reason) => attached?.send({ type: "lan.block_ip", ip, reason }),
+
+    unblockIp: (ip) => attached?.send({ type: "lan.unblock_ip", ip }),
+
+    rebindIp: (tokenId, ip) =>
+      attached?.send({ type: "lan.rebind_ip", token_id: tokenId, ip }),
 
     rate: (roomId, rowId, score, reason) =>
       attached?.send({
