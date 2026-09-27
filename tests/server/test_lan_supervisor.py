@@ -239,6 +239,34 @@ def test_stopping_frees_the_port_again(tmp_path) -> None:
         again.close()
 
 
+def test_status_separates_the_setting_from_the_listener(tmp_path) -> None:
+    """The switch in the GUI is a setting; whether a socket exists is a
+    separate fact. Conflating them is what made a failed start look like an
+    unticked box that could not be ticked."""
+    off = _supervisor(tmp_path, config=_config(enabled=False)).status()
+    assert off["enabled"] is False
+    assert off["listening"] is False
+    assert off["error"] == ""
+
+    occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied.bind(("127.0.0.1", 0))
+    occupied.listen(1)
+    port = occupied.getsockname()[1]
+    try:
+        stuck = LanSupervisor(
+            config=_config(enabled=True, host="127.0.0.1", port=port),
+            rooms=_rooms(True), deps_factory=lambda: SimpleNamespace(),
+            cert_dir=tmp_path,
+        )
+        status = stuck.sync()
+        assert status["enabled"] is True, "the user's setting is on"
+        assert status["listening"] is False, "but there is no socket"
+        assert status["error"], "and it says why"
+        stuck.stop()
+    finally:
+        occupied.close()
+
+
 def test_stop_is_safe_when_nothing_is_running(tmp_path) -> None:
     supervisor = _supervisor(tmp_path)
     supervisor.stop()

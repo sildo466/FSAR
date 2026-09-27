@@ -241,6 +241,9 @@ export interface AgentTokenInfo {
 }
 
 export interface LanStatus {
+  /** The setting the user chose. Kept apart from `listening`: a listener that
+   *  could not start must not make the switch look unticked. */
+  enabled: boolean;
   listening: boolean;
   host: string;
   port: number;
@@ -497,7 +500,7 @@ export type ServerMsg =
   /** The plaintext token appears here once and is never stored anywhere. */
   | { type: "group.agent.token.issued"; room_id: number; member_ref: string; token_id: number; token: string }
   | { type: "group.stop_all.ack" }
-  | { type: "lan.status.ok"; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
+  | { type: "lan.status.ok"; enabled: boolean; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
   | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
   | { type: "lan.error"; code: string; message: string }
   | { type: "auth_audit.list.ok"; events: AuthAuditEvent[] }

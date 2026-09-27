@@ -18,6 +18,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const LISTENING: LanStatus = {
+  enabled: true,
   listening: true,
   host: "0.0.0.0",
   port: 8766,
@@ -58,10 +59,33 @@ it("shows whether the listener is up", () => {
   expect(screen.getByTestId("lan-status")).toHaveTextContent(/listening/i);
 });
 
-it("says so when the listener is down", () => {
-  seed({ listening: false, addresses: [] });
+it("says so when the setting is off", () => {
+  seed({ enabled: false, listening: false, addresses: [] });
   render(<LanPanel onClose={() => {}} />);
   expect(screen.getByTestId("lan-status")).toHaveTextContent(/closed/i);
+});
+
+it("shows the setting, not the socket, and says why it is not running", () => {
+  // The state that looked like "the switch does nothing": the setting is on,
+  // the listener could not start.
+  seed({
+    enabled: true,
+    listening: false,
+    addresses: [],
+    error: "cannot listen on 0.0.0.0:8766",
+  });
+  render(<LanPanel onClose={() => {}} />);
+  const toggle = screen.getByTestId("lan-master-switch") as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  expect(screen.getByTestId("lan-status")).toHaveTextContent(/not running/i);
+  expect(screen.getByTestId("lan-error")).toHaveTextContent("0.0.0.0:8766");
+});
+
+it("leaves the switch unticked when the setting is off", () => {
+  seed({ enabled: false, listening: false, addresses: [] });
+  render(<LanPanel onClose={() => {}} />);
+  const toggle = screen.getByTestId("lan-master-switch") as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
 });
 
 it("lists the addresses to hand over and the fingerprint", () => {
@@ -82,7 +106,7 @@ it("offers the handoff line as read-only text", () => {
 });
 
 it("surfaces a listener error instead of hiding it", () => {
-  seed({ listening: false, error: "OSError: address in use" });
+  seed({ enabled: true, listening: false, error: "OSError: address in use" });
   render(<LanPanel onClose={() => {}} />);
   expect(screen.getByTestId("lan-error")).toHaveTextContent("address in use");
 });
@@ -152,16 +176,19 @@ it("asks for status, blocklist and audit on mount", () => {
   expect(refreshAudit).toHaveBeenCalledWith(50);
 });
 
-it("saves the master switch through the settings channel", () => {
+it("saves the master switch and then re-reads the status", () => {
   const send = vi.fn();
-  useGroup.setState({ send });
-  seed({ listening: false });
+  const refreshStatus = vi.fn();
+  useGroup.setState({ send, refreshLanStatus: refreshStatus });
+  seed({ enabled: false, listening: false });
   render(<LanPanel onClose={() => {}} />);
   fireEvent.click(screen.getByTestId("lan-master-switch"));
   expect(send).toHaveBeenCalledWith({
     type: "settings.patch",
     patch: { "lan.enabled": true },
   });
+  // Without this the switch would look stuck until the next mount.
+  expect(refreshStatus).toHaveBeenCalled();
 });
 
 it("renders nothing about addresses while the status is unknown", () => {

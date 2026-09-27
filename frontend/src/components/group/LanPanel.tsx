@@ -46,13 +46,16 @@ export function LanPanel({ onClose }: Props) {
         <input
           type="checkbox"
           data-testid="lan-master-switch"
-          checked={Boolean(status?.listening)}
-          onChange={(e) =>
+          checked={Boolean(status?.enabled)}
+          onChange={(e) => {
             send({
               type: "settings.patch",
               patch: { "lan.enabled": e.target.checked },
-            })
-          }
+            });
+            // The switch shows the setting, so re-read it: without this it
+            // would look stuck until the panel is remounted.
+            refreshStatus();
+          }}
           className="mt-0.5"
         />
         <span>
@@ -64,7 +67,13 @@ export function LanPanel({ onClose }: Props) {
       </label>
 
       <p data-testid="lan-status" className="text-[11px] text-text-muted">
-        {status?.listening ? t("lan.statusOpen") : t("lan.statusClosed")}
+        {status
+          ? status.enabled
+            ? status.listening
+              ? t("lan.statusOpen")
+              : t("lan.statusOnButDown")
+            : t("lan.statusClosed")
+          : ""}
         {status ? ` · ${t("lan.roomCount", { count: status.lan_rooms })}` : ""}
       </p>
 

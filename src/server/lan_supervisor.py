@@ -87,6 +87,9 @@ class LanSupervisor:
     def status(self) -> dict[str, Any]:
         _, lan_rooms = should_listen(self.config, self.rooms)
         return {
+            # What the user asked for, kept apart from whether a socket exists:
+            # conflating them made a failed start look like an unticked box.
+            "enabled": bool(self.config.lan_enabled()),
             "listening": self._thread is not None and self._thread.is_alive(),
             "host": self.config.lan_bind_host(),
             "port": self.config.lan_port(),
