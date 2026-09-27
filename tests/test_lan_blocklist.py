@@ -50,6 +50,16 @@ def test_list_is_newest_first_and_carries_the_reason() -> None:
     assert rows[0]["reason"] == "second"
 
 
+def test_two_blocks_in_the_same_second_keep_their_order() -> None:
+    """created_at only has second resolution; insertion order breaks the tie."""
+    store = _store()
+    for octet in range(1, 6):
+        store.add(f"10.0.0.{octet}")
+    assert [row["ip"] for row in store.list()] == [
+        "10.0.0.5", "10.0.0.4", "10.0.0.3", "10.0.0.2", "10.0.0.1",
+    ]
+
+
 def test_a_blank_address_is_refused() -> None:
     with pytest.raises(ValueError):
         _store().add("   ")

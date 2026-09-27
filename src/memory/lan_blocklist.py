@@ -67,6 +67,10 @@ class LanBlocklist:
     def list(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM lan_blocked_ips ORDER BY created_at DESC, ip ASC"
+                # created_at has second resolution, so two blocks in the same
+                # second would otherwise fall back to address order and the
+                # "newest first" promise would quietly be wrong.
+                "SELECT * FROM lan_blocked_ips "
+                "ORDER BY created_at DESC, rowid DESC"
             ).fetchall()
         return [dict(row) for row in rows]
