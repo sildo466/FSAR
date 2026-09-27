@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import mimetypes
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -584,6 +584,20 @@ def _birthday_now() -> datetime:
     return datetime.now()
 
 
+def _installation_date(config: Any) -> date | None:
+    """When this install was set up, or None when there is no record at all.
+
+    Only used to refuse congratulations for a birthday that predates the user's
+    arrival; an unknown answer means "no evidence", so nothing late is paid."""
+    from src.core.time_context import parse_timestamp
+
+    for key in ("onboarding.completed_at", "onboarding.started_at"):
+        parsed = parse_timestamp(config.get(key, None))
+        if parsed is not None:
+            return parsed.date()
+    return None
+
+
 def _birthday_connect_payload(config: Any) -> dict[str, Any]:
     """Decide and act on the birthday, without any model call.
 
@@ -591,7 +605,7 @@ def _birthday_connect_payload(config: Any) -> dict[str, Any]:
     directory, a config patch, one notification insert. The letters are started
     separately as a background task.
     """
-    from src.core.birthday import SKIN_ID, birthday_actions, letter_for
+    from src.core.birthday import SKIN_ID, birthday_actions, birthday_latest, letter_for
     from src.server.birthday_runner import (
         letters_year,
         unlock_skin,
@@ -602,15 +616,20 @@ def _birthday_connect_payload(config: Any) -> dict[str, Any]:
     empty = {"letter": None, "skin_id": None, "letters": False}
     try:
         now = _birthday_now()
+        birthday_raw = config.get("user.birthday", None)
+        latest = birthday_latest(now, birthday_raw)
+        if latest is None:
+            return empty
         locale = str(config.get("style.locale", "en") or "en")
         store = notification_store(config)
         actions = birthday_actions(
             now,
-            config.get("user.birthday", None),
+            birthday_raw,
             skin_present=(Path(config.get("data.skins_dir", "data/skins"))
                           / SKIN_ID).exists(),
             letter_shown_on=config.get("user.birthday_letter_shown", None),
             letters_year=letters_year(store),
+            arrived_on=_installation_date(config),
         )
         if not (actions.unlock_skin or actions.apply_skin
                 or actions.show_letter or actions.write_letters):
@@ -623,7 +642,7 @@ def _birthday_connect_payload(config: Any) -> dict[str, Any]:
             config.patch("style.skin_id", SKIN_ID)
             payload["skin_id"] = SKIN_ID
         if actions.write_letters:
-            write_header_notification(store, now.year, locale)
+            write_header_notification(store, latest.year, locale)
         if actions.show_letter:
             config.patch("user.birthday_letter_shown", now.date().isoformat())
             payload["letter"] = letter_for(locale)
@@ -639,15 +658,19 @@ def _birthday_connect_payload(config: Any) -> dict[str, Any]:
 
 async def _run_birthday_letters(config: Any, ws: WebSocket) -> None:
     """Background half of the birthday hook: the letters are model calls."""
+    from src.core.birthday import birthday_latest
     from src.server.birthday_runner import write_character_letters
     from src.server.handlers.notifications import notification_store
 
     try:
+        latest = birthday_latest(_birthday_now(), config.get("user.birthday", None))
+        if latest is None:
+            return
         await write_character_letters(
             ws=ws, config=config, engine=_engine,
             store=notification_store(config),
             locale=str(config.get("style.locale", "en") or "en"),
-            year=_birthday_now().year,
+            year=latest.year,
         )
     except Exception as e:
         logger.warning(f"birthday letters failed: {e}")

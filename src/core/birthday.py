@@ -7,12 +7,16 @@ Pure functions and static text only: no filesystem, no database, no model.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from src.core.time_context import birthday_in_year, parse_birthday
 
 SKIN_ID = "birthday"
 DEFAULT_LOCALE = "en"
+
+# How late the skin and the letters may still arrive. The letter itself never
+# catches up — it only ever pops on the day.
+CATCH_UP_DAYS = 7
 
 LANGUAGE_NAMES = {
     "zh-Hans": "Chinese (Simplified)",
@@ -117,6 +121,22 @@ def letters_instruction(locale: str | None) -> str:
     )
 
 
+def birthday_latest(now: datetime, birthday_raw) -> date | None:
+    """The most recent occurrence of the birthday on or before `now`.
+
+    Deliberately not "this calendar year's occurrence": a 12-31 birthday read
+    on 01-05 belongs to the cycle that just ended, not to the one that is
+    eleven months away."""
+    birthday = parse_birthday(birthday_raw)
+    if birthday is None or not isinstance(now, datetime):
+        return None
+    month, day = birthday
+    this_year = birthday_in_year(now.year, month, day)
+    if now.date() >= this_year:
+        return this_year
+    return birthday_in_year(now.year - 1, month, day)
+
+
 def birthday_actions(
     now: datetime,
     birthday_raw,
@@ -124,21 +144,36 @@ def birthday_actions(
     skin_present: bool,
     letter_shown_on: str | None = None,
     letters_year: int | None = None,
+    arrived_on: date | None = None,
 ) -> BirthdayActions:
-    """What to do on this connection. `arrived` covers the whole stretch from
-    the birthday onward, because the skin and the notifications are meant to
-    survive the user not opening the app that day."""
-    birthday = parse_birthday(birthday_raw)
-    if birthday is None or not isinstance(now, datetime):
+    """What to do on this connection.
+
+    The skin and the letters may arrive up to `CATCH_UP_DAYS` late, and only for
+    a birthday that happened while the user was already here — greeting someone
+    whose birthday predates their install is nonsense. The letter and the skin
+    swap stay pinned to the day itself.
+
+    `arrived_on` of None means there is no record of when the user started, so
+    there is no evidence they were here for that birthday: no catch-up, while
+    the day itself still celebrates.
+    """
+    latest = birthday_latest(now, birthday_raw)
+    if latest is None:
         return BirthdayActions(False, False, False, False)
-    month, day = birthday
-    this_year = birthday_in_year(now.year, month, day)
     today = now.date()
-    arrived = today >= this_year
-    is_today = today == this_year
+    is_today = today == latest
+    # The day itself never has to justify itself. Only a late delivery needs a
+    # reason: it must be recent, and the user must already have been here.
+    catch_up = (
+        not is_today
+        and (today - latest).days <= CATCH_UP_DAYS
+        and arrived_on is not None
+        and latest >= arrived_on
+    )
+    pays = is_today or catch_up
     return BirthdayActions(
-        unlock_skin=arrived and not skin_present,
+        unlock_skin=pays and not skin_present,
         apply_skin=is_today,
         show_letter=is_today and letter_shown_on != today.isoformat(),
-        write_letters=arrived and letters_year != now.year,
+        write_letters=pays and letters_year != latest.year,
     )
