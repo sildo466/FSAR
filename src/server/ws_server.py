@@ -36,6 +36,7 @@ from src.server.handlers import embedding as embedding_handler
 from src.server.handlers import card as card_handler
 from src.server.handlers import conversation as conversation_handler
 from src.server.handlers import group as group_handler
+from src.server.handlers import lan as lan_handler
 from src.server.handlers import insights as insights_handler
 from src.server.handlers import integration as integration_handler
 from src.server.handlers import library as library_handler
@@ -150,6 +151,7 @@ _lan = LanSupervisor(
 )
 group_handler.set_lan_supervisor(_lan)
 settings_handler.set_lan_supervisor(_lan)
+lan_handler.set_engine(_lan, _lan_blocklist, _auth_audit, _member_tokens)
 
 LAN_TICK_SECONDS = 30
 _lan_tick_task: Any = None
@@ -855,6 +857,8 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await conversation_handler.dispatch(ws, msg):
         return
     if await group_handler.dispatch(ws, msg):
+        return
+    if await lan_handler.dispatch(ws, msg):
         return
     if await card_handler.dispatch(ws, msg, _ctx):
         return
