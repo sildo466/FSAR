@@ -173,8 +173,12 @@ def require_room(
 def read_json_object(request: Request, raw: bytes) -> dict[str, Any]:
     """Strict body parsing: unknown fields, duplicate keys and non-objects are
     refused, because an extra field is how a caller tries to name a room."""
-    if not raw or len(raw) > MAX_BODY_BYTES:
+    if not raw:
         raise HTTPException(status_code=400, detail="bad_json")
+    if len(raw) > MAX_BODY_BYTES:
+        # "Too large" is its own answer: a caller sending an oversized body has
+        # not written malformed JSON, and 400 would send it looking for a bug.
+        raise HTTPException(status_code=413, detail="too_long")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
