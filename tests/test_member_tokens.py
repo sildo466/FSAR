@@ -52,13 +52,14 @@ def test_revoke_is_idempotent_and_reports(store: MemberTokenStore) -> None:
     assert store.revoke(issued.token_id) is False
 
 
-def test_resolve_records_last_used(store: MemberTokenStore) -> None:
+def test_resolve_no_longer_marks_use(store: MemberTokenStore) -> None:
+    """Recording a use moved to note_use: a refused request must not refresh
+    last_used_at, so resolve() can no longer do it as a side effect."""
     issued = store.issue(1, "claude-laptop")
-    before = store.list_for(1, "claude-laptop")[0]
-    assert before["last_used_at"] is None
-    store.resolve(issued.token)
-    after = store.list_for(1, "claude-laptop")[0]
-    assert after["last_used_at"] is not None
+    assert store.resolve(issued.token) == (1, "claude-laptop")
+    assert store.list_for(1, "claude-laptop")[0]["last_used_at"] is None
+    store.note_use(issued.token_id, "192.168.1.20")
+    assert store.list_for(1, "claude-laptop")[0]["last_used_at"] is not None
 
 
 def test_two_tokens_for_the_same_member_are_independent(

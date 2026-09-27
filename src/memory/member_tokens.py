@@ -15,8 +15,10 @@ import hashlib
 import secrets
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+DEFAULT_TTL_SECONDS = 7 * 24 * 3600
 
 
 def _now() -> str:
@@ -33,6 +35,21 @@ class IssuedToken:
     token: str
     room_id: int
     member_ref: str
+    expires_at: str | None = None
+
+
+@dataclass
+class TokenRecord:
+    token_id: int
+    room_id: int
+    member_ref: str
+    label: str
+    created_at: str
+    expires_at: str | None = None
+    revoked_at: str | None = None
+    bound_ip: str | None = None
+    last_used_at: str | None = None
+    last_used_ip: str | None = None
 
 
 class MemberTokenStore:
@@ -65,48 +82,131 @@ class MemberTokenStore:
             "CREATE INDEX IF NOT EXISTS idx_member_tokens_member "
             "ON room_member_tokens(room_id, member_ref)"
         )
+        self._migrate_lan_columns(conn)
         conn.commit()
+
+    def _migrate_lan_columns(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: expiry and the source-address anchor arrived after P1.
+
+        Existing rows keep NULL in all three, which readers must accept — a
+        NULL bound_ip is "the member has never connected yet", not an error.
+        """
+        cols = [
+            r[1] for r in conn.execute(
+                "PRAGMA table_info(room_member_tokens)"
+            ).fetchall()
+        ]
+        if "expires_at" not in cols:
+            conn.execute("ALTER TABLE room_member_tokens ADD COLUMN expires_at TEXT")
+        if "bound_ip" not in cols:
+            conn.execute("ALTER TABLE room_member_tokens ADD COLUMN bound_ip TEXT")
+        if "last_used_ip" not in cols:
+            conn.execute("ALTER TABLE room_member_tokens ADD COLUMN last_used_ip TEXT")
 
     def issue(
         self, room_id: int, member_ref: str, *, label: str = "",
+        ttl_seconds: int | None = DEFAULT_TTL_SECONDS,
     ) -> IssuedToken:
         token = secrets.token_urlsafe(48)
+        expires_at = (
+            None if ttl_seconds is None
+            else (
+                datetime.now(timezone.utc) + timedelta(seconds=int(ttl_seconds))
+            ).isoformat()
+        )
         with self._connect() as conn:
             cur = conn.execute(
                 "INSERT INTO room_member_tokens "
-                "(token_hash, room_id, member_ref, label, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (_digest(token), room_id, member_ref, label, _now()),
+                "(token_hash, room_id, member_ref, label, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (_digest(token), room_id, member_ref, label, _now(), expires_at),
             )
             conn.commit()
             token_id = int(cur.lastrowid)
         return IssuedToken(
             token_id=token_id, token=token,
-            room_id=room_id, member_ref=member_ref,
+            room_id=room_id, member_ref=member_ref, expires_at=expires_at,
         )
 
-    def resolve(self, token: str) -> tuple[int, str] | None:
+    @staticmethod
+    def _record_from_row(row: sqlite3.Row) -> TokenRecord:
+        return TokenRecord(
+            token_id=int(row["id"]),
+            room_id=int(row["room_id"]),
+            member_ref=str(row["member_ref"]),
+            label=str(row["label"] or ""),
+            created_at=str(row["created_at"]),
+            expires_at=row["expires_at"],
+            revoked_at=row["revoked_at"],
+            bound_ip=row["bound_ip"],
+            last_used_at=row["last_used_at"],
+            last_used_ip=row["last_used_ip"],
+        )
+
+    def resolve_record(self, token: str) -> TokenRecord | None:
+        """The whole row for a token, revoked and expired ones included.
+
+        Whether that is acceptable is the authorization layer's call, and it
+        records the exact reason. Filtering here would leave the audit unable
+        to tell "revoked" from "expired" from "never existed".
+        """
         if not token:
             return None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, room_id, member_ref, revoked_at "
-                "FROM room_member_tokens WHERE token_hash = ?",
+                "SELECT * FROM room_member_tokens WHERE token_hash = ?",
                 (_digest(token),),
             ).fetchone()
-            if row is None or row["revoked_at"] is not None:
+        return self._record_from_row(row) if row else None
+
+    def resolve(self, token: str) -> tuple[int, str] | None:
+        """P1's shape: the identity of a currently usable token, else None.
+
+        No longer records a use — a refused request must not refresh
+        last_used_at, so that moved to note_use() and the caller decides.
+        """
+        record = self.resolve_record(token)
+        if record is None or record.revoked_at is not None:
+            return None
+        if record.expires_at is not None:
+            if datetime.fromisoformat(record.expires_at) <= datetime.now(timezone.utc):
                 return None
-            conn.execute(
-                "UPDATE room_member_tokens SET last_used_at = ? WHERE id = ?",
-                (_now(), row["id"]),
+        return record.room_id, record.member_ref
+
+    def bind_ip(self, token_id: int, ip: str) -> bool:
+        """First writer wins: the TOFU anchor never moves on its own."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE room_member_tokens SET bound_ip = ? "
+                "WHERE id = ? AND bound_ip IS NULL",
+                (ip, int(token_id)),
             )
             conn.commit()
-        return int(row["room_id"]), str(row["member_ref"])
+        return cur.rowcount > 0
+
+    def rebind_ip(self, token_id: int, ip: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE room_member_tokens SET bound_ip = ? WHERE id = ?",
+                (ip, int(token_id)),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def note_use(self, token_id: int, ip: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE room_member_tokens SET last_used_at = ?, last_used_ip = ? "
+                "WHERE id = ?",
+                (_now(), ip, int(token_id)),
+            )
+            conn.commit()
 
     def list_for(self, room_id: int, member_ref: str) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, label, created_at, last_used_at, revoked_at "
+                "SELECT id, label, created_at, last_used_at, revoked_at, "
+                "expires_at, bound_ip, last_used_ip "
                 "FROM room_member_tokens WHERE room_id = ? AND member_ref = ? "
                 "ORDER BY created_at ASC",
                 (room_id, member_ref),
