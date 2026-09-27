@@ -92,11 +92,23 @@ class _BroadcastSocket:
         await _broadcast(payload)
 
 
-# A room with agent members must not inherit the companion default of
-# unlimited rounds: external members speak on their own schedule and the user
-# may not be watching.
 FREE_SPEECH_MAX_ROUNDS = 4
 _MAX_MEMBER_TEXT = 16 * 1024
+
+
+def _chain_cap_for(room: Any) -> int | None:
+    """None means "use the room's own max_rounds".
+
+    Rooms without agent members keep the companion behaviour exactly, including
+    0 = unlimited.
+    """
+    if _agent_members is None:
+        return None
+    if int(getattr(room, "max_rounds", 0) or 0) != 0:
+        return None
+    if not _agent_members.members(room.id):
+        return None
+    return FREE_SPEECH_MAX_ROUNDS
 
 
 async def post_member_message(
@@ -143,7 +155,7 @@ async def post_member_message(
         "member_ref": member_ref,
         "user_name": member.display_name,
     })
-    override = FREE_SPEECH_MAX_ROUNDS if (room.max_rounds or 0) == 0 else None
+    override = _chain_cap_for(room)
     _start_chain(room_id, engine.run_chain(
         sock, room=room, user_input=text, mentioned=[],
         user_card=_user_card(engine, room), max_rounds_override=override,
@@ -357,6 +369,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             _start_chain(room_id, engine.run_chain(
                 ws, room=room, user_input=llm_content,
                 mentioned=mentioned, user_card=card,
+                max_rounds_override=_chain_cap_for(room),
             ))
             return True
 
