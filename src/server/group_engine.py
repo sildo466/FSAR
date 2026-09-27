@@ -586,6 +586,7 @@ class GroupEngine:
         user_input: str,
         mentioned: list[int],
         user_card: Any,
+        max_rounds_override: int | None = None,
     ) -> str:
         """Chain rounds until nobody is eager enough or a hard cap is hit."""
         chat = self.chat
@@ -609,6 +610,10 @@ class GroupEngine:
         first_speaker = True
         reason = "settled"
         max_rounds = max(0, int(getattr(room, "max_rounds", 0) or 0))
+        if max_rounds_override is not None:
+            # Caller-imposed cap only; room.max_rounds keeps its own meaning
+            # (0 = unlimited) so companion rooms behave exactly as before.
+            max_rounds = max(0, int(max_rounds_override))
         round_no = 0
 
         try:

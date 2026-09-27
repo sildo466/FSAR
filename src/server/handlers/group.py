@@ -78,6 +78,79 @@ def _user_card(engine: GroupEngine, room: Any):
     ) or repo.get_default_user_card()
 
 
+class _BroadcastSocket:
+    """A stand-in websocket that fans events out to every live GUI socket.
+
+    run_chain emits speaker deltas and chain.finished through whatever ws it
+    was handed. An HTTP ingress has no socket, so it passes this instead of
+    None — otherwise _safe_send would blow up mid-chain and the room would be
+    left with chainRunning stuck on."""
+
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        from src.server.handlers.chat import _broadcast
+
+        await _broadcast(payload)
+
+
+# A room with agent members must not inherit the companion default of
+# unlimited rounds: external members speak on their own schedule and the user
+# may not be watching.
+FREE_SPEECH_MAX_ROUNDS = 4
+_MAX_MEMBER_TEXT = 16 * 1024
+
+
+async def post_member_message(
+    *, room_id: int, member_ref: str, content: str, ws: Any = None,
+) -> dict[str, Any]:
+    """Record one external member's line and let the characters answer it.
+
+    Shared by the WS type and the HTTP ingress, so the LAN phase only has to
+    swap authentication, not this logic. Identity is never read from the
+    content — the caller resolved it from the member's token.
+    """
+    engine = _engine
+    rooms = _rooms
+    if engine is None or rooms is None or _agent_members is None:
+        return {"ok": False, "code": "not_ready", "row_id": None}
+    text = content.strip()
+    if not text:
+        return {"ok": False, "code": "empty", "row_id": None}
+    if len(text) > _MAX_MEMBER_TEXT:
+        return {"ok": False, "code": "too_long", "row_id": None}
+    member = _agent_members.get(room_id, member_ref)
+    if member is None:
+        return {"ok": False, "code": "no_member", "row_id": None}
+    if member.state != "active":
+        return {"ok": False, "code": "muted", "row_id": None}
+    room = rooms.get(room_id)
+    if room is None:
+        return {"ok": False, "code": "no_room", "row_id": None}
+
+    chat = engine.chat
+    row_id = await asyncio.to_thread(
+        chat.session_store.append_message,
+        room.session_id, "assistant", text,
+        speaker_kind="agent", speaker_ref=member_ref,
+    )
+    sock = ws or _BroadcastSocket()
+    await sock.send_json({
+        "type": "group.user_message",
+        "room_id": room_id,
+        "message_id": str(row_id) if row_id is not None else None,
+        "row_id": row_id,
+        "content": text,
+        "speaker_kind": "agent",
+        "member_ref": member_ref,
+        "user_name": member.display_name,
+    })
+    override = FREE_SPEECH_MAX_ROUNDS if (room.max_rounds or 0) == 0 else None
+    _start_chain(room_id, engine.run_chain(
+        sock, room=room, user_input=text, mentioned=[],
+        user_card=_user_card(engine, room), max_rounds_override=override,
+    ))
+    return {"ok": True, "code": "ok", "row_id": row_id}
+
+
 async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
     t = msg.get("type")
     if _engine is None or _rooms is None or not t.startswith("group."):
@@ -285,6 +358,21 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 ws, room=room, user_input=llm_content,
                 mentioned=mentioned, user_card=card,
             ))
+            return True
+
+        if t == "group.member.say":
+            result = await post_member_message(
+                room_id=int(msg["room_id"]),
+                member_ref=str(msg.get("member_ref", "")),
+                content=str(msg.get("content", "")),
+                ws=ws,
+            )
+            if not result["ok"]:
+                await ws.send_json({
+                    "type": "group.error", "room_id": msg.get("room_id"),
+                    "code": result["code"],
+                    "message": "Member message rejected.",
+                })
             return True
 
         if t == "group.regenerate":
