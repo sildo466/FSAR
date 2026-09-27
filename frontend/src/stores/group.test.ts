@@ -177,6 +177,9 @@ describe("useGroup store", () => {
           created_at: "",
           updated_at: "",
           members: [7],
+          agent_members: [],
+          agent_mode: false,
+          lan_enabled: false,
         },
       ],
     });
@@ -198,6 +201,9 @@ describe("useGroup store", () => {
         created_at: "",
         updated_at: "",
         members: [7, 8],
+        agent_members: [],
+        agent_mode: false,
+        lan_enabled: false,
       },
     });
     expect(useGroup.getState().currentRoomId).toBe(5);
@@ -219,6 +225,9 @@ describe("useGroup store", () => {
           created_at: "",
           updated_at: "",
           members: [7],
+          agent_members: [],
+          agent_mode: false,
+          lan_enabled: false,
         },
       ],
       currentRoomId: 3,
@@ -247,6 +256,9 @@ describe("useGroup store", () => {
           created_at: "",
           updated_at: "",
           members: [7],
+          agent_members: [],
+          agent_mode: false,
+          lan_enabled: false,
         },
       ],
     });
@@ -264,6 +276,9 @@ describe("useGroup store", () => {
         created_at: "",
         updated_at: "",
         members: [7, 8],
+        agent_members: [],
+        agent_mode: false,
+        lan_enabled: false,
       },
     });
     expect(useGroup.getState().rooms[0].name).toBe("After");

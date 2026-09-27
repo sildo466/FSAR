@@ -98,8 +98,8 @@ export type ClientMsg =
   | { type: "sandbox_audit.list"; since?: string; conversation_id?: string; limit?: number }
   | { type: "tool.sandbox.escape_decision"; request_id: string; decision: "deny" | "allow_once" | "allow_session" | "allow_always" }
   | { type: "group.list" }
-  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number }
-  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number }
+  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
+  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
   | { type: "group.delete"; room_id: number }
   | { type: "group.members.add"; room_id: number; character_ids: number[] }
   | { type: "group.members.remove"; room_id: number; character_id: number }
@@ -200,6 +200,17 @@ export interface RoomSummary {
   created_at: string;
   updated_at: string;
   members: number[];
+  /** External agents are not character cards, so they cannot ride in
+   *  `members` (number[]) — they get their own array. */
+  agent_members: AgentMemberSummary[];
+  agent_mode: boolean;
+  lan_enabled: boolean;
+}
+
+export interface AgentMemberSummary {
+  ref: string;
+  display_name: string;
+  state: string;
 }
 
 export interface GroupMessage {

@@ -31,6 +31,8 @@ interface GroupState {
     user_card_id?: number | null;
     character_ids: number[];
     max_rounds?: number;
+    agent_mode?: boolean;
+    lan_enabled?: boolean;
   }) => void;
   updateRoom: (
     roomId: number,

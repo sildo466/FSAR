@@ -204,6 +204,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 ),
                 character_ids=character_ids,
                 max_rounds=int(msg.get("max_rounds") or 0),
+                agent_mode=bool(msg.get("agent_mode")),
+                lan_enabled=bool(msg.get("lan_enabled")),
             )
             await ws.send_json({
                 "type": "group.created",
@@ -225,6 +227,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     int(msg["max_rounds"]) if msg.get("max_rounds") is not None
                     else None
                 ),
+                agent_mode=msg.get("agent_mode"),
+                lan_enabled=msg.get("lan_enabled"),
             )
             if room is not None:
                 await ws.send_json({

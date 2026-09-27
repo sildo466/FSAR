@@ -100,3 +100,63 @@ it("renders nothing when closed", () => {
   );
   expect(container).toBeEmptyDOMElement();
 });
+
+it("defaults both switches off and reports them on submit", () => {
+  seedCards();
+  const onSubmit = vi.fn();
+  render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByTestId("create-room-name"), {
+    target: { value: "Companion" },
+  });
+  fireEvent.click(screen.getByLabelText("Mira"));
+  fireEvent.click(screen.getByTestId("create-room-submit"));
+  expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ agent_mode: false, lan_enabled: false })
+  );
+});
+
+it("reports agent_mode when the box is ticked", () => {
+  seedCards();
+  const onSubmit = vi.fn();
+  render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByTestId("create-room-name"), {
+    target: { value: "Work" },
+  });
+  fireEvent.click(screen.getByLabelText("Mira"));
+  fireEvent.click(screen.getByTestId("room-agent-mode"));
+  fireEvent.click(screen.getByTestId("create-room-submit"));
+  expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ agent_mode: true, lan_enabled: false })
+  );
+});
+
+it("keeps LAN off while agent mode is off", () => {
+  seedCards();
+  const onSubmit = vi.fn();
+  render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByTestId("create-room-name"), {
+    target: { value: "Work" },
+  });
+  fireEvent.click(screen.getByLabelText("Mira"));
+  fireEvent.click(screen.getByTestId("room-lan-enabled"));
+  fireEvent.click(screen.getByTestId("create-room-submit"));
+  expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ agent_mode: false, lan_enabled: false })
+  );
+});
+
+it("reports LAN when agent mode is on and the box is ticked", () => {
+  seedCards();
+  const onSubmit = vi.fn();
+  render(<CreateRoomModal open onClose={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByTestId("create-room-name"), {
+    target: { value: "Work" },
+  });
+  fireEvent.click(screen.getByLabelText("Mira"));
+  fireEvent.click(screen.getByTestId("room-agent-mode"));
+  fireEvent.click(screen.getByTestId("room-lan-enabled"));
+  fireEvent.click(screen.getByTestId("create-room-submit"));
+  expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ agent_mode: true, lan_enabled: true })
+  );
+});

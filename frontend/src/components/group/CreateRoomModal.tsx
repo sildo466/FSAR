@@ -12,6 +12,8 @@ interface Props {
     scenario_prompt: string;
     user_card_id: number | null;
     character_ids: number[];
+    agent_mode: boolean;
+    lan_enabled: boolean;
   }) => void;
 }
 
@@ -24,6 +26,8 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
   const [scenario, setScenario] = useState("");
   const [userCardId, setUserCardId] = useState<number | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
+  const [agentMode, setAgentMode] = useState(false);
+  const [lanEnabled, setLanEnabled] = useState(false);
 
   if (!open) return null;
 
@@ -42,11 +46,15 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
       scenario_prompt: scenario,
       user_card_id: userCardId,
       character_ids: selected,
+      agent_mode: agentMode,
+      lan_enabled: agentMode && lanEnabled,
     });
     setName("");
     setDescription("");
     setScenario("");
     setSelected([]);
+    setAgentMode(false);
+    setLanEnabled(false);
   };
 
   return (
@@ -134,6 +142,44 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
               {c.name}
             </label>
           ))}
+        </div>
+
+        <div className="mb-3 flex flex-col gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              data-testid="room-agent-mode"
+              checked={agentMode}
+              onChange={(e) => setAgentMode(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-xs text-text">
+                {t("group.agentMode")}
+              </span>
+              <span className="block text-[11px] text-text-faint">
+                {t("group.agentModeHint")}
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              data-testid="room-lan-enabled"
+              checked={lanEnabled}
+              disabled={!agentMode}
+              onChange={(e) => setLanEnabled(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-xs text-text">
+                {t("group.lanEnabled")}
+              </span>
+              <span className="block text-[11px] text-text-faint">
+                {t("group.lanEnabledHint")}
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex justify-end gap-2">
