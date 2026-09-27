@@ -108,6 +108,13 @@ export type ClientMsg =
   | { type: "group.cancel"; room_id: number }
   | { type: "group.regenerate"; room_id: number; message_id: number }
   | { type: "group.rate"; room_id: number; message_id: number; score: number; reason?: string }
+  | { type: "group.agent.add"; room_id: number; ref: string; display_name?: string }
+  | { type: "group.agent.list"; room_id: number }
+  | { type: "group.agent.mute"; room_id: number; member_ref: string; muted: boolean }
+  | { type: "group.agent.remove"; room_id: number; member_ref: string }
+  | { type: "group.agent.token.issue"; room_id: number; member_ref: string; label?: string }
+  | { type: "group.agent.token.revoke"; room_id: number; member_ref: string; token_id: number }
+  | { type: "group.stop_all" }
   | { type: "content_guard.list" }
   | { type: "content_guard.restore"; id: number }
   | { type: "content_guard.purge"; id: number }
@@ -211,6 +218,19 @@ export interface AgentMemberSummary {
   ref: string;
   display_name: string;
   state: string;
+}
+
+export interface AgentTokenInfo {
+  id: number;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** A member plus its token metadata. Never carries the token itself. */
+export interface AgentMemberDetail extends AgentMemberSummary {
+  tokens: AgentTokenInfo[];
 }
 
 export interface GroupMessage {
@@ -423,6 +443,10 @@ export type ServerMsg =
   | { type: "group.user_message"; room_id: number; message_id?: string | null; row_id?: number | null; content: string; user_name?: string | null }
   | { type: "group.context"; room_id: number; used_tokens: number; window_tokens: number }
   | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
+  | { type: "group.agent.list.ok"; room_id: number; agents: AgentMemberDetail[] }
+  /** The plaintext token appears here once and is never stored anywhere. */
+  | { type: "group.agent.token.issued"; room_id: number; member_ref: string; token_id: number; token: string }
+  | { type: "group.stop_all.ack" }
   | { type: "group.error"; room_id?: number | null; code: string; message: string }
   | {
       type: "content_guard.list_result";

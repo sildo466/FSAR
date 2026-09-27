@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
 import type {
+  AgentMemberDetail,
   ClientMsg,
   ElectionCandidate,
   GroupMessage,
@@ -19,6 +20,9 @@ interface GroupState {
   /** Per-room context gauge, fed by group.context (rooms have their own
    *  accounting so they never write over the single-chat readout). */
   context: Record<number, { used: number; window: number }>;
+  /** Token metadata per room, keyed by member ref order as sent. Never holds a
+   *  plaintext token — the issued event goes straight to a panel-local state. */
+  agentMembers: Record<number, AgentMemberDetail[]>;
 
   init: (client: WSClient) => () => void;
   refreshRooms: () => void;
@@ -49,6 +53,13 @@ interface GroupState {
   deleteRoom: (roomId: number) => void;
   addMembers: (roomId: number, characterIds: number[]) => void;
   removeMember: (roomId: number, characterId: number) => void;
+  addAgentMember: (roomId: number, ref: string, displayName: string) => void;
+  listAgentMembers: (roomId: number) => void;
+  muteAgentMember: (roomId: number, ref: string, muted: boolean) => void;
+  removeAgentMember: (roomId: number, ref: string) => void;
+  issueMemberToken: (roomId: number, ref: string) => void;
+  revokeMemberToken: (roomId: number, ref: string, tokenId: number) => void;
+  stopAllChains: () => void;
   rate: (roomId: number, rowId: number, score: number, reason?: string) => void;
   regenerate: (roomId: number, rowId: number) => void;
   send: (msg: ClientMsg) => void;
@@ -142,18 +153,24 @@ export const useGroup = create<GroupState>((set, get) => {
       set((s) => ({
         rooms: s.rooms.map((r) => (r.id === msg.room.id ? msg.room : r)),
       }));
+    } else if (msg.type === "group.agent.list.ok") {
+      set((s) => ({
+        agentMembers: { ...s.agentMembers, [msg.room_id]: msg.agents },
+      }));
     } else if (msg.type === "group.deleted") {
       set((s) => {
         const { [msg.room_id]: _messages, ...messages } = s.messages;
         const { [msg.room_id]: _elections, ...elections } = s.elections;
         const { [msg.room_id]: _running, ...chainRunning } = s.chainRunning;
         const { [msg.room_id]: _gauge, ...context } = s.context;
+        const { [msg.room_id]: _agents, ...agentMembers } = s.agentMembers;
         return {
           rooms: s.rooms.filter((r) => r.id !== msg.room_id),
           messages,
           elections,
           chainRunning,
           context,
+          agentMembers,
           currentRoomId:
             s.currentRoomId === msg.room_id ? null : s.currentRoomId,
         };
@@ -229,6 +246,7 @@ export const useGroup = create<GroupState>((set, get) => {
     chainRunning: {},
     loadingHistory: {},
     context: {},
+    agentMembers: {},
 
     init: (client) => {
       attached = client;
@@ -285,6 +303,49 @@ export const useGroup = create<GroupState>((set, get) => {
         room_id: roomId,
         character_id: characterId,
       }),
+
+    addAgentMember: (roomId, ref, displayName) =>
+      attached?.send({
+        type: "group.agent.add",
+        room_id: roomId,
+        ref,
+        display_name: displayName,
+      }),
+
+    listAgentMembers: (roomId) =>
+      attached?.send({ type: "group.agent.list", room_id: roomId }),
+
+    muteAgentMember: (roomId, ref, muted) =>
+      attached?.send({
+        type: "group.agent.mute",
+        room_id: roomId,
+        member_ref: ref,
+        muted,
+      }),
+
+    removeAgentMember: (roomId, ref) =>
+      attached?.send({
+        type: "group.agent.remove",
+        room_id: roomId,
+        member_ref: ref,
+      }),
+
+    issueMemberToken: (roomId, ref) =>
+      attached?.send({
+        type: "group.agent.token.issue",
+        room_id: roomId,
+        member_ref: ref,
+      }),
+
+    revokeMemberToken: (roomId, ref, tokenId) =>
+      attached?.send({
+        type: "group.agent.token.revoke",
+        room_id: roomId,
+        member_ref: ref,
+        token_id: tokenId,
+      }),
+
+    stopAllChains: () => attached?.send({ type: "group.stop_all" }),
 
     rate: (roomId, rowId, score, reason) =>
       attached?.send({

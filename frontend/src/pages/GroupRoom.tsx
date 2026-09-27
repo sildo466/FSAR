@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft, Bot, Users } from "lucide-react";
 import { useGroup } from "../stores/group";
 import { useCardsStore } from "../stores/cards";
-import { fetchWSToken } from "../stores/ws";
+import { fetchWSToken, useWS } from "../stores/ws";
 import { MessageList, type ChatMessage } from "../components/chat/MessageList";
 import {
   ChatComposer,
@@ -13,6 +13,7 @@ import {
 } from "../components/chat/ChatComposer";
 import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
+import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { MemberPanel } from "../components/group/MemberPanel";
 
 export function GroupRoom() {
@@ -35,10 +36,26 @@ export function GroupRoom() {
 
   const [input, setInput] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  // Held here, not in the store: the plaintext token must never sit in shared
+  // state where another component or a devtools snapshot could read it.
+  const [tokenOnce, setTokenOnce] = useState<{
+    ref: string;
+    token: string;
+  } | null>(null);
+  const client = useWS((s) => s.client);
   const [mentions, setMentions] = useState<number[]>([]);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(false);
+
+  useEffect(() => {
+    if (!client) return;
+    return client.on((msg) => {
+      if (msg.type !== "group.agent.token.issued") return;
+      setTokenOnce({ ref: msg.member_ref, token: msg.token });
+    });
+  }, [client]);
 
   const room = useMemo(
     () => rooms.find((r) => r.id === roomId),
@@ -168,6 +185,16 @@ export function GroupRoom() {
             <Users size={13} strokeWidth={1.6} />
             {members.length}
           </button>
+          {room?.agent_mode && (
+            <button
+              data-testid="toggle-agent-panel"
+              onClick={() => setAgentPanelOpen((v) => !v)}
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-text-muted transition hover:bg-glass hover:text-text"
+            >
+              <Bot size={13} strokeWidth={1.6} />
+              {room.agent_members?.length ?? 0}
+            </button>
+          )}
           {gauge && gauge.window > 0 && (
             <span
               data-testid="group-token-meter"
@@ -261,6 +288,34 @@ export function GroupRoom() {
 
       {panelOpen && room && (
         <MemberPanel room={room} onClose={() => setPanelOpen(false)} />
+      )}
+
+      {agentPanelOpen && room && (
+        <AgentMemberPanel room={room} onClose={() => setAgentPanelOpen(false)} />
+      )}
+
+      {tokenOnce && (
+        <div
+          data-testid="token-once"
+          className="glass fixed bottom-4 right-4 z-50 w-96 rounded-2xl p-4"
+        >
+          <p className="text-[11px] text-danger">
+            {t("group.tokenOnceWarning", { ref: tokenOnce.ref })}
+          </p>
+          <input
+            readOnly
+            data-testid="token-once-value"
+            value={tokenOnce.token}
+            className="mt-2 w-full rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs text-text outline-none"
+          />
+          <button
+            data-testid="token-once-dismiss"
+            onClick={() => setTokenOnce(null)}
+            className="mt-2 rounded-full border border-border px-3 py-1 text-[11px] text-text-muted transition hover:bg-glass hover:text-text"
+          >
+            {t("group.tokenOnce")}
+          </button>
+        </div>
       )}
     </div>
   );
