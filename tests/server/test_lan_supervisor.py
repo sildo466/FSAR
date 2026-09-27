@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import socket
 import time
 from types import SimpleNamespace
 
@@ -24,7 +25,7 @@ class _FakeServer:
         self.should_exit = False
         _FakeServer.instances.append(self)
 
-    def run(self) -> None:
+    def run(self, sockets=None) -> None:
         self.started = True
         while not self.should_exit:
             time.sleep(0.005)
@@ -35,11 +36,22 @@ def _clear():
     _FakeServer.instances.clear()
 
 
-def _config(*, enabled: bool, port: int = 8766, host: str = "0.0.0.0"):
+def _free_port() -> int:
+    """The listener now binds for real, so tests must not pick 8766 — that is
+    the port a running FSAR may already hold."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+def _config(*, enabled: bool, port: int | None = None, host: str = "0.0.0.0"):
+    chosen = _free_port() if port is None else port
     return SimpleNamespace(
         lan_enabled=lambda: enabled,
         lan_bind_host=lambda: host,
-        lan_port=lambda: port,
+        lan_port=lambda: chosen,
         lan_cert_dir=lambda: "",
     )
 
@@ -73,12 +85,14 @@ def test_should_listen_needs_both_switches() -> None:
 
 
 def test_sync_starts_a_listener_when_both_switches_are_on(tmp_path) -> None:
-    supervisor = _supervisor(tmp_path)
+    config = _config(enabled=True)
+    supervisor = _supervisor(tmp_path, config=config)
     status = supervisor.sync()
     assert status["listening"] is True
     assert len(_FakeServer.instances) == 1
     assert _FakeServer.instances[0].config.host == "0.0.0.0"
-    assert _FakeServer.instances[0].config.port == 8766
+    assert _FakeServer.instances[0].config.port == config.lan_port()
+    assert status["port"] == config.lan_port()
     supervisor.stop()
 
 
@@ -93,10 +107,11 @@ def test_sync_is_idempotent(tmp_path) -> None:
 
 def test_sync_stops_when_the_process_switch_goes_off(tmp_path) -> None:
     enabled = {"on": True}
+    port = _free_port()
     config = SimpleNamespace(
         lan_enabled=lambda: enabled["on"],
         lan_bind_host=lambda: "0.0.0.0",
-        lan_port=lambda: 8766,
+        lan_port=lambda: port,
         lan_cert_dir=lambda: "",
     )
     supervisor = _supervisor(tmp_path, config=config)
@@ -173,6 +188,55 @@ def test_a_later_sync_recovers_after_a_failed_start(tmp_path) -> None:
     assert supervisor.sync()["listening"] is True
     assert supervisor.status()["error"] == ""
     supervisor.stop()
+
+
+def test_a_taken_port_is_reported_instead_of_hidden(tmp_path) -> None:
+    """The failure mode that looked like "the switch does nothing".
+
+    uvicorn binds inside its own thread, catches the OSError there and calls
+    sys.exit(1) — so nothing on this side sees it, the supervisor reported a
+    clean start, and status() said the listener was merely down with no reason.
+    The listener is therefore bound here first, where a conflict is ours to
+    report. No fake server: this is the real uvicorn path.
+    """
+    occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied.bind(("127.0.0.1", 0))
+    occupied.listen(1)
+    port = occupied.getsockname()[1]
+    try:
+        supervisor = LanSupervisor(
+            config=_config(enabled=True, host="127.0.0.1", port=port),
+            rooms=_rooms(True),
+            deps_factory=lambda: SimpleNamespace(),
+            cert_dir=tmp_path,
+        )
+        status = supervisor.sync()
+        assert status["listening"] is False
+        assert status["error"], "a listener that could not start must say why"
+        assert str(port) in status["error"]
+        supervisor.stop()
+    finally:
+        occupied.close()
+
+
+def test_stopping_frees_the_port_again(tmp_path) -> None:
+    """The listener socket is bound here, so this side has to release it."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    supervisor = _supervisor(
+        tmp_path, config=_config(enabled=True, host="127.0.0.1", port=port),
+    )
+    assert supervisor.sync()["listening"] is True
+    supervisor.stop()
+
+    again = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        again.bind(("127.0.0.1", port))
+    finally:
+        again.close()
 
 
 def test_stop_is_safe_when_nothing_is_running(tmp_path) -> None:

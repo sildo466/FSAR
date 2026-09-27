@@ -13,6 +13,7 @@ happened", which the user cannot diagnose.
 
 from __future__ import annotations
 
+import socket
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -32,6 +33,20 @@ def should_listen(config: Any, rooms: Any) -> tuple[bool, int]:
         room for room in rooms.list() if getattr(room, "lan_enabled", False)
     ]
     return bool(config.lan_enabled() and lan_rooms), len(lan_rooms)
+
+
+def _bind(host: str, port: int) -> socket.socket:
+    """Bind the listening socket here, where a conflict is ours to report.
+
+    uvicorn would bind it inside its own thread, catch the OSError there and
+    call sys.exit(1) — which nothing on this side can see. That turned "the
+    port is taken" into a clean start followed by a listener that was already
+    dead, with an empty error.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((host, int(port)))
+    sock.setblocking(False)
+    return sock
 
 
 def _default_server_factory(config: Any) -> Any:
@@ -57,6 +72,7 @@ class LanSupervisor:
         self.cert_dir = Path(cert_dir) if cert_dir else None
         self._server: Any = None
         self._thread: threading.Thread | None = None
+        self._socket: socket.socket | None = None
         self._fingerprint = ""
         self._error = ""
         self._lock = threading.Lock()
@@ -90,11 +106,13 @@ class LanSupervisor:
             return self.status()
 
     def _start(self) -> None:
+        sock: socket.socket | None = None
         try:
             import uvicorn
 
             certificates = self._certificates()
             self._fingerprint = certificate_fingerprint(certificates.cert_path)
+            sock = _bind(self.config.lan_bind_host(), self.config.lan_port())
             from src.server.room_app import create_room_app
 
             server_config = uvicorn.Config(
@@ -109,24 +127,43 @@ class LanSupervisor:
             )
             self._server = self.server_factory(server_config)
             self._thread = threading.Thread(
-                target=self._server.run, name="fsar-lan", daemon=True,
+                target=self._server.run, args=([sock],), name="fsar-lan",
+                daemon=True,
             )
             self._thread.start()
+            self._socket = sock
             self._error = ""
         except Exception as exc:
-            # A failed start must not leave status() claiming a listener.
+            # A failed start must not leave status() claiming a listener, and
+            # must say why: otherwise the switch in the GUI looks inert.
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
             self._server = None
             self._thread = None
-            self._error = f"{type(exc).__name__}: {exc}"
+            self._socket = None
+            self._error = (
+                f"cannot listen on {self.config.lan_bind_host()}:"
+                f"{self.config.lan_port()} — {type(exc).__name__}: {exc}"
+            )
 
     def _stop(self) -> None:
-        server, thread = self._server, self._thread
+        server, thread, sock = self._server, self._thread, self._socket
         self._server = None
         self._thread = None
+        self._socket = None
         if server is not None:
             server.should_exit = True
         if thread is not None and thread.is_alive():
             thread.join(timeout=5)
+        if sock is not None:
+            # Bound on this side, so it is released on this side too.
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     def stop(self) -> None:
         with self._lock:
