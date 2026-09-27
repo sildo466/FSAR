@@ -210,6 +210,30 @@ class FsarConfig:
     def inject_max_item_chars(self) -> int:
         return int(self.get("memory.inject_max_item_chars", 600))
 
+    def lan_enabled(self) -> bool:
+        """Fail closed: a malformed value means off, not on.
+
+        `bool("false")` is True, and this is the switch that opens a network
+        listener — a user who quotes a value should not get a socket they did
+        not ask for.
+        """
+        value = self.get("lan.enabled", False)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def lan_bind_host(self) -> str:
+        return str(self.get("lan.bind_host", "0.0.0.0") or "0.0.0.0")
+
+    def lan_port(self) -> int:
+        try:
+            return int(self.get("lan.port", 8766))
+        except (TypeError, ValueError):
+            return 8766
+
+    def lan_cert_dir(self) -> str:
+        return str(self.get("lan.cert_dir", "") or "")
+
     def add_provider(self, provider: dict) -> None:
         providers = self.list_providers()
         providers.append(provider)

@@ -180,6 +180,16 @@ user:
 time:
   enabled: true
   gap_floor_minutes: 120
+lan:
+  # Master switch for the LAN room listener. Off means no socket is opened at
+  # all, whatever the per-room setting says. Rooms must set lan_enabled too.
+  enabled: false
+  # 0.0.0.0 follows the machine onto whatever network it joins, which is the
+  # point — but it also means a café wifi reaches the port. Leave it off there.
+  bind_host: "0.0.0.0"
+  port: 8766
+  # Empty = ~/.fsar/security/lan
+  cert_dir: ""
 style:
   theme: system
   font_scale: 1.0
