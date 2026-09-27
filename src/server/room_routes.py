@@ -37,6 +37,7 @@ def register_routes(app: Any, deps: RoomDeps) -> None:
     _index(app, deps)
     _state(app, deps)
     _messages(app, deps)
+    _doc(app, deps)
 
 
 def _read_budget(deps: RoomDeps, outcome: Any) -> None:
@@ -213,3 +214,21 @@ def _messages(app: Any, deps: RoomDeps) -> None:
                        reason="ok", room_id=room.id,
                        member_ref=outcome.member_ref, token_id=outcome.token_id)
         return body
+
+
+def _doc(app: Any, deps: RoomDeps) -> None:
+    from fastapi.responses import PlainTextResponse
+
+    from src.server.agent_doc import AGENT_MD
+
+    @app.get("/room/agent.md")
+    async def agent_doc(request: Request) -> PlainTextResponse:
+        outcome = room_app.auth_guard(deps, request)
+        _read_budget(deps, outcome)
+        # A credential whose membership is gone must not keep reading the
+        # protocol, even though the token itself is still valid.
+        room_app.require_room(deps, request, outcome.room_id, outcome)
+        room_app.audit(deps, request, action="lan_doc", result="allow",
+                       reason="ok", room_id=outcome.room_id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id)
+        return PlainTextResponse(AGENT_MD, media_type="text/markdown")
