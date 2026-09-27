@@ -125,15 +125,21 @@ def format_group_history(
     *,
     names_by_id: dict[int, str],
     user_name: str,
+    agent_names: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     """Prefix every message with its speaker.
 
     Every character message shares role="assistant", so without a prefix the
-    model cannot tell who said what."""
+    model cannot tell who said what. Agent members are not character cards, so
+    they are named by ref instead of by card id."""
     out: list[dict[str, str]] = []
     for row in messages:
         if row.role == "user":
             speaker = user_name or "user"
+        elif getattr(row, "speaker_kind", None) == "agent":
+            speaker = (agent_names or {}).get(
+                getattr(row, "speaker_ref", None) or "", UNKNOWN_SPEAKER,
+            )
         else:
             speaker = names_by_id.get(row.character_card_id or -1, UNKNOWN_SPEAKER)
         out.append({
@@ -252,9 +258,12 @@ class GroupEngine:
     """Group chat orchestration. Reuses ChatEngine subsystems and owns nothing
     beyond per-room cancellation."""
 
-    def __init__(self, chat: "ChatEngine", rooms: "RoomStore") -> None:
+    def __init__(
+        self, chat: "ChatEngine", rooms: "RoomStore", agent_members: Any = None,
+    ) -> None:
         self.chat = chat
         self.rooms = rooms
+        self.agent_members = agent_members
         self._cancelled: set[int] = set()
 
     async def _safe_send(self, ws: Any, payload: dict[str, Any]) -> None:
@@ -504,23 +513,32 @@ class GroupEngine:
         results.sort(key=lambda r: r.eagerness, reverse=True)
         return results
 
-    def _speaker_names(self, room: Any) -> tuple[dict[int, str], str]:
+    def _speaker_names(
+        self, room: Any,
+    ) -> tuple[dict[int, str], str, dict[str, str]]:
         chat = self.chat
         names: dict[int, str] = {}
         for cid in self.rooms.members(room.id):
             character = chat.card_repo.get_character(cid)
             if character is not None:
                 names[cid] = getattr(character, "name", "") or ""
+        agent_names: dict[str, str] = {}
+        if self.agent_members is not None:
+            agent_names = {
+                m.ref: m.display_name for m in self.agent_members.members(room.id)
+            }
         user_card_id = getattr(room, "user_card_id", None)
         card = (
             chat.card_repo.get_user_card(user_card_id) if user_card_id else None
         ) or chat.card_repo.get_default_user_card()
-        return names, getattr(card, "name", "") or "user"
+        return names, getattr(card, "name", "") or "user", agent_names
 
     def _history_block(self, room: Any) -> list[dict[str, str]]:
-        names, user_name = self._speaker_names(room)
+        names, user_name, agent_names = self._speaker_names(room)
         rows = self.chat.session_store.get_session_messages(room.session_id)
-        return format_group_history(rows, names_by_id=names, user_name=user_name)
+        return format_group_history(
+            rows, names_by_id=names, user_name=user_name, agent_names=agent_names,
+        )
 
     def _trigger_for(
         self, room: Any, first_input: str | None,
@@ -534,23 +552,29 @@ class GroupEngine:
         lines too."""
         chat = self.chat
         rows = chat.session_store.get_session_messages(room.session_id)
-        names, user_name = self._speaker_names(room)
+        names, user_name, agent_names = self._speaker_names(room)
         if first_input is not None:
             if rows and rows[-1].role == "user":
                 rows = rows[:-1]
             history = format_group_history(
                 rows, names_by_id=names, user_name=user_name,
+                agent_names=agent_names,
             )
             return history, first_input, ""
         if not rows:
             return [], "", ""
         last = rows[-1]
-        speaker = (
-            user_name if last.role == "user"
-            else names.get(last.character_card_id or -1, UNKNOWN_SPEAKER)
-        )
+        if last.role == "user":
+            speaker = user_name
+        elif getattr(last, "speaker_kind", None) == "agent":
+            speaker = agent_names.get(
+                getattr(last, "speaker_ref", None) or "", UNKNOWN_SPEAKER,
+            )
+        else:
+            speaker = names.get(last.character_card_id or -1, UNKNOWN_SPEAKER)
         history = format_group_history(
             rows[:-1], names_by_id=names, user_name=user_name,
+            agent_names=agent_names,
         )
         return history, last.content, speaker
 
@@ -694,9 +718,10 @@ class GroupEngine:
             return None
 
         prior = rows[:index]
-        names, user_name = self._speaker_names(room)
+        names, user_name, agent_names = self._speaker_names(room)
         history = format_group_history(
             prior[:-1], names_by_id=names, user_name=user_name,
+            agent_names=agent_names,
         )
         trigger = prior[-1].content if prior else ""
         trigger_speaker = ""

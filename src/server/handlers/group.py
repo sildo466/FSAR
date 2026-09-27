@@ -8,24 +8,55 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from src.memory.agent_members import AgentMemberStore
+from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
-from src.server.group_engine import GroupEngine
+from src.server.group_engine import UNKNOWN_SPEAKER, GroupEngine
 from src.utils.logger import logger
 
 _engine: GroupEngine | None = None
 _rooms: RoomStore | None = None
+_agent_members: AgentMemberStore | None = None
+_member_tokens: MemberTokenStore | None = None
 _tasks: dict[int, asyncio.Task[None]] = {}
 
 
-def set_engine(engine: GroupEngine, rooms: RoomStore) -> None:
-    global _engine, _rooms
+def set_engine(
+    engine: GroupEngine,
+    rooms: RoomStore,
+    agent_members: AgentMemberStore | None = None,
+    member_tokens: MemberTokenStore | None = None,
+) -> None:
+    """Wired once from ws_server. The two stores are optional so the existing
+    group tests can keep calling set_engine(engine, rooms); omitting them
+    clears them, so one test's stores never leak into the next."""
+    global _engine, _rooms, _agent_members, _member_tokens
     _engine = engine
     _rooms = rooms
+    _agent_members = agent_members
+    _member_tokens = member_tokens
 
 
-def _room_payload(room: Any, rooms: RoomStore) -> dict[str, Any]:
+def _agent_names(room_id: int) -> dict[str, str]:
+    if _agent_members is None:
+        return {}
+    return {m.ref: m.display_name for m in _agent_members.members(room_id)}
+
+
+def _room_payload(
+    room: Any, rooms: RoomStore, agent_members: Any = None,
+) -> dict[str, Any]:
     data = room.to_dict()
     data["members"] = rooms.members(room.id)
+    store = _agent_members if agent_members is None else agent_members
+    data["agent_members"] = (
+        [
+            {"ref": m.ref, "display_name": m.display_name, "state": m.state}
+            for m in store.members(room.id)
+        ]
+        if store is not None
+        else []
+    )
     return data
 
 
@@ -161,6 +192,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 character = engine.chat.card_repo.get_character(cid)
                 if character is not None:
                     names[cid] = getattr(character, "name", "") or ""
+            agent_names = _agent_names(room_id)
             card = _user_card(engine, room)
             user_name = getattr(card, "name", "") or "user"
             messages = [
@@ -171,9 +203,14 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     "content": r.content,
                     "character_id": r.character_card_id,
                     "character_name": (
-                        names.get(r.character_card_id)
-                        if r.character_card_id else None
+                        agent_names.get(r.speaker_ref or "", UNKNOWN_SPEAKER)
+                        if getattr(r, "speaker_kind", None) == "agent"
+                        else (
+                            names.get(r.character_card_id)
+                            if r.character_card_id else None
+                        )
                     ),
+                    "speaker_kind": getattr(r, "speaker_kind", None),
                     "user_name": user_name if r.role == "user" else None,
                     "timestamp": r.timestamp.isoformat(),
                 }
