@@ -161,22 +161,25 @@ def handle_user_message(conversation_id: str, user_msg: str, *,
     return str(getattr(choices[0].message, "content", "") or "")
 
 
-async def handle_user_agent_message(
-    conversation_id: str,
+async def handle_user_agent_message_result(
+    conversation_id: str | None,
     user_msg: str,
     *,
     character_card_id: int | None = None,
     user_card_id: int | None = None,
-) -> str:
-    """Run one full agent turn for a headless caller (the social bridge) and
-    return the final conclusion. Drives the wired engine's agent loop with a
-    no-op websocket so tools, memory, and risk gating behave exactly like GUI
-    agent mode. Persistence (user + assistant turns) is owned by the engine,
-    so callers must not also write to the conversation store."""
+) -> tuple[str, str, str]:
+    """Run one full agent turn for a headless caller and report how it ended.
+
+    Same drive as handle_user_agent_message, but also returns the outcome so a
+    CLI can exit non-zero instead of printing an error string as if it were the
+    answer. Passing conversation_id=None starts a fresh conversation."""
     engine = get_default_chat_engine()
     client, model, provider_id = engine.client_and_model()
     if client is None:
         raise RuntimeError("No active LLM provider is configured")
+
+    if conversation_id is None:
+        conversation_id = engine.session_store.create(kind="chat").session_id
 
     char_id = engine.session_store.get_character(conversation_id)
     character = engine.card_repo.get_character(char_id) if char_id else None
@@ -203,7 +206,28 @@ async def handle_user_agent_message(
         char_name=character.name if character else "Assistant",
         provider_id=provider_id,
     )
-    return result.conclusion
+    return conversation_id, result.conclusion, result.outcome
+
+
+async def handle_user_agent_message(
+    conversation_id: str,
+    user_msg: str,
+    *,
+    character_card_id: int | None = None,
+    user_card_id: int | None = None,
+) -> str:
+    """Run one full agent turn for a headless caller (the social bridge) and
+    return the final conclusion. Drives the wired engine's agent loop with a
+    no-op websocket so tools, memory, and risk gating behave exactly like GUI
+    agent mode. Persistence (user + assistant turns) is owned by the engine,
+    so callers must not also write to the conversation store."""
+    _conv_id, conclusion, _outcome = await handle_user_agent_message_result(
+        conversation_id,
+        user_msg,
+        character_card_id=character_card_id,
+        user_card_id=user_card_id,
+    )
+    return conclusion
 
 DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
