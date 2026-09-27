@@ -18,7 +18,24 @@ _engine: GroupEngine | None = None
 _rooms: RoomStore | None = None
 _agent_members: AgentMemberStore | None = None
 _member_tokens: MemberTokenStore | None = None
+_lan_supervisor: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
+
+
+def set_lan_supervisor(supervisor: Any) -> None:
+    global _lan_supervisor
+    _lan_supervisor = supervisor
+
+
+def _sync_lan() -> None:
+    """The listener follows the room switches. Best effort — the periodic tick
+    in ws_server is the safety net for a missed call here."""
+    if _lan_supervisor is None:
+        return
+    try:
+        _lan_supervisor.sync()
+    except Exception as e:
+        logger.warning(f"lan sync failed: {e}")
 
 
 def set_engine(
@@ -226,6 +243,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 agent_mode=bool(msg.get("agent_mode")),
                 lan_enabled=bool(msg.get("lan_enabled")),
             )
+            _sync_lan()
             await ws.send_json({
                 "type": "group.created",
                 "room": _room_payload(room, rooms),
@@ -250,6 +268,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 lan_enabled=msg.get("lan_enabled"),
             )
             if room is not None:
+                _sync_lan()
                 await ws.send_json({
                     "type": "group.updated",
                     "room": _room_payload(room, rooms),
@@ -263,6 +282,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             if task is not None and not task.done():
                 task.cancel()
             rooms.delete(room_id)
+            _sync_lan()
             await ws.send_json({"type": "group.deleted", "room_id": room_id})
             return True
 

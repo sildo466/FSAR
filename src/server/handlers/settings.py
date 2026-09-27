@@ -11,6 +11,25 @@ from src.core.agent_tiers import is_valid_tier
 from src.providers.llm.thinking import EFFORT_LEVELS
 from src.security.permissions import PathRule, save_permissions
 from src.utils.fsar_config import FsarConfig
+from src.utils.logger import logger
+
+_lan_supervisor: Any = None
+
+
+def set_lan_supervisor(supervisor: Any) -> None:
+    global _lan_supervisor
+    _lan_supervisor = supervisor
+
+
+def _sync_lan() -> None:
+    """`lan.enabled` lives in the config, so the listener follows this patch.
+    Best effort: the periodic tick in ws_server corrects any drift."""
+    if _lan_supervisor is None:
+        return
+    try:
+        _lan_supervisor.sync()
+    except Exception as e:
+        logger.warning(f"lan sync failed: {e}")
 
 _VALID_PERM_MODES = {"strict", "normal", "trust"}
 _VALID_TOOL_MODES = {"ask", "trust", "deny"}
@@ -107,6 +126,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             pass
         if engine is not None and _affects_injection_patch(patch):
             engine.refresh_injection_pipeline()
+        if "lan.enabled" in patch:
+            _sync_lan()
         await ws.send_json({"type": "settings.changed", "patch": patch, "by": "user"})
         return True
     if t == "style.patch":

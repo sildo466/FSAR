@@ -18,10 +18,16 @@ from fastapi.staticfiles import StaticFiles
 from src.utils.fsar_config import get_default_config
 from src.utils.fsar_home import get_fsar_home
 from src.memory.agent_members import AgentMemberStore
+from src.memory.auth_audit import AuthAuditStore
+from src.memory.idempotency import IdempotencyStore
+from src.memory.lan_blocklist import LanBlocklist
 from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
+from src.security.rate_budget import RateBudget
 from src.server import room_ingress
 from src.server.group_engine import GroupEngine
+from src.server.lan_supervisor import LanSupervisor
+from src.server.room_app import RoomDeps
 from src.utils.logger import logger
 from src.utils.version import app_version
 from src.server.handlers import chat as chat_handler
@@ -100,6 +106,46 @@ group_handler.set_engine(
 )
 room_ingress.configure(_member_tokens, _group_rooms)
 app.include_router(room_ingress.router)
+
+_auth_audit = AuthAuditStore(_config.memory_sqlite_path)
+_lan_blocklist = LanBlocklist(_config.memory_sqlite_path)
+_lan_idempotency = IdempotencyStore(_config.memory_sqlite_path)
+_lan_budget = RateBudget()
+
+
+def _lan_deps() -> RoomDeps:
+    """Rebuilt per listener start so the app gets the live stores."""
+    return RoomDeps(
+        tokens=_member_tokens,
+        blocklist=_lan_blocklist,
+        audit=_auth_audit,
+        rooms=_group_rooms,
+        members=_agent_members,
+        budget=_lan_budget,
+        idempotency=_lan_idempotency,
+        cards=_engine.card_repo,
+    )
+
+
+_lan = LanSupervisor(
+    config=_config, rooms=_group_rooms, deps_factory=_lan_deps,
+)
+group_handler.set_lan_supervisor(_lan)
+settings_handler.set_lan_supervisor(_lan)
+
+LAN_TICK_SECONDS = 30
+_lan_tick_task: Any = None
+
+
+async def _lan_tick() -> None:
+    """Corrects drift. sync() is idempotent, so a redundant call is free, and
+    a missed trigger would otherwise look like "nothing happened"."""
+    while True:
+        await asyncio.sleep(LAN_TICK_SECONDS)
+        try:
+            await asyncio.to_thread(_lan.sync)
+        except Exception as e:
+            logger.warning(f"lan tick failed: {e}")
 
 _feishu_adapter: Any = None
 _wechat_adapter: Any = None
@@ -219,13 +265,20 @@ async def _startup() -> None:
     await _reload_social()
     start_content_scan()
     start_update_checks()
+    _lan.sync()
+    global _lan_tick_task
+    _lan_tick_task = asyncio.create_task(_lan_tick())
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    global _social_router, _social_adapters
+    global _social_router, _social_adapters, _lan_tick_task
     from src.server.chat_engine import set_default_chat_engine
     set_default_chat_engine(None)
+    if _lan_tick_task is not None:
+        _lan_tick_task.cancel()
+        _lan_tick_task = None
+    _lan.stop()
     if _social_router is not None:
         from src.social.manager import stop_social
 
