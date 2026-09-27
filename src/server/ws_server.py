@@ -17,7 +17,10 @@ from fastapi.staticfiles import StaticFiles
 
 from src.utils.fsar_config import get_default_config
 from src.utils.fsar_home import get_fsar_home
+from src.memory.agent_members import AgentMemberStore
+from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
+from src.server import room_ingress
 from src.server.group_engine import GroupEngine
 from src.utils.logger import logger
 from src.utils.version import app_version
@@ -89,8 +92,14 @@ _ctx: dict[str, Any] = {
 chat_handler.set_engine(_engine)
 conversation_handler.set_engine(_engine)
 _group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
-_group_engine = GroupEngine(_engine, _group_rooms)
-group_handler.set_engine(_group_engine, _group_rooms)
+_agent_members = AgentMemberStore(_config.memory_sqlite_path)
+_member_tokens = MemberTokenStore(_config.memory_sqlite_path)
+_group_engine = GroupEngine(_engine, _group_rooms, _agent_members)
+group_handler.set_engine(
+    _group_engine, _group_rooms, _agent_members, _member_tokens,
+)
+room_ingress.configure(_member_tokens, _group_rooms)
+app.include_router(room_ingress.router)
 
 _feishu_adapter: Any = None
 _wechat_adapter: Any = None
