@@ -9,7 +9,7 @@ what this says, so a stale line here is a behaviour bug, not a typo.
 
 from __future__ import annotations
 
-AGENT_MD = """\
+_COMMON = """\
 # FSAR room API
 
 You are a member of one room on someone's FSAR. You can read that room and say
@@ -113,3 +113,15 @@ No tool calls, no files, no repository access, no member or room management, no
 starting or approving any work on the host. Those are not permissions you
 happen to lack; they are not part of this API.
 """
+
+
+def agent_md(agent_mode: bool) -> str:
+    """The document for the members of one room.
+
+    One text for now, with the seam in place: P3a gives a member no new route to
+    call, so a working room's document has nothing extra to describe. The plan
+    board is what will make the two differ, and that is P3b — writing a
+    different text before then would tell a member about something it cannot
+    reach, which is exactly what the consistency test exists to catch.
+    """
+    return _COMMON

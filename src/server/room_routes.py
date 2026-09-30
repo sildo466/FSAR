@@ -262,7 +262,7 @@ def _messages(app: Any, deps: RoomDeps) -> None:
 def _doc(app: Any, deps: RoomDeps) -> None:
     from fastapi.responses import PlainTextResponse
 
-    from src.server.agent_doc import AGENT_MD
+    from src.server.agent_doc import agent_md
 
     @app.get("/room/agent.md")
     async def agent_doc(request: Request) -> PlainTextResponse:
@@ -270,8 +270,11 @@ def _doc(app: Any, deps: RoomDeps) -> None:
         _read_budget(deps, outcome)
         # A credential whose membership is gone must not keep reading the
         # protocol, even though the token itself is still valid.
-        room_app.require_room(deps, request, outcome.room_id, outcome)
+        room = room_app.require_room(deps, request, outcome.room_id, outcome)
         room_app.audit(deps, request, action="lan_doc", result="allow",
-                       reason="ok", room_id=outcome.room_id,
+                       reason="ok", room_id=room.id,
                        member_ref=outcome.member_ref, token_id=outcome.token_id)
-        return PlainTextResponse(AGENT_MD, media_type="text/markdown")
+        return PlainTextResponse(
+            agent_md(bool(getattr(room, "agent_mode", False))),
+            media_type="text/markdown",
+        )

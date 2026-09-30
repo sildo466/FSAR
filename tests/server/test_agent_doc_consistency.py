@@ -22,7 +22,7 @@ from src.memory.rooms import RoomStore
 from src.memory.session_store import SessionStore
 from src.security.rate_budget import RateBudget
 from src.server import room_app
-from src.server.agent_doc import AGENT_MD
+from src.server.agent_doc import agent_md
 from src.server.room_app import RoomDeps, create_room_app
 
 PATH_RE = re.compile(r"/room/[A-Za-z0-9_{}/.]*")
@@ -80,26 +80,26 @@ def test_the_app_exposes_exactly_four_routes(tmp_path) -> None:
 
 def test_every_route_is_documented_with_its_method(tmp_path) -> None:
     for path, method in _registered(_wire(tmp_path).app):
-        assert path in AGENT_MD, path
-        assert method in AGENT_MD, (path, method)
+        assert path in agent_md(True), path
+        assert method in agent_md(True), (path, method)
 
 
 def test_every_path_the_doc_mentions_is_a_real_route(tmp_path) -> None:
     registered = {path for path, _ in _registered(_wire(tmp_path).app)}
     documented = {
         match.group(0).replace("/room/1/", "/room/{room_id}/")
-        for match in PATH_RE.finditer(AGENT_MD)
+        for match in PATH_RE.finditer(agent_md(True))
     }
     assert documented <= registered, documented - registered
 
 
 def test_the_doc_never_promises_the_plan_endpoint(tmp_path) -> None:
     """It arrives in P3; documenting it now would be a lie."""
-    assert "/plan/" not in AGENT_MD
+    assert "/plan/" not in agent_md(True)
 
 
 def test_the_doc_never_promises_what_p2_does_not_have(tmp_path) -> None:
-    flat = AGENT_MD.lower()
+    flat = agent_md(True).lower()
     for absent in ("history_from", "phase", "plan item", "lease", "staging"):
         assert absent not in flat, absent
 
@@ -109,7 +109,7 @@ def test_the_documented_limits_match_the_budgets() -> None:
     speak_limit, speak_window, speak_burst = room_app.SPEAK_BUDGET
     room_limit, room_window, room_burst = room_app.ROOM_SPEAK_BUDGET
     read_limit, read_window, read_burst = room_app.READ_BUDGET
-    flat = _flat(AGENT_MD)
+    flat = _flat(agent_md(True))
     assert speak_window == 60 and room_window == 60 and read_window == 60, (
         "the document says 'per minute'; change it and this test together"
     )
@@ -125,8 +125,8 @@ def test_the_documented_limits_match_the_budgets() -> None:
 
 def test_the_doc_never_carries_a_real_credential(tmp_path) -> None:
     wired = _wire(tmp_path)
-    assert wired.token not in AGENT_MD
-    assert "$FSAR_ROOM_TOKEN" in AGENT_MD
+    assert wired.token not in agent_md(True)
+    assert "$FSAR_ROOM_TOKEN" in agent_md(True)
 
 
 def test_the_doc_is_served_as_markdown(tmp_path) -> None:
@@ -134,7 +134,7 @@ def test_the_doc_is_served_as_markdown(tmp_path) -> None:
     response = wired.client.get("/room/agent.md", headers=_auth(wired.token))
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
-    assert response.text == AGENT_MD
+    assert response.text == agent_md(True)
 
 
 def test_the_doc_needs_a_token(tmp_path) -> None:
@@ -148,3 +148,18 @@ def test_a_revoked_token_cannot_fetch_the_doc(tmp_path) -> None:
     assert wired.client.get(
         "/room/agent.md", headers=_auth(wired.token)
     ).status_code == 401
+
+
+def test_the_served_document_follows_the_rooms_mode(tmp_path) -> None:
+    """Whichever way round the two texts eventually differ, the room's own mode
+    is what picks. What must never happen is a chat-only room's member being
+    handed text describing work it cannot reach."""
+    wired = _wire(tmp_path)
+    assert wired.client.get(
+        "/room/agent.md", headers=_auth(wired.token)
+    ).text == agent_md(True)
+
+    wired.rooms.update(wired.room.id, agent_mode=False)
+    assert wired.client.get(
+        "/room/agent.md", headers=_auth(wired.token)
+    ).text == agent_md(False)

@@ -22,7 +22,7 @@ from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
 from src.memory.session_store import SessionStore
 from src.security.rate_budget import RateBudget
-from src.server.agent_doc import AGENT_MD
+from src.server.agent_doc import agent_md
 from src.server.room_app import RoomDeps, create_room_app
 
 STRANGER_IP = "203.0.113.7"
@@ -276,7 +276,7 @@ def test_a18_the_doc_lists_every_registered_path(tmp_path) -> None:
     app = create_room_app(_wire(tmp_path).deps)
     for route in app.routes:
         if getattr(route, "methods", None):
-            assert route.path in AGENT_MD, route.path
+            assert route.path in agent_md(True), route.path
 
 
 def test_a19_the_audit_never_holds_a_credential(tmp_path) -> None:
@@ -323,4 +323,4 @@ def test_a19_a_blocked_address_cannot_reach_the_document(tmp_path) -> None:
 def test_the_guest_reading_the_doc_is_told_what_it_cannot_do(tmp_path) -> None:
     """The doc is the member's only briefing; the refusals have to be in it."""
     for phrase in ("401", "403", "404", "409", "413", "429"):
-        assert phrase in AGENT_MD, phrase
+        assert phrase in agent_md(True), phrase
