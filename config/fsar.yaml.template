@@ -64,6 +64,13 @@ security:
     enabled: true
     threshold: 0.62
     scan_on_startup: true
+  visitor_screening:
+    # Reads every line an outside room member sends, and bans that member's
+    # credential when the line tries to steer the model, attacks someone,
+    # floods, or reaches for this machine. Off by default: it can take a
+    # credential away on a model's say-so, so it is a decision, not a default.
+    enabled: false
+    threshold: 0.7
   file_read_blacklist:
     enabled: true
     defaults: true

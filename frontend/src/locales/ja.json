@@ -30,6 +30,8 @@
   "notifications.quarantineSection": "隔離された内容",
   "settings.permissions.toggles.screenStoredContent": "保存済み内容を検査",
   "settings.permissions.toggles.screenStoredContentDesc": "起動時にメモリ・振り返り・キャラクターカードのプロンプトインジェクションを検査し、メモリ書き込みも検査します。検出された項目は隔離され、通知ページに表示されます。",
+  "settings.permissions.toggles.screenVisitors": "訪問者の発言を検査",
+  "settings.permissions.toggles.screenVisitorsDesc": "外部メンバーが送った一行をルームに見せる前に読み、モデルの操作・他者への攻撃・連投・このマシンへの侵入を試みる場合はその資格情報を禁止します。禁止はルームのメンバーパネルから解除できます。",
   "nav.library": "ライブラリ",
   "nav.insights": "インサイト",
   "nav.settings": "設定",

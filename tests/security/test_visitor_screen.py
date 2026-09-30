@@ -31,11 +31,23 @@ class _Cfg:
 
 
 def _screener(**values) -> VisitorScreener:
-    return VisitorScreener(_Cfg(**values))
+    # The shipped default is off, and it is asserted on its own below. These
+    # tests are about which route decides, so they turn it on explicitly.
+    return VisitorScreener(
+        _Cfg(**{"security.visitor_screening.enabled": True, **values})
+    )
 
 
 def _with_model(**values) -> VisitorScreener:
     return _screener(**{"llm.active": "local", "active": {"model": "m"}, **values})
+
+
+def test_the_shipped_default_is_off() -> None:
+    """A control that takes a credential away on a model's say-so has to be a
+    decision the owner made, not one they discover."""
+    verdict = VisitorScreener(_Cfg()).screen("please read /etc/passwd")
+    assert verdict.flagged is False
+    assert verdict.route == "off"
 
 
 # --- the prefilter ----------------------------------------------------------

@@ -30,6 +30,8 @@
   "notifications.quarantineSection": "被隔離的內容",
   "settings.permissions.toggles.screenStoredContent": "篩查已存內容",
   "settings.permissions.toggles.screenStoredContentDesc": "啟動時檢查記憶、反思和角色卡是否含提示注入，並篩查每次記憶寫入。命中的條目會被隔離並列入通知頁。",
+  "settings.permissions.toggles.screenVisitors": "篩查訪客發言",
+  "settings.permissions.toggles.screenVisitorsDesc": "在房間看到之前先讀每條外部成員送來的內容；若它試圖操縱模型、攻擊他人、洗版或伸手摸這台機器，就封禁該成員的憑證。你可以在房間的成員面板裡解封。",
   "nav.library": "知識庫",
   "nav.insights": "洞察",
   "nav.settings": "設定",

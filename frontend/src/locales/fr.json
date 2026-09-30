@@ -30,6 +30,8 @@
   "notifications.quarantineSection": "Contenu en quarantaine",
   "settings.permissions.toggles.screenStoredContent": "Analyser le contenu stocké",
   "settings.permissions.toggles.screenStoredContentDesc": "Vérifie au démarrage la mémoire, les réflexions et les fiches de personnage à la recherche d'injections de prompt, et analyse chaque écriture en mémoire. Les éléments signalés sont mis en quarantaine et listés dans Notifications.",
+  "settings.permissions.toggles.screenVisitors": "Analyser les propos des visiteurs",
+  "settings.permissions.toggles.screenVisitorsDesc": "Lit chaque ligne d'un membre externe avant que le salon la voie, et bannit son jeton si elle cherche à piloter le modèle, attaque quelqu'un, inonde le salon ou vise cette machine. Le bannissement se lève depuis le panneau des membres du salon.",
   "nav.library": "Bibliothèque",
   "nav.insights": "Analyses",
   "nav.settings": "Paramètres",

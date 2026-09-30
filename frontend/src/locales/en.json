@@ -30,6 +30,8 @@
   "notifications.quarantineSection": "Quarantined content",
   "settings.permissions.toggles.screenStoredContent": "Screen stored content",
   "settings.permissions.toggles.screenStoredContentDesc": "Check memory, reflections and character cards for prompt injection at startup, and screen every memory write. Flagged items are quarantined and listed in Notifications.",
+  "settings.permissions.toggles.screenVisitors": "Screen what visitors say",
+  "settings.permissions.toggles.screenVisitorsDesc": "Read every line an outside member sends before the room sees it, and ban that member's credential if the line tries to steer the model, attacks someone, floods, or reaches for this machine. You can lift a ban from the room's member panel.",
   "nav.library": "Library",
   "nav.insights": "Insights",
   "nav.settings": "Settings",

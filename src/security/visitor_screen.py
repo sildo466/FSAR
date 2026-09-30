@@ -187,7 +187,10 @@ class VisitorScreener:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.config.get("security.visitor_screening.enabled", True))
+        # Off unless the owner turns it on. This one takes a credential away on
+        # a model's say-so, and a control with that consequence has to be a
+        # decision somebody made, not a default they discover.
+        return bool(self.config.get("security.visitor_screening.enabled", False))
 
     @property
     def threshold(self) -> float:

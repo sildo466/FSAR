@@ -30,6 +30,8 @@
   "notifications.quarantineSection": "Quarantänisierte Inhalte",
   "settings.permissions.toggles.screenStoredContent": "Gespeicherte Inhalte prüfen",
   "settings.permissions.toggles.screenStoredContentDesc": "Prüft beim Start Speicher, Reflexionen und Charakterkarten auf Prompt-Injection und prüft jeden Speicher-Schreibvorgang. Markierte Einträge werden isoliert und unter Benachrichtigungen gelistet.",
+  "settings.permissions.toggles.screenVisitors": "Besucheräußerungen prüfen",
+  "settings.permissions.toggles.screenVisitorsDesc": "Liest jede Zeile eines externen Mitglieds, bevor der Raum sie sieht, und sperrt dessen Token, wenn sie das Modell steuern, jemanden angreifen, fluten oder an diesen Rechner gelangen will. Die Sperre lässt sich im Mitgliederbereich des Raums aufheben.",
   "nav.library": "Bibliothek",
   "nav.insights": "Erkenntnisse",
   "nav.settings": "Einstellungen",
