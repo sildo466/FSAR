@@ -1222,22 +1222,62 @@ class ChatEngine:
 
     # ---------- agent mode ----------
 
+    def _agent_scope(
+        self, *, should_stop: Any, tier_override: str | None,
+    ) -> tuple[Any, TierProfile]:
+        """Resolve the two things that scope one agent turn.
+
+        Both are process-wide on the engine, and a room runs several turns at
+        once in one engine. Passing neither is exactly the old behaviour.
+        """
+        stop = should_stop if should_stop is not None else (lambda: self._cancelled)
+        tier = tier_override or self._session_tier_override or self.config.get(
+            "agent.tier", "medium"
+        )
+        return stop, get_tier_profile(tier)
+
+    def _agent_messages(
+        self, system_prompt: str, conv_id: str, history: list[Any] | None,
+        context_window: int, max_output: int,
+    ) -> list[Any]:
+        """The history for one agent turn.
+
+        A caller that keeps its own transcript (a room reads the session store)
+        passes it in; otherwise this hydrates the shared short cache.
+        """
+        if history is None:
+            self._ensure_short(conv_id)
+            history = list(self._short_cache[conv_id])
+        return self._fit_history(
+            system_prompt, list(history), context_window, max_output,
+        )
+
     async def _run_agent(self, ws: WebSocket, message_id: str, client: Any,
                          model: str, conv_id: str, user_input: str,
                          character: Any = None, char_name: str | None = None,
-                         provider_id: str = "") -> AgentLoopResult:
+                         provider_id: str = "",
+                         *, should_stop: Any = None,
+                         tier_override: str | None = None,
+                         history: list[Any] | None = None,
+                         save_character_id: int | None = None) -> AgentLoopResult:
+        """Run one full agent turn.
+
+        Everything that scopes the turn comes from the caller and defaults to
+        the engine's own state, so the chat, companion and headless paths are
+        unchanged.
+        """
         if ws is None:
             ws = _NoOpWebSocket()
-        tier = self._session_tier_override or self.config.get("agent.tier", "medium")
-        profile = get_tier_profile(tier)
+        stop, profile = self._agent_scope(
+            should_stop=should_stop, tier_override=tier_override,
+        )
         system_prompt = await self._build_prompt(
             conv_id, "agent", user_input, profile=profile, character=character,
         )
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
-        self._ensure_short(conv_id)
         context_window, max_output = self._model_limits()
-        messages.extend(self._fit_history(
-            system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
+        messages.extend(self._agent_messages(
+            system_prompt, conv_id, history, context_window, max_output,
         ))
         self._track_context(conv_id, messages)
         await self._emit_context(ws, conv_id)
@@ -1306,6 +1346,7 @@ class ChatEngine:
                 agent_id=task_id,
                 depth=0,
                 is_subagent=False,
+                stop=stop,
             )
         except asyncio.CancelledError:
             await self._emit_agent_status(
@@ -1336,7 +1377,10 @@ class ChatEngine:
         if runtime.streamed_main and result.outcome == "success":
             # Conclusion was already streamed live as the final turn's content;
             # save it to history without re-emitting (avoid duplicate text).
-            self._save_assistant(message_id, conv_id, result.conclusion)
+            self._save_assistant(
+                message_id, conv_id, result.conclusion,
+                character_id=save_character_id,
+            )
         else:
             await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
         await self._done(
@@ -1405,8 +1449,11 @@ class ChatEngine:
         agent_id: str,
         depth: int,
         is_subagent: bool,
+        stop: Any = None,
     ) -> AgentLoopResult:
         profile = runtime.profile
+        if stop is None:
+            stop = lambda: self._cancelled
         context_window, max_output = self._model_limits()
         tool_steps = 0
         verify_count = 0
@@ -1419,7 +1466,7 @@ class ChatEngine:
         )
 
         for turn in range(profile.max_tool_turns):
-            if self._cancelled:
+            if stop():
                 return AgentLoopResult("(Cancelled.)", "failure", tool_steps)
 
             if not is_subagent:
@@ -1485,6 +1532,7 @@ class ChatEngine:
                 provider_family=self._active_provider_family(),
                 stream_sink=(ws, message_id, conv_id)
                 if (not is_subagent and not awaiting_selfcheck_response) else None,
+                stop=stop,
             )
             # Only mark streamed_main when this turn actually streamed. The
             # self-check turn runs with stream_sink=None; flagging it here made
@@ -1700,6 +1748,7 @@ class ChatEngine:
         model_effort: str = "off",
         provider_family: str = "",
         stream_sink: tuple[Any, str, str] | None = None,
+        stop: Any = None,
     ) -> Any:
         call_kwargs: dict[str, Any] = {
             "model": model,
@@ -1759,6 +1808,7 @@ class ChatEngine:
                 provider_id=provider_id,
                 call_kwargs=call_kwargs,
                 stream_sink=stream_sink,
+                stop=stop,
             )
 
         response = await asyncio.to_thread(
@@ -1776,11 +1826,13 @@ class ChatEngine:
         provider_id: str,
         call_kwargs: dict[str, Any],
         stream_sink: tuple[Any, str, str],
+        stop: Any = None,
     ) -> dict[str, Any]:
         """Run one agent-loop LLM call with stream=True, emitting each content
         chunk to the frontend as `chat.delta` while rebuilding the full message
         (content + tool_calls) for the loop state."""
         ws, message_id, conv_id = stream_sink
+        halted = stop if stop is not None else (lambda: self._cancelled)
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         content_parts: list[str] = []
@@ -1809,7 +1861,7 @@ class ChatEngine:
                     except TypeError:
                         stream = iter([result])
                 for chunk in stream:
-                    if self._cancelled:
+                    if halted():
                         break
                     if not getattr(chunk, "choices", None):
                         continue
