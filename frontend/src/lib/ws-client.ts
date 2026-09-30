@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import type { ToolEvent } from "./toolEvents";
 
 export type ChatMode = "agent" | "companion" | "character";
 
@@ -308,6 +309,9 @@ export interface GroupMessage {
   timestamp?: string;
   streaming?: boolean;
   thinking?: boolean;
+  /** Tool steps this character ran during its turn, oldest first. Only a room
+   *  whose agent mode is on produces any. */
+  tools?: ToolEvent[];
 }
 
 export interface ElectionCandidate {

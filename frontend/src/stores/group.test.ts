@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyGroupEvent, useGroup } from "./group";
-import type { GroupMessage } from "../lib/ws-client";
+import { applyGroupEvent, applyRiskEvent, useGroup } from "./group";
+import type { GroupMessage, RoomSummary } from "../lib/ws-client";
 
 function assistant(id: string, characterId: number, name: string): GroupMessage {
   return {
@@ -17,6 +17,7 @@ const emptyState = {
   rooms: [],
   currentRoomId: null,
   messages: {},
+  pendingRisks: {},
   elections: {},
   chainRunning: {},
   loadingHistory: {},
@@ -491,5 +492,163 @@ describe("agent member messages", () => {
     expect(live[0].role).toBe("user");
     expect(live[0].user_name).toBe("You");
     expect(live[0].speaker_kind ?? null).toBeNull();
+  });
+});
+
+describe("tool steps and approvals in a room", () => {
+  beforeEach(() => {
+    useGroup.setState(emptyState);
+  });
+
+  it("keeps a character's steps on that character's message", () => {
+    const called = applyGroupEvent([assistant("m1", 7, "Mira")], {
+      type: "chat.tool_call",
+      message_id: "m1",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "read_file",
+      args: { path: "a.txt" },
+      risk: "SAFE",
+    });
+    expect(called[0].tools).toHaveLength(1);
+    expect(called[0].tools?.[0].tool).toBe("read_file");
+
+    const done = applyGroupEvent(called, {
+      type: "chat.tool_result",
+      conversation_id: "s1",
+      call_id: "c1",
+      result: "ok",
+      latency_ms: 12,
+    });
+    expect(done[0].tools?.[0].result).toBe("ok");
+    expect(done[0].tools).toHaveLength(1);
+  });
+
+  it("ignores a step for a message the room does not have", () => {
+    const next = applyGroupEvent([assistant("m1", 7, "Mira")], {
+      type: "chat.tool_call",
+      message_id: "other",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "read_file",
+      args: {},
+      risk: "SAFE",
+    });
+    expect(next[0].tools).toBeUndefined();
+  });
+
+  it("queues a call that needs a decision", () => {
+    const next = applyRiskEvent(undefined, {
+      type: "chat.tool_call",
+      message_id: "m1",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "run_command",
+      args: { command: "ls" },
+      risk: "HIGH",
+    }, 1);
+    expect(next[1]).toHaveLength(1);
+    expect(next[1][0].callId).toBe("c1");
+    expect(next[1][0].risk).toBe("HIGH");
+  });
+
+  it("does not queue a call the engine already ruled safe", () => {
+    const next = applyRiskEvent(undefined, {
+      type: "chat.tool_call",
+      message_id: "m1",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "read_file",
+      args: {},
+      risk: "SAFE",
+    }, 1);
+    expect(next[1] ?? []).toHaveLength(0);
+  });
+
+  it("drops the entry once the call has a result", () => {
+    const queued = applyRiskEvent(undefined, {
+      type: "chat.tool_call",
+      message_id: "m1",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "run_command",
+      args: {},
+      risk: "HIGH",
+    }, 1);
+    const cleared = applyRiskEvent(queued, {
+      type: "chat.tool_result",
+      conversation_id: "s1",
+      call_id: "c1",
+      result: "ok",
+      latency_ms: 3,
+    }, 1);
+    expect(cleared[1]).toHaveLength(0);
+  });
+
+  it("keeps approvals for another room apart", () => {
+    const queued = applyRiskEvent(undefined, {
+      type: "chat.tool_call",
+      message_id: "m1",
+      conversation_id: "s1",
+      call_id: "c1",
+      tool: "run_command",
+      args: {},
+      risk: "HIGH",
+    }, 1);
+    const other = applyRiskEvent(queued, {
+      type: "chat.tool_call",
+      message_id: "m2",
+      conversation_id: "s2",
+      call_id: "c2",
+      tool: "run_command",
+      args: {},
+      risk: "MEDIUM",
+    }, 2);
+    expect(other[1]).toHaveLength(1);
+    expect(other[2]).toHaveLength(1);
+  });
+
+  it("routes a tool event to the room that owns the conversation", () => {
+    useGroup.setState({
+      ...emptyState,
+      rooms: [{ id: 4, session_id: "s4" } as unknown as RoomSummary],
+      messages: { 4: [assistant("m9", 7, "Mira")] },
+    });
+
+    useGroup.getState().applyServerMsg({
+      type: "chat.tool_call",
+      message_id: "m9",
+      conversation_id: "s4",
+      call_id: "c1",
+      tool: "read_file",
+      args: {},
+      risk: "HIGH",
+    });
+
+    const state = useGroup.getState();
+    expect(state.messages[4][0].tools).toHaveLength(1);
+    expect(state.pendingRisks[4]).toHaveLength(1);
+  });
+
+  it("drops a tool event for a conversation no room owns", () => {
+    useGroup.setState({
+      ...emptyState,
+      rooms: [{ id: 4, session_id: "s4" } as unknown as RoomSummary],
+      messages: { 4: [assistant("m9", 7, "Mira")] },
+    });
+
+    useGroup.getState().applyServerMsg({
+      type: "chat.tool_call",
+      message_id: "m9",
+      conversation_id: "somewhere-else",
+      call_id: "c1",
+      tool: "read_file",
+      args: {},
+      risk: "HIGH",
+    });
+
+    const state = useGroup.getState();
+    expect(state.messages[4][0].tools).toBeUndefined();
+    expect(state.pendingRisks[4] ?? []).toHaveLength(0);
   });
 });

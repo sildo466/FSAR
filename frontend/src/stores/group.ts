@@ -13,10 +13,15 @@ import type {
   WSClient,
 } from "../lib/ws-client";
 
+import { applyToolEvent, asPreview } from "../lib/toolEvents";
+
 interface GroupState {
   rooms: RoomSummary[];
   currentRoomId: number | null;
   messages: Record<number, GroupMessage[]>;
+  /** Approvals waiting on the owner, per room. A character running tools in an
+   *  agent room is the only thing that fills this. */
+  pendingRisks: Record<number, PendingRisk[]>;
   elections: Record<number, ElectionCandidate[]>;
   chainRunning: Record<number, boolean>;
   loadingHistory: Record<number, boolean>;
@@ -78,6 +83,9 @@ interface GroupState {
   unblockIp: (ip: string) => void;
   rebindIp: (tokenId: number, ip: string) => void;
   rate: (roomId: number, rowId: number, score: number, reason?: string) => void;
+  /** The room's own openness. Kept apart from the process-wide listener switch
+   *  in LanPanel: one is a fact about this room, the other about the machine. */
+  setRoomLan: (roomId: number, enabled: boolean) => void;
   regenerate: (roomId: number, rowId: number) => void;
   send: (msg: ClientMsg) => void;
   applyServerMsg: (msg: ServerMsg) => void;
@@ -143,9 +151,88 @@ export function applyGroupEvent(
             }
           : m
       );
+    case "chat.tool_call":
+      return live.map((m) =>
+        m.id === msg.message_id
+          ? {
+              ...m,
+              tools: applyToolEvent(m.tools, {
+                kind: "call", callId: msg.call_id, tool: msg.tool,
+                args: msg.args,
+              }),
+            }
+          : m
+      );
+    case "chat.tool_result":
+      return live.map((m) =>
+        m.tools?.some((t) => t.callId === msg.call_id)
+          ? {
+              ...m,
+              tools: applyToolEvent(m.tools, {
+                kind: "result", callId: msg.call_id, result: msg.result,
+                latencyMs: msg.latency_ms,
+              }),
+            }
+          : m
+      );
     default:
       return live;
   }
+}
+
+export interface PendingRisk {
+  callId: string;
+  tool: string;
+  argsPreview: string;
+  risk: string;
+}
+
+/**
+ * Approvals waiting on the owner for one room.
+ *
+ * Its own reducer rather than a branch of applyGroupEvent: that one is
+ * (messages, event) -> messages, and this is a list of a different shape. The
+ * room id is passed in because the event carries a conversation id, not a room
+ * — whoever calls this has already resolved one to the other.
+ */
+export function applyRiskEvent(
+  pending: Record<number, PendingRisk[]> | undefined,
+  msg: ServerMsg,
+  roomId: number
+): Record<number, PendingRisk[]> {
+  const current = pending ?? {};
+  const queued = current[roomId] ?? [];
+  if (msg.type === "chat.tool_call") {
+    if (msg.risk === "SAFE") return current;
+    return {
+      ...current,
+      [roomId]: [
+        ...queued,
+        {
+          callId: msg.call_id,
+          tool: msg.tool,
+          argsPreview: asPreview(msg.args),
+          risk: msg.risk,
+        },
+      ],
+    };
+  }
+  if (msg.type === "chat.tool_result") {
+    return {
+      ...current,
+      [roomId]: queued.filter((r) => r.callId !== msg.call_id),
+    };
+  }
+  return current;
+}
+
+function roomIdForConversation(
+  rooms: RoomSummary[],
+  conversationId: string | undefined
+): number | null {
+  if (!conversationId) return null;
+  const room = rooms.find((r) => r.session_id === conversationId);
+  return room ? room.id : null;
 }
 
 const LIVE_EVENTS = new Set([
@@ -159,7 +246,22 @@ export const useGroup = create<GroupState>((set, get) => {
   let attached: WSClient | null = null;
 
   const applyServerMsg = (msg: ServerMsg) => {
-    if (msg.type === "group.list.ok") {
+    if (msg.type === "chat.tool_call" || msg.type === "chat.tool_result") {
+      // A room is one conversation, so the conversation id in the payload is
+      // enough to find the room and the message id is enough to find the
+      // bubble — no new server field, whatever the room's member count.
+      set((s) => {
+        const roomId = roomIdForConversation(s.rooms, msg.conversation_id);
+        if (roomId === null) return s;
+        return {
+          messages: {
+            ...s.messages,
+            [roomId]: applyGroupEvent(s.messages[roomId] ?? [], msg),
+          },
+          pendingRisks: applyRiskEvent(s.pendingRisks, msg, roomId),
+        };
+      });
+    } else if (msg.type === "group.list.ok") {
       set({ rooms: msg.rooms });
     } else if (msg.type === "group.created") {
       set((s) => ({
@@ -283,6 +385,7 @@ export const useGroup = create<GroupState>((set, get) => {
     rooms: [],
     currentRoomId: null,
     messages: {},
+    pendingRisks: {},
     elections: {},
     chainRunning: {},
     loadingHistory: {},
@@ -396,6 +499,13 @@ export const useGroup = create<GroupState>((set, get) => {
       }),
 
     stopAllChains: () => attached?.send({ type: "group.stop_all" }),
+
+    setRoomLan: (roomId, enabled) =>
+      attached?.send({
+        type: "group.update",
+        room_id: roomId,
+        lan_enabled: enabled,
+      }),
 
     refreshLanStatus: () => attached?.send({ type: "lan.status" }),
 
