@@ -671,6 +671,18 @@ class GroupEngine:
         )
         return history, last.content, speaker
 
+    def _triggers_for_round(
+        self, room: Any, first_input: str | None, speakers: list[Any],
+    ) -> list[tuple[list[dict[str, str]], str, str]]:
+        """One trigger per speaker, all computed before any of them starts.
+
+        Every call sees the same snapshot because nothing is written until the
+        round's turns begin, so the single-speaker rule is reused verbatim —
+        and the second speaker cannot inherit the first one's line as its
+        trigger.
+        """
+        return [self._trigger_for(room, first_input) for _ in speakers]
+
     async def run_chain(
         self,
         ws: Any,
@@ -746,32 +758,66 @@ class GroupEngine:
                     "round": round_no,
                     "speakers": [r.character_id for r in chosen],
                 })
+                turns: list[tuple[Any, Any]] = []
                 for result in chosen:
-                    if self.is_cancelled(room.id):
-                        reason = "cancelled"
-                        break
                     character = next(
                         (c for c in members if c.id == result.character_id), None,
                     )
-                    if character is None:
-                        continue
-                    history, trigger, trigger_speaker = self._trigger_for(
-                        room, user_input if first_speaker else None,
+                    if character is not None:
+                        turns.append((result, character))
+                if not turns:
+                    reason = "settled"
+                    break
+                if getattr(room, "agent_mode", False):
+                    # The round's triggers are computed together, before any of
+                    # its turns starts: computed one at a time they would depend
+                    # on which turn wrote first. `gather` does not tear the
+                    # turns down either — each carries the room's stop predicate
+                    # and converges on its own.
+                    plans = self._triggers_for_round(
+                        room, user_input if first_speaker else None, turns,
                     )
                     first_speaker = False
-                    await self.speak(
-                        ws,
-                        room=room,
-                        character=character,
-                        user_card=user_card,
-                        history=history,
-                        user_input=trigger,
-                        should_stop=lambda: self.is_cancelled(room.id),
-                        trigger_speaker=trigger_speaker,
-                    )
-                    last_speaker = result.character_id
-                if reason == "cancelled":
-                    break
+                    await asyncio.gather(*[
+                        self.speak_agent(
+                            ws,
+                            room=room,
+                            character=character,
+                            user_card=user_card,
+                            history=history,
+                            user_input=trigger,
+                            should_stop=lambda: self.is_cancelled(room.id),
+                            trigger_speaker=trigger_speaker,
+                        )
+                        for (_result, character), (
+                            history, trigger, trigger_speaker,
+                        ) in zip(turns, plans)
+                    ])
+                else:
+                    for result, character in turns:
+                        if self.is_cancelled(room.id):
+                            reason = "cancelled"
+                            break
+                        # Read between speakers, not once for the round: the
+                        # next speaker is answering whatever the last one just
+                        # said, which is where this rhythm comes from.
+                        history, trigger, trigger_speaker = self._trigger_for(
+                            room, user_input if first_speaker else None,
+                        )
+                        first_speaker = False
+                        await self.speak(
+                            ws,
+                            room=room,
+                            character=character,
+                            user_card=user_card,
+                            history=history,
+                            user_input=trigger,
+                            should_stop=lambda: self.is_cancelled(room.id),
+                            trigger_speaker=trigger_speaker,
+                        )
+                    if reason == "cancelled":
+                        break
+                last_speaker = turns[-1][0].character_id
         except asyncio.CancelledError:
             reason = "cancelled"
             raise
