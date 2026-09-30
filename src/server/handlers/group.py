@@ -251,6 +251,17 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
             return True
 
         if t == "group.update":
+            if msg.get("agent_mode") is not None:
+                # The mode decides which route the room's characters run on, so
+                # it is chosen when the room is made. LAN is the opposite: a
+                # network fact the owner changes without rebuilding the room.
+                await ws.send_json({
+                    "type": "group.error",
+                    "room_id": int(msg.get("room_id") or 0),
+                    "code": "mode_not_editable",
+                    "message": "Agent mode is fixed when the room is created.",
+                })
+                return True
             room = rooms.update(
                 int(msg["room_id"]),
                 name=(
@@ -264,7 +275,6 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     int(msg["max_rounds"]) if msg.get("max_rounds") is not None
                     else None
                 ),
-                agent_mode=msg.get("agent_mode"),
                 lan_enabled=msg.get("lan_enabled"),
             )
             if room is not None:

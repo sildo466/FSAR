@@ -54,7 +54,10 @@ def test_create_passes_both_switches_through() -> None:
     assert captured["lan_enabled"] is True
 
 
-def test_update_can_flip_a_switch() -> None:
+def test_update_can_flip_the_lan_switch() -> None:
+    """The mode is fixed when the room is made and never reaches the store
+    again; the LAN switch is the one the owner flips in place. See
+    tests/server/test_group_update_immutable_mode.py."""
     captured: dict = {}
 
     def update(room_id, **kwargs):
@@ -70,7 +73,7 @@ def test_update_can_flip_a_switch() -> None:
     group_handler.set_engine(SimpleNamespace(chat=SimpleNamespace()), rooms)
     ws = FakeWebSocket()
     asyncio.run(group_handler.dispatch(ws, {
-        "type": "group.update", "room_id": 1, "agent_mode": False,
+        "type": "group.update", "room_id": 1, "lan_enabled": True,
     }))
-    assert captured["agent_mode"] is False
-    assert captured["lan_enabled"] is None
+    assert captured["lan_enabled"] is True
+    assert "agent_mode" not in captured
