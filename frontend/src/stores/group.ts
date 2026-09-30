@@ -14,6 +14,7 @@ import type {
 } from "../lib/ws-client";
 
 import { applyToolEvent, asPreview } from "../lib/toolEvents";
+import type { PendingRisk } from "../components/chat/MessageList";
 
 interface GroupState {
   rooms: RoomSummary[];
@@ -178,13 +179,6 @@ export function applyGroupEvent(
     default:
       return live;
   }
-}
-
-export interface PendingRisk {
-  callId: string;
-  tool: string;
-  argsPreview: string;
-  risk: string;
 }
 
 /**

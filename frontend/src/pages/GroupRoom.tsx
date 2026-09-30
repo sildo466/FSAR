@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bot, Radio, Users } from "lucide-react";
+import { ArrowLeft, Bot, Globe, Radio, Users } from "lucide-react";
 import { useGroup } from "../stores/group";
 import { useCardsStore } from "../stores/cards";
 import { fetchWSToken, useWS } from "../stores/ws";
@@ -13,6 +13,7 @@ import {
 } from "../components/chat/ChatComposer";
 import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
+import { GroupToolSteps } from "../components/group/GroupToolSteps";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { LanPanel } from "../components/group/LanPanel";
 import { MemberPanel } from "../components/group/MemberPanel";
@@ -27,6 +28,8 @@ export function GroupRoom() {
   const messages = useGroup((s) => s.messages[roomId] ?? []);
   const elections = useGroup((s) => s.elections[roomId] ?? []);
   const chainRunning = useGroup((s) => s.chainRunning[roomId] ?? false);
+  const pendingRisks = useGroup((s) => s.pendingRisks[roomId] ?? []);
+  const setRoomLan = useGroup((s) => s.setRoomLan);
   const openRoom = useGroup((s) => s.openRoom);
   const closeRoom = useGroup((s) => s.closeRoom);
   const sendMsg = useGroup((s) => s.send);
@@ -140,6 +143,7 @@ export function GroupRoom() {
         character_id: m.character_id ?? undefined,
         character_name: m.character_name ?? undefined,
         user_name: m.user_name ?? undefined,
+        tools: m.tools,
       })),
     [messages]
   );
@@ -198,6 +202,20 @@ export function GroupRoom() {
             </button>
           )}
           <button
+            data-testid="room-lan-toggle"
+            aria-pressed={!!room?.lan_enabled}
+            title={t("group.lanEnabledHint")}
+            onClick={() => room && setRoomLan(room.id, !room.lan_enabled)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition ${
+              room?.lan_enabled
+                ? "bg-glass text-text"
+                : "text-text-muted hover:bg-glass hover:text-text"
+            }`}
+          >
+            <Globe size={13} strokeWidth={1.6} />
+            {t("group.lanEnabled")}
+          </button>
+          <button
             data-testid="toggle-lan-panel"
             onClick={() => setLanOpen((v) => !v)}
             className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] text-text-muted transition hover:bg-glass hover:text-text"
@@ -225,8 +243,11 @@ export function GroupRoom() {
         <div className="min-h-0 flex-1 overflow-auto">
           <MessageList
             messages={chatMessages}
-            pendingRisks={[]}
-            onRespond={() => {}}
+            pendingRisks={pendingRisks}
+            onRespond={(callId, response) =>
+              sendMsg({ type: "risk.respond", call_id: callId, response })
+            }
+            renderTools={(steps) => <GroupToolSteps steps={steps} />}
             onRate={(messageId, score, reason) => {
               const rowId = rowIdOf(messageId);
               if (rowId != null) rate(roomId, rowId, score, reason);

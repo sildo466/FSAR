@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useCardsStore } from "../../stores/cards";
 import { Avatar } from "../ui/Avatar";
@@ -55,6 +56,9 @@ interface Props {
   /** Per-message regenerate. Group rooms need it because the last assistant
    *  message may belong to a character the user did not mean to re-run. */
   onRegenerateMessage?: (messageId: string) => void;
+  /** How a message's tool steps are drawn. The chat page shows every one; a
+   *  room folds them, because several characters can be mid-loop at once. */
+  renderTools?: (steps: ToolEvent[]) => ReactNode;
 }
 
 export function ToolCallRow({ ev }: { ev: ToolEvent }) {
@@ -140,7 +144,7 @@ function AssistantBody({ content }: { content: string }) {
   );
 }
 
-export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate, onRegenerateMessage }: Props) {
+export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate, onRegenerateMessage, renderTools }: Props) {
   const { t } = useTranslation();
   const characters = useCardsStore((s) => s.characters);
   const charactersById = useMemo(() => {
@@ -174,7 +178,10 @@ export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegen
           <span className="px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-text-faint">
             {m.role === "user" ? (m.user_name ?? t("messageList.you")) : (m.character_name ?? character?.name ?? t("messageList.assistant"))}
           </span>
-          {m.tools?.map((ev) => <ToolCallRow key={ev.callId} ev={ev} />)}
+          {m.tools && m.tools.length > 0 &&
+            (renderTools
+              ? renderTools(m.tools)
+              : m.tools.map((ev) => <ToolCallRow key={ev.callId} ev={ev} />))}
           <div className={`leading-relaxed [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:overflow-auto [&_pre]:bg-bg [&_pre]:p-3 [&_pre]:rounded-xl ${m.role === "user" ? "rounded-[24px] rounded-br-md bg-text px-4 py-3 text-bg shadow-[0_8px_24px_var(--glow-faint)]" : "glass rounded-[24px] rounded-bl-md px-4 py-3 text-text"}`}>
             {m.thinking ? (
               <ThinkingDot />
