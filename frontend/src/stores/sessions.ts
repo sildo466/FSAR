@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { ClientMsg, ServerMsg, SessionMeta, StoredMessage } from "../lib/ws-client";
 import type { ChatMessage } from "../components/chat/MessageList";
 import { WSClient } from "../lib/ws-client";
+import { applyToolEvent } from "../lib/toolEvents";
 import { useCardsStore } from "./cards";
 
 const LS_KEY = "fsar.currentConversationId";
@@ -102,15 +103,9 @@ function applyChatEvent(live: ChatMessage[] | undefined, msg: ServerMsg): ChatMe
         m.id === msg.message_id
           ? {
               ...m,
-              tools: [
-                ...(m.tools ?? []),
-                {
-                  callId: msg.call_id,
-                  tool: msg.tool,
-                  argsPreview:
-                    typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2),
-                },
-              ],
+              tools: applyToolEvent(m.tools, {
+                kind: "call", callId: msg.call_id, tool: msg.tool, args: msg.args,
+              }),
             }
           : m
       );
@@ -119,16 +114,10 @@ function applyChatEvent(live: ChatMessage[] | undefined, msg: ServerMsg): ChatMe
         m.tools?.some((t) => t.callId === msg.call_id)
           ? {
               ...m,
-              tools: m.tools.map((t) =>
-                t.callId === msg.call_id
-                  ? {
-                      ...t,
-                      result:
-                        typeof msg.result === "string" ? msg.result : JSON.stringify(msg.result),
-                      latencyMs: msg.latency_ms,
-                    }
-                  : t
-              ),
+              tools: applyToolEvent(m.tools, {
+                kind: "result", callId: msg.call_id, result: msg.result,
+                latencyMs: msg.latency_ms,
+              }),
             }
           : m
       );

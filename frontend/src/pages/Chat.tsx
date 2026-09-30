@@ -18,6 +18,7 @@ import { useWorkspace } from "../stores/workspace";
 import { useCardsStore } from "../stores/cards";
 import { useChatUI } from "../stores/chat-ui";
 import type { StoredMessage } from "../lib/ws-client";
+import { applyToolEvent, asPreview } from "../lib/toolEvents";
 import { filterCommands } from "../lib/commands";
 import { useSpeechStore } from "../stores/speech";
 import { useTranslation } from "react-i18next";
@@ -252,17 +253,15 @@ export function Chat() {
           instructionsOverride: String(character?.tts_instructions ?? ""),
         });
       } else if (msg.type === "chat.tool_call") {
-        const argsPreview =
-          typeof msg.args === "string" ? msg.args : JSON.stringify(msg.args, null, 2);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === msg.message_id
               ? {
                   ...m,
-                  tools: [
-                    ...(m.tools ?? []),
-                    { callId: msg.call_id, tool: msg.tool, argsPreview },
-                  ],
+                  tools: applyToolEvent(m.tools, {
+                    kind: "call", callId: msg.call_id, tool: msg.tool,
+                    args: msg.args,
+                  }),
                 }
               : m
           )
@@ -270,7 +269,12 @@ export function Chat() {
         if (msg.risk !== "SAFE") {
           setPendingRisks((prev) => [
             ...prev,
-            { callId: msg.call_id, tool: msg.tool, argsPreview, risk: msg.risk },
+            {
+              callId: msg.call_id,
+              tool: msg.tool,
+              argsPreview: asPreview(msg.args),
+              risk: msg.risk,
+            },
           ]);
         }
       } else if (msg.type === "chat.tool_result") {
@@ -280,18 +284,10 @@ export function Chat() {
             m.tools?.some((t) => t.callId === msg.call_id)
               ? {
                   ...m,
-                  tools: m.tools!.map((t) =>
-                    t.callId === msg.call_id
-                      ? {
-                          ...t,
-                          result:
-                            typeof msg.result === "string"
-                              ? msg.result
-                              : JSON.stringify(msg.result),
-                          latencyMs: msg.latency_ms,
-                        }
-                      : t
-                  ),
+                  tools: applyToolEvent(m.tools, {
+                    kind: "result", callId: msg.call_id, result: msg.result,
+                    latencyMs: msg.latency_ms,
+                  }),
                 }
               : m
           )

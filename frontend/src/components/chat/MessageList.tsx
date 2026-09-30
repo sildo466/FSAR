@@ -14,6 +14,7 @@ import { ThinkingDot } from "./ThinkingDot";
 import { RiskConfirm } from "./RiskConfirm";
 import { RateStars } from "./RateStars";
 import { splitThinkBlocks } from "../../lib/thinking";
+import type { ToolEvent } from "../../lib/toolEvents";
 import { motion } from "framer-motion";
 import { MessageReplayButton } from "./MessageReplayButton";
 
@@ -22,13 +23,9 @@ import { MessageReplayButton } from "./MessageReplayButton";
 const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }]];
 
-export interface ToolEvent {
-  callId: string;
-  tool: string;
-  argsPreview: string;
-  result?: string;
-  latencyMs?: number;
-}
+// Re-exported so the files that already name it through this module keep
+// working; the definition lives in lib/toolEvents with the rule that builds it.
+export type { ToolEvent };
 
 export interface ChatMessage {
   id: string;
@@ -60,7 +57,7 @@ interface Props {
   onRegenerateMessage?: (messageId: string) => void;
 }
 
-function ToolCallRow({ ev }: { ev: ToolEvent }) {
+export function ToolCallRow({ ev }: { ev: ToolEvent }) {
   return (
     <details className="glass rounded-xl px-3 py-2 text-sm">
       <summary className="cursor-pointer select-none">
