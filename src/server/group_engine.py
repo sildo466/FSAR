@@ -31,6 +31,14 @@ MENTIONED_EAGERNESS = 10
 ELECT_HISTORY_LINES = 20
 GROUP_SHORT_CACHE_LIMIT = 10
 
+# The tier a room's own characters run at. Pinned rather than configurable: a
+# room is unattended, and two rooms working the same goal on different tiers is
+# a difference nobody asked for. Not exposed in the GUI.
+#
+# Subagents are part of the profile and stay on: with two speakers a round can
+# put four LLM loops in one engine, which the maintainer accepted knowingly.
+GROUP_AGENT_TIER = "xhigh"
+
 ELECT_PROMPT = """Your name is {name}.
 {description}
 {personality}
@@ -416,6 +424,78 @@ class GroupEngine:
             # marker was stripped, and a failed call appends its own suffix.
             "content": text,
             "emotion_state": emotion_state,
+        })
+        return message_id, text
+
+    async def speak_agent(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        user_card: Any,
+        history: list[dict[str, str]],
+        user_input: str,
+        should_stop: Any,
+        trigger_speaker: str = "",
+        message_id: str | None = None,
+    ) -> tuple[str, str]:
+        """One character's turn through the agent loop instead of a reply.
+
+        The loop owns persistence, so this writes no row of its own — it only
+        tells the loop whose row this is. Everything else is the room's: the
+        room's history, the room's cancel, the tier a room is fixed at.
+        """
+        chat = self.chat
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        await self._safe_send(ws, {
+            "type": "group.speaker.start",
+            "room_id": room.id,
+            "message_id": message_id,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+        client, model, provider_id = chat.client_and_model()
+        result = await chat._run_agent(
+            ws,
+            message_id,
+            client,
+            model,
+            room.session_id,
+            turn_instruction(user_input, trigger_speaker) if user_input else "",
+            character=character,
+            char_name=char_name,
+            provider_id=provider_id,
+            should_stop=should_stop,
+            tier_override=GROUP_AGENT_TIER,
+            history=history,
+            save_character_id=char_id,
+        )
+        text = strip_tool_call_markup(
+            strip_speaker_marker(result.conclusion, char_name)
+        )
+        row_id = chat._msg_ids.get(message_id)
+        self._bound_short_cache(room.session_id)
+        if result.outcome != "success" or not text.strip():
+            await self._safe_send(ws, {
+                "type": "group.speaker.done",
+                "room_id": room.id,
+                "message_id": message_id,
+                "failed": True,
+                "content": "",
+            })
+            return message_id, ""
+        await self._safe_send(ws, {
+            "type": "group.speaker.done",
+            "room_id": room.id,
+            "message_id": message_id,
+            "row_id": row_id,
+            # Authoritative text: the deltas were emitted before the marker was
+            # stripped, and a failed loop reports its own conclusion.
+            "content": text,
+            "failed": False,
         })
         return message_id, text
 

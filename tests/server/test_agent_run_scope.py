@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from src.server.chat_engine import ChatEngine
 
 
