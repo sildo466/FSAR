@@ -185,3 +185,52 @@ def test_slash_command_executes_server_side(monkeypatch):
     text = "".join(m["content"] for m in msgs if m["type"] == "chat.delta")
     assert "Tools" in text
     assert msgs[-1]["outcome"] == "success"
+
+
+class _RecordingWS:
+    def __init__(self):
+        self.events: list[dict] = []
+
+    async def send_json(self, event: dict) -> None:
+        self.events.append(event)
+
+
+def _streamed_turn(monkeypatch, chunks) -> dict:
+    import asyncio
+
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: iter(chunks))
+    return asyncio.run(ws_mod._engine._stream_agent_completion(
+        client=object(),
+        provider_id="prov",
+        call_kwargs={"model": "model-x", "messages": []},
+        stream_sink=(_RecordingWS(), "message", "conversation"),
+    ))
+
+
+def test_streamed_turn_without_tool_calls_carries_no_tool_calls_key(monkeypatch):
+    # The loop re-sends this message (the self-check turn appends it and asks
+    # again), and an explicit null is a 400 for strict OpenAI-compatible
+    # gateways: "Invalid input: expected array, received null".
+    message = _streamed_turn(monkeypatch, [
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+            content="hi", tool_calls=None,
+        ))]),
+    ])
+    assert message["content"] == "hi"
+    assert "tool_calls" not in message
+
+
+def test_streamed_turn_with_tool_calls_keeps_them(monkeypatch):
+    message = _streamed_turn(monkeypatch, [
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+            content=None,
+            tool_calls=[SimpleNamespace(
+                index=0, id="c1",
+                function=SimpleNamespace(name="file_ops", arguments='{"a": 1}'),
+            )],
+        ))]),
+    ])
+    assert message["tool_calls"] == [{
+        "id": "c1", "type": "function",
+        "function": {"name": "file_ops", "arguments": '{"a": 1}'},
+    }]

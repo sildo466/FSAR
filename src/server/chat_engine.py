@@ -1938,12 +1938,18 @@ class ChatEngine:
             {"id": e["id"], "type": e["type"],
              "function": {"name": e["name"], "arguments": e["arguments"]}}
             for _, e in sorted(tool_map.items())
-        ] or None
-        return {
+        ]
+        message: dict[str, Any] = {
             "role": "assistant",
             "content": "".join(content_parts),
-            "tool_calls": tool_calls,
         }
+        # The key is left out rather than set to None on purpose: this message
+        # is re-sent on the next turn (the self-check turn does exactly that),
+        # and strict OpenAI-compatible gateways reject `tool_calls: null` with
+        # a 400 instead of treating it as "no tool calls".
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return message
 
     async def _summarize_context_chunk(
         self,
