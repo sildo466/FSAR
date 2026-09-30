@@ -214,6 +214,7 @@
   "group.revokeToken": "Révoquer",
   "group.unbanToken": "Débloquer",
   "group.bannedToken": "banni",
+  "group.earlierToolSteps": "{{n}} étape(s) précédente(s)",
   "group.tokensLabel": "Jetons",
   "group.stopAll": "Arrêter toutes les réponses",
   "group.members": "Membres",

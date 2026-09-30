@@ -947,6 +947,7 @@
   "group.revokeToken": "失効させる",
   "group.unbanToken": "解除",
   "group.bannedToken": "禁止中",
+  "group.earlierToolSteps": "以前の {{n}} ステップ",
   "group.tokensLabel": "トークン",
   "group.stopAll": "すべての返信を停止",
   "group.members": "メンバー",

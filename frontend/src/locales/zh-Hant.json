@@ -947,6 +947,7 @@
   "group.revokeToken": "撤銷",
   "group.unbanToken": "解封",
   "group.bannedToken": "已封禁",
+  "group.earlierToolSteps": "更早的 {{n}} 步",
   "group.tokensLabel": "權杖",
   "group.stopAll": "停止全部發言",
   "group.members": "成員",

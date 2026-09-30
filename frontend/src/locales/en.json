@@ -947,6 +947,7 @@
   "group.revokeToken": "Revoke",
   "group.unbanToken": "Unban",
   "group.bannedToken": "banned",
+  "group.earlierToolSteps": "{{n}} earlier step(s)",
   "group.tokensLabel": "Tokens",
   "group.stopAll": "Stop all replies",
   "group.members": "Members",

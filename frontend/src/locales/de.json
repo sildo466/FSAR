@@ -214,6 +214,7 @@
   "group.revokeToken": "Widerrufen",
   "group.unbanToken": "Entsperren",
   "group.bannedToken": "gesperrt",
+  "group.earlierToolSteps": "{{n}} frühere Schritte",
   "group.tokensLabel": "Tokens",
   "group.stopAll": "Alle Antworten stoppen",
   "group.members": "Mitglieder",
