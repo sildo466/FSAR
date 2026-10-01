@@ -3,7 +3,8 @@
 
 Kept apart from room_app.py so the app's surface — what exists at all — can be
 read in one place, and so every handler has to pass through the same
-auth_guard. Index, state and messages live here; the doc is in agent_doc.py.
+auth_guard. Index, state, messages and the published snapshot live here; the
+doc is in agent_doc.py.
 
 room_app is referenced as a module, not by importing its constants by value:
 the budgets are patched in tests, and a by-value import would freeze them.
@@ -16,6 +17,7 @@ import hashlib
 from typing import Any
 
 from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse
 
 from src.server import room_app
 from src.server.room_app import RoomDeps
@@ -38,6 +40,7 @@ def register_routes(app: Any, deps: RoomDeps) -> None:
     _index(app, deps)
     _state(app, deps)
     _messages(app, deps)
+    _publish(app, deps)
     _doc(app, deps)
 
 
@@ -283,6 +286,36 @@ def _messages(app: Any, deps: RoomDeps) -> None:
                        reason="ok", room_id=room.id,
                        member_ref=outcome.member_ref, token_id=outcome.token_id)
         return body
+
+
+def _publish(app: Any, deps: RoomDeps) -> None:
+    from src.server.publish_export import package_for
+
+    @app.get("/room/{room_id}/publish")
+    async def room_publish(request: Request, room_id: str) -> FileResponse:
+        outcome = room_app.auth_guard(deps, request)
+        rid = _row_id(room_id, "room_id")
+        _read_budget(deps, outcome)
+
+        room = room_app.require_room(deps, request, rid, outcome)
+        record = (
+            deps.publishes.latest(room.id) if deps.publishes is not None else None
+        )
+        path = package_for(room.id, record.digest) if record is not None else None
+        if path is None or not path.exists():
+            # The same 404 every other absence gets: a room that has published
+            # nothing must not be tellable from one that is not yours.
+            room_app.audit(deps, request, action="lan_publish", result="deny",
+                           reason="nothing_published", room_id=room.id,
+                           member_ref=outcome.member_ref, token_id=outcome.token_id)
+            raise HTTPException(status_code=404, detail="not_found")
+
+        room_app.audit(deps, request, action="lan_publish", result="allow",
+                       reason="ok", room_id=room.id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id)
+        return FileResponse(
+            path, media_type="application/gzip", filename=path.name,
+        )
 
 
 def _doc(app: Any, deps: RoomDeps) -> None:

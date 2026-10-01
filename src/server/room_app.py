@@ -56,6 +56,8 @@ class RoomDeps:
     notify: Callable[[str, str, str], None] | None = None
     visitor_screen: Any = None
     plans: Any = None
+    publishes: Any = None
+    patches: Any = None
     history_limit: int = STATE_PAGE_LIMIT
 
 
