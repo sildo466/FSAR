@@ -9,6 +9,7 @@ import type {
   LanBlockEntry,
   LanStatus,
   PatchItem,
+  PatchState,
   PlanItem,
   PublishRecord,
   RoomPhase,
@@ -20,7 +21,7 @@ import type {
 import { applyToolEvent, asPreview } from "../lib/toolEvents";
 import type { PendingRisk } from "../components/chat/MessageList";
 
-export type { PatchItem, PlanItem, PublishRecord, RoomPhase };
+export type { PatchItem, PatchState, PlanItem, PublishRecord, RoomPhase };
 
 interface GroupState {
   rooms: RoomSummary[];

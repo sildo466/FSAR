@@ -15,6 +15,7 @@ import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
 import { PhaseStrip } from "../components/group/PhaseStrip";
 import { PlanBoard } from "../components/group/PlanBoard";
+import { PatchPanel } from "../components/group/PatchPanel";
 import { GroupToolSteps } from "../components/group/GroupToolSteps";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { LanPanel } from "../components/group/LanPanel";
@@ -74,6 +75,10 @@ export function GroupRoom() {
   const phaseReason = useGroup((s) => s.phaseReason[roomId] ?? "");
   const setGoal = useGroup((s) => s.setGoal);
   const confirmDone = useGroup((s) => s.confirmDone);
+  const patches = useGroup((s) => s.patches[roomId] ?? []);
+  const patchText = useGroup((s) => s.patchText);
+  const loadPatch = useGroup((s) => s.loadPatch);
+  const decidePatch = useGroup((s) => s.decidePatch);
   // The board stores the owner's card id only; this page already holds the
   // roster, so the name is resolved here rather than sent twice.
   const nameById = useMemo(
@@ -265,6 +270,19 @@ export function GroupRoom() {
         {room?.agent_mode && (
           <div className="mb-2 max-h-44 overflow-auto rounded-2xl border border-border/60 bg-[color:var(--glass)]/20">
             <PlanBoard items={plan} names={nameById} />
+          </div>
+        )}
+
+        {room?.agent_mode && (
+          <div className="mb-2 max-h-72 overflow-auto rounded-2xl border border-border/60 bg-[color:var(--glass)]/20">
+            <PatchPanel
+              patches={patches}
+              texts={patchText}
+              onLoad={(patchId) => loadPatch(roomId, patchId)}
+              onDecide={(patchId, approve) =>
+                decidePatch(roomId, patchId, approve)
+              }
+            />
           </div>
         )}
 
