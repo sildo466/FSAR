@@ -167,13 +167,12 @@ def _state(app: Any, deps: RoomDeps) -> None:
                        reason="ok", room_id=room.id,
                        member_ref=outcome.member_ref, token_id=outcome.token_id,
                        detail=f"since={cursor}")
-        return {
+        payload = {
             "room_id": room.id,
             "room_name": room.name,
             "member_ref": outcome.member_ref,
             "next_since": int(page[-1].id) if page else cursor,
             "truncated": truncated,
-            "plan": plan_projection(deps.plans, room.id),
             "messages": [
                 {
                     "row_id": int(row.id),
@@ -186,6 +185,12 @@ def _state(app: Any, deps: RoomDeps) -> None:
                 for row in page
             ],
         }
+        # Only a room that has a board and can run it gets the key at all: an
+        # always-empty array reads like a promise about something that is not
+        # there.
+        if getattr(room, "agent_mode", False) and deps.plans is not None:
+            payload["plan"] = plan_projection(deps.plans, room.id)
+        return payload
 
 
 def _messages(app: Any, deps: RoomDeps) -> None:

@@ -18,7 +18,7 @@ from src.security.rate_budget import RateBudget
 from src.server.room_app import RoomDeps, create_room_app
 
 
-def _wire(tmp_path, *, history_limit: int = 100):
+def _wire(tmp_path, *, history_limit: int = 100, plans=None):
     db = tmp_path / "lan.db"
     sessions = SessionStore(db)
     rooms = RoomStore(db, sessions)
@@ -38,7 +38,7 @@ def _wire(tmp_path, *, history_limit: int = 100):
     deps = RoomDeps(
         tokens=tokens, blocklist=LanBlocklist(db), audit=AuthAuditStore(db),
         rooms=rooms, members=members, budget=RateBudget(), cards=cards,
-        history_limit=history_limit,
+        history_limit=history_limit, plans=plans,
     )
     return SimpleNamespace(
         client=TestClient(create_room_app(deps), client=("192.168.1.20", 40000)),
@@ -80,6 +80,32 @@ def test_the_projection_is_exactly_what_p2_promises(tmp_path) -> None:
         "row_id", "role", "speaker_name", "speaker_kind", "content",
         "created_at",
     }
+
+
+def test_a_room_with_a_board_gets_the_board(tmp_path) -> None:
+    from src.memory.room_plan import RoomPlanStore
+
+    plans = RoomPlanStore(tmp_path / "lan.db")
+    wired = _wire(tmp_path, plans=plans)
+    plans.replace(wired.room.id, [{
+        "id": "a", "text": "parse the config", "status": "todo",
+        "owner": {"kind": "character", "ref": "7"},
+    }])
+    wired.sessions.append_message(wired.room.session_id, "user", "hello")
+
+    body = _state(wired).json()
+
+    assert body["plan"] == [{
+        "item_key": "a", "text": "parse the config", "status": "todo",
+        "owner_kind": "character",
+    }]
+
+
+def test_a_room_without_a_board_gets_no_key_at_all(tmp_path) -> None:
+    """Not an empty array: absent. The absence is what the member reads."""
+    wired = _wire(tmp_path)
+    wired.sessions.append_message(wired.room.session_id, "user", "hello")
+    assert "plan" not in _state(wired).json()
 
 
 def test_names_resolve_for_every_speaker_kind(tmp_path) -> None:
