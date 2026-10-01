@@ -12,6 +12,7 @@ from src.memory.agent_members import AgentMemberStore
 from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
 from src.server.group_engine import UNKNOWN_SPEAKER, GroupEngine
+from src.server.patch_landing import land_patch
 from src.server.publish_export import ExportError, build_export
 from src.utils.logger import logger
 
@@ -23,6 +24,8 @@ _lan_supervisor: Any = None
 _room_plans: Any = None
 _room_runner: Any = None
 _room_publishes: Any = None
+_room_patches: Any = None
+_room_workspaces: Any = None
 _room_project_root: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
 
@@ -43,6 +46,12 @@ def set_room_publish(publishes: Any, project_root_for: Any) -> None:
     global _room_publishes, _room_project_root
     _room_publishes = publishes
     _room_project_root = project_root_for
+
+
+def set_room_patch(patches: Any, workspaces: Any) -> None:
+    global _room_patches, _room_workspaces
+    _room_patches = patches
+    _room_workspaces = workspaces
 
 
 def set_room_runner(runner: Any) -> None:
@@ -675,6 +684,14 @@ async def _handle_room_message(ws: WebSocket, msg: dict[str, Any]) -> None:
             await _request_publish(ws, room, msg.get("allowlist"))
         elif msg_type == "room.publish.list":
             await _push_publishes(ws, room)
+        elif msg_type == "room.patch.list":
+            await _push_patches(ws, room)
+        elif msg_type == "room.patch.text":
+            await _send_patch_text(ws, room, msg.get("patch_id"))
+        elif msg_type == "room.patch.decide":
+            await _decide_patch(
+                ws, room, msg.get("patch_id"), bool(msg.get("approve")),
+            )
     except Exception as e:
         logger.warning(f"room handler failed: {e}")
         await ws.send_json({
@@ -733,6 +750,110 @@ async def _request_publish(ws: WebSocket, room: Any, allowlist: Any) -> None:
     await ws.send_json({
         "type": "room.publish.ready", "room_id": room.id,
         "path_count": result.path_count, "bytes": result.byte_count,
+    })
+
+
+async def _push_patches(ws: WebSocket, room: Any) -> None:
+    records = await asyncio.to_thread(_room_patches.list, room.id)
+    await ws.send_json({
+        "type": "room.patch.updated", "room_id": room.id,
+        "patches": [p.to_dict() for p in records],
+    })
+
+
+async def _send_patch_text(ws: WebSocket, room: Any, patch_id: Any) -> None:
+    """The text on demand: a queue listing does not carry it."""
+    if _room_patches is None:
+        return
+    text = await asyncio.to_thread(_room_patches.text, room.id, int(patch_id or 0))
+    if text is None:
+        await ws.send_json({
+            "type": "group.error", "room_id": room.id, "code": "not_found",
+            "message": "No such patch.",
+        })
+        return
+    await ws.send_json({
+        "type": "room.patch.text", "room_id": room.id,
+        "patch_id": int(patch_id or 0), "patch": text,
+    })
+
+
+async def _decide_patch(
+    ws: WebSocket, room: Any, patch_id: Any, approve: bool,
+) -> None:
+    """Landed or refused, once. The patch is applied as text and judged on the
+    tree it produced — nothing about it is executed."""
+    if (
+        _room_patches is None or _room_workspaces is None
+        or _room_project_root is None
+    ):
+        return
+    pid = int(patch_id or 0)
+    patch = await asyncio.to_thread(_room_patches.get, room.id, pid)
+    if patch is None or patch.state != "pending":
+        await ws.send_json({
+            "type": "group.error", "room_id": room.id, "code": "not_pending",
+            "message": "That patch is not waiting.",
+        })
+        return
+
+    if not approve:
+        await asyncio.to_thread(
+            _room_patches.decide, room.id, pid, "rejected",
+            reason="refused by the owner", decided_by="user",
+        )
+        await _finish_patch(ws, room, pid, "rejected", "", "")
+        return
+
+    root = await asyncio.to_thread(_room_project_root, room)
+    if not root:
+        await ws.send_json({
+            "type": "group.error", "room_id": room.id, "code": "no_project",
+            "message": "This room has no project bound.",
+        })
+        return
+
+    text = await asyncio.to_thread(_room_patches.text, room.id, pid)
+    landed, reason, sha = await asyncio.to_thread(
+        land_patch, project_root=root, workspaces=_room_workspaces, room=room,
+        member_ref=patch.member_ref, patch_text=text or "", item_key=patch.item_key,
+    )
+    state = "landed" if landed else "rejected"
+    await asyncio.to_thread(
+        _room_patches.decide, room.id, pid, state,
+        reason=reason, decided_by="user",
+    )
+    if landed and patch.item_key:
+        await asyncio.to_thread(
+            _room_patches.supersede_pending, room.id, patch.item_key,
+        )
+        await _mark_landed(room, patch.item_key, sha)
+    await _finish_patch(ws, room, pid, state, reason, sha if landed else "")
+
+
+async def _mark_landed(room: Any, item_key: str, sha: str) -> None:
+    """A patch that answers a plan item settles that item too; otherwise the
+    board would keep asking for work that has already come back."""
+    item = await asyncio.to_thread(_room_plans.get, room.id, item_key)
+    if item is None:
+        return
+    await asyncio.to_thread(_room_plans.set_commit_ref, room.id, item_key, sha)
+    await asyncio.to_thread(
+        _room_plans.set_status, room.id, item_key, "done",
+        evidence=f"landed {sha[:12]}",
+    )
+
+
+async def _finish_patch(
+    ws: WebSocket, room: Any, patch_id: int, state: str, reason: str,
+    commit_ref: str,
+) -> None:
+    await _push_patches(ws, room)
+    await _push_plan(ws, room)
+    await ws.send_json({
+        "type": "room.patch.decided", "room_id": room.id,
+        "patch_id": patch_id, "state": state, "reason": reason,
+        "commit_ref": commit_ref,
     })
 
 

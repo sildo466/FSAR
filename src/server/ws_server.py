@@ -134,6 +134,7 @@ def _room_project_root(room: Any) -> str | None:
 
 
 group_handler.set_room_publish(_room_publishes, _room_project_root)
+group_handler.set_room_patch(_room_patches, _engine.workspace_repo)
 
 
 _room_runner = RoomRunner(

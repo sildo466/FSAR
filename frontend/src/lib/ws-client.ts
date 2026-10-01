@@ -124,6 +124,9 @@ export type ClientMsg =
   | { type: "room.plan.unbind"; room_id: number }
   | { type: "room.publish.request"; room_id: number; allowlist: string[] }
   | { type: "room.publish.list"; room_id: number }
+  | { type: "room.patch.list"; room_id: number }
+  | { type: "room.patch.text"; room_id: number; patch_id: number }
+  | { type: "room.patch.decide"; room_id: number; patch_id: number; approve: boolean }
   | { type: "lan.status" }
   | { type: "lan.blocklist" }
   | { type: "lan.block_ip"; ip: string; reason?: string }
@@ -263,6 +266,24 @@ export interface PublishRecord {
   bytes: number;
   digest: string;
   created_at: string;
+}
+
+export type PatchState = "pending" | "landed" | "rejected" | "superseded";
+
+/** A piece of somebody else's work, waiting. The text is fetched separately:
+ *  a queue listing that carried every diff would be huge. */
+export interface PatchItem {
+  id: number;
+  room_id: number;
+  member_ref: string;
+  item_key: string | null;
+  digest: string;
+  size: number;
+  state: PatchState;
+  verdict_reason: string;
+  decided_by: string | null;
+  created_at: string;
+  decided_at: string | null;
 }
 
 export interface AgentTokenInfo {
@@ -558,6 +579,9 @@ export type ServerMsg =
   | { type: "room.updated"; room_id: number; workspace_id: number | null }
   | { type: "room.publish.updated"; room_id: number; publishes: PublishRecord[] }
   | { type: "room.publish.ready"; room_id: number; path_count: number; bytes: number }
+  | { type: "room.patch.updated"; room_id: number; patches: PatchItem[] }
+  | { type: "room.patch.text"; room_id: number; patch_id: number; patch: string }
+  | { type: "room.patch.decided"; room_id: number; patch_id: number; state: PatchState; reason: string; commit_ref: string }
   | { type: "lan.status.ok"; enabled: boolean; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
   | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
   | { type: "lan.error"; code: string; message: string }
