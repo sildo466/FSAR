@@ -42,6 +42,13 @@ def test_working_waits_while_a_turn_is_in_flight() -> None:
     assert decide_phase("working", [_item("doing", "7")], in_flight=1) is None
 
 
+def test_a_doing_item_holds_the_room_even_when_nobody_remembers_starting_it() -> None:
+    """`in_flight` only counts the turns this process opened. After a restart
+    it is empty while the board still says `doing` — which is work in progress,
+    not 'everything is finished'."""
+    assert decide_phase("working", [_item("doing", "7")], in_flight=0) is None
+
+
 def test_working_stays_while_something_is_still_dispatchable() -> None:
     assert decide_phase(
         "working", [_item("todo", "7"), _item("done", "8")], in_flight=0,

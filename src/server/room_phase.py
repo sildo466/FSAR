@@ -32,6 +32,11 @@ def decide_phase(
         return None
     if in_flight > 0:
         return None
+    if any(str(i.status) == "doing" for i in items):
+        # in_flight only counts the turns this process opened. A `doing` item
+        # it does not know about is still work in progress — after a restart
+        # this is exactly the shape the board comes back in.
+        return None
     if any(is_dispatchable(i) for i in items):
         return None
     if not items:
