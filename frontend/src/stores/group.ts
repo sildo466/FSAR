@@ -9,6 +9,7 @@ import type {
   LanBlockEntry,
   LanStatus,
   PlanItem,
+  PublishRecord,
   RoomPhase,
   RoomSummary,
   ServerMsg,
@@ -18,7 +19,7 @@ import type {
 import { applyToolEvent, asPreview } from "../lib/toolEvents";
 import type { PendingRisk } from "../components/chat/MessageList";
 
-export type { PlanItem, RoomPhase };
+export type { PlanItem, PublishRecord, RoomPhase };
 
 interface GroupState {
   rooms: RoomSummary[];
@@ -41,6 +42,9 @@ interface GroupState {
   plan: Record<number, PlanItem[]>;
   phase: Record<number, RoomPhase>;
   phaseReason: Record<number, string>;
+  /** Packages that have left the project, newest last. The ledger is the
+   *  record; the package itself never comes back through here. */
+  publishes: Record<number, PublishRecord[]>;
   /** Network access: the listener's state, blocked addresses, and the recent
    *  refusals that explain why a member cannot get in. */
   lan: {
@@ -102,6 +106,9 @@ interface GroupState {
   refreshPlan: (roomId: number) => void;
   /** The one phase transition a person makes — "this is finished". */
   confirmDone: (roomId: number) => void;
+  /** Package the allowlisted paths so a member has something to work from. */
+  publish: (roomId: number, allowlist: string[]) => void;
+  refreshPublishes: (roomId: number) => void;
   regenerate: (roomId: number, rowId: number) => void;
   send: (msg: ClientMsg) => void;
   applyServerMsg: (msg: ServerMsg) => void;
@@ -292,6 +299,10 @@ export const useGroup = create<GroupState>((set, get) => {
         phase: { ...s.phase, [msg.room_id]: msg.phase },
         phaseReason: { ...s.phaseReason, [msg.room_id]: msg.reason },
       }));
+    } else if (msg.type === "room.publish.updated") {
+      set((s) => ({
+        publishes: { ...s.publishes, [msg.room_id]: msg.publishes },
+      }));
     } else if (msg.type === "group.agent.list.ok") {
       set((s) => ({
         agentMembers: { ...s.agentMembers, [msg.room_id]: msg.agents },
@@ -324,6 +335,7 @@ export const useGroup = create<GroupState>((set, get) => {
         const { [msg.room_id]: _plan, ...plan } = s.plan;
         const { [msg.room_id]: _phase, ...phase } = s.phase;
         const { [msg.room_id]: _reason, ...phaseReason } = s.phaseReason;
+        const { [msg.room_id]: _publishes, ...publishes } = s.publishes;
         return {
           rooms: s.rooms.filter((r) => r.id !== msg.room_id),
           messages,
@@ -334,6 +346,7 @@ export const useGroup = create<GroupState>((set, get) => {
           plan,
           phase,
           phaseReason,
+          publishes,
           currentRoomId:
             s.currentRoomId === msg.room_id ? null : s.currentRoomId,
         };
@@ -420,6 +433,7 @@ export const useGroup = create<GroupState>((set, get) => {
     plan: {},
     phase: {},
     phaseReason: {},
+    publishes: {},
     lan: { status: null, blocklist: [], audit: [] },
 
     init: (client) => {
@@ -453,6 +467,7 @@ export const useGroup = create<GroupState>((set, get) => {
       }));
       attached?.send({ type: "group.history", room_id: roomId });
       attached?.send({ type: "room.plan.list", room_id: roomId });
+      attached?.send({ type: "room.publish.list", room_id: roomId });
     },
 
     closeRoom: () => set({ currentRoomId: null }),
@@ -545,6 +560,12 @@ export const useGroup = create<GroupState>((set, get) => {
 
     confirmDone: (roomId) =>
       attached?.send({ type: "room.phase.confirm_done", room_id: roomId }),
+
+    publish: (roomId, allowlist) =>
+      attached?.send({ type: "room.publish.request", room_id: roomId, allowlist }),
+
+    refreshPublishes: (roomId) =>
+      attached?.send({ type: "room.publish.list", room_id: roomId }),
 
     refreshLanStatus: () => attached?.send({ type: "lan.status" }),
 

@@ -30,7 +30,9 @@ _SKIP_DIRS = frozenset({
 
 
 class ExportError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "export_failed") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass
@@ -76,7 +78,7 @@ def collect(project_root: str | Path, allowlist: list[str]) -> list[Path]:
     through would make the allowlist decorative.
     """
     if not allowlist:
-        raise ExportError("no allowlist configured")
+        raise ExportError("no allowlist configured", code="no_allowlist")
     root = Path(project_root).resolve()
     taken: list[Path] = []
     total = 0

@@ -22,6 +22,7 @@ from src.memory.auth_audit import AuthAuditStore
 from src.memory.idempotency import IdempotencyStore
 from src.memory.lan_blocklist import LanBlocklist
 from src.memory.member_tokens import MemberTokenStore
+from src.memory.publishes import PublishStore
 from src.memory.room_plan import RoomPlanStore
 from src.memory.rooms import RoomStore
 from src.security.rate_budget import RateBudget
@@ -105,6 +106,7 @@ _group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
 _agent_members = AgentMemberStore(_config.memory_sqlite_path)
 _member_tokens = MemberTokenStore(_config.memory_sqlite_path)
 _room_plans = RoomPlanStore(_config.memory_sqlite_path)
+_room_publishes = PublishStore(_config.memory_sqlite_path)
 _group_engine = GroupEngine(_engine, _group_rooms, _agent_members, _room_plans)
 group_handler.set_engine(
     _group_engine, _group_rooms, _agent_members, _member_tokens,
@@ -127,6 +129,9 @@ def _room_project_root(room: Any) -> str | None:
         return None
     workspace = _engine.workspace_repo.get(int(workspace_id))
     return workspace.root_path if workspace else None
+
+
+group_handler.set_room_publish(_room_publishes, _room_project_root)
 
 
 _room_runner = RoomRunner(
@@ -185,6 +190,7 @@ def _lan_deps() -> RoomDeps:
         notify=_lan_notify,
         visitor_screen=VisitorScreener(_config),
         plans=_room_plans,
+        publishes=_room_publishes,
     )
 
 

@@ -122,6 +122,8 @@ export type ClientMsg =
   | { type: "room.plan.tick"; room_id: number }
   | { type: "room.phase.confirm_done"; room_id: number }
   | { type: "room.plan.unbind"; room_id: number }
+  | { type: "room.publish.request"; room_id: number; allowlist: string[] }
+  | { type: "room.publish.list"; room_id: number }
   | { type: "lan.status" }
   | { type: "lan.blocklist" }
   | { type: "lan.block_ip"; ip: string; reason?: string }
@@ -250,6 +252,17 @@ export interface AgentMemberSummary {
   ref: string;
   display_name: string;
   state: string;
+}
+
+/** One package that left the project. The ledger never carries content. */
+export interface PublishRecord {
+  id: number;
+  room_id: number;
+  member_ref: string;
+  path_count: number;
+  bytes: number;
+  digest: string;
+  created_at: string;
 }
 
 export interface AgentTokenInfo {
@@ -543,6 +556,8 @@ export type ServerMsg =
   | { type: "room.promote.applied"; room_id: number; item_key: string; commit_ref: string; branch: string }
   | { type: "room.promote.rejected"; room_id: number; item_key: string; reason: string }
   | { type: "room.updated"; room_id: number; workspace_id: number | null }
+  | { type: "room.publish.updated"; room_id: number; publishes: PublishRecord[] }
+  | { type: "room.publish.ready"; room_id: number; path_count: number; bytes: number }
   | { type: "lan.status.ok"; enabled: boolean; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
   | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
   | { type: "lan.error"; code: string; message: string }

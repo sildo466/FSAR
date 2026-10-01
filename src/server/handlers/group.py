@@ -12,6 +12,7 @@ from src.memory.agent_members import AgentMemberStore
 from src.memory.member_tokens import MemberTokenStore
 from src.memory.rooms import RoomStore
 from src.server.group_engine import UNKNOWN_SPEAKER, GroupEngine
+from src.server.publish_export import ExportError, build_export
 from src.utils.logger import logger
 
 _engine: GroupEngine | None = None
@@ -21,6 +22,8 @@ _member_tokens: MemberTokenStore | None = None
 _lan_supervisor: Any = None
 _room_plans: Any = None
 _room_runner: Any = None
+_room_publishes: Any = None
+_room_project_root: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
 
 
@@ -34,6 +37,12 @@ def set_room_plan_engine(rooms: Any, plans: Any) -> None:
     global _rooms, _room_plans
     _rooms = rooms
     _room_plans = plans
+
+
+def set_room_publish(publishes: Any, project_root_for: Any) -> None:
+    global _room_publishes, _room_project_root
+    _room_publishes = publishes
+    _room_project_root = project_root_for
 
 
 def set_room_runner(runner: Any) -> None:
@@ -662,6 +671,10 @@ async def _handle_room_message(ws: WebSocket, msg: dict[str, Any]) -> None:
             await _confirm_done(ws, room)
         elif msg_type == "room.plan.unbind":
             await _unbind_workspace(ws, room)
+        elif msg_type == "room.publish.request":
+            await _request_publish(ws, room, msg.get("allowlist"))
+        elif msg_type == "room.publish.list":
+            await _push_publishes(ws, room)
     except Exception as e:
         logger.warning(f"room handler failed: {e}")
         await ws.send_json({
@@ -676,6 +689,50 @@ async def _push_plan(ws: WebSocket, room: Any) -> None:
         "type": "room.plan.updated",
         "room_id": room.id,
         "items": [i.to_dict() for i in items],
+    })
+
+
+async def _push_publishes(ws: WebSocket, room: Any) -> None:
+    records = await asyncio.to_thread(_room_publishes.list, room.id)
+    await ws.send_json({
+        "type": "room.publish.updated", "room_id": room.id,
+        "publishes": [r.to_dict() for r in records],
+    })
+
+
+async def _request_publish(ws: WebSocket, room: Any, allowlist: Any) -> None:
+    """The owner packages a snapshot for the members to work from.
+
+    Nothing is sent anywhere by this call and nothing is executed: the package
+    is written to disk, and a member fetches it with its own credential.
+    """
+    if _room_publishes is None or _room_project_root is None:
+        return
+    root = await asyncio.to_thread(_room_project_root, room)
+    if not root:
+        await ws.send_json({
+            "type": "group.error", "room_id": room.id, "code": "no_project",
+            "message": "This room has no project bound.",
+        })
+        return
+    patterns = [str(p) for p in (allowlist or []) if str(p).strip()]
+    try:
+        result = await asyncio.to_thread(build_export, root, patterns, room.id)
+    except ExportError as exc:
+        await ws.send_json({
+            "type": "group.error", "room_id": room.id,
+            "code": exc.code, "message": str(exc),
+        })
+        return
+    await asyncio.to_thread(
+        _room_publishes.record, room.id, "owner",
+        path_count=result.path_count, byte_count=result.byte_count,
+        digest=result.digest,
+    )
+    await _push_publishes(ws, room)
+    await ws.send_json({
+        "type": "room.publish.ready", "room_id": room.id,
+        "path_count": result.path_count, "bytes": result.byte_count,
     })
 
 
