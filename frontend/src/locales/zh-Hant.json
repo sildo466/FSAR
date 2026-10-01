@@ -984,5 +984,14 @@
   "group.phase.reason.user_confirmed": "已確認",
   "group.plan.aria": "計畫板",
   "group.plan.empty": "還沒有計畫。",
-  "group.plan.unassigned": "未指派"
+  "group.plan.unassigned": "未指派",
+  "group.patch.aria": "待落地的補丁",
+  "group.patch.empty": "沒有等待落地的補丁。",
+  "group.patch.view": "檢視",
+  "group.patch.approve": "落地",
+  "group.patch.reject": "拒絕",
+  "group.patch.state.pending": "等待中",
+  "group.patch.state.landed": "已落地",
+  "group.patch.state.rejected": "已拒絕",
+  "group.patch.state.superseded": "已被取代"
 }

@@ -984,5 +984,14 @@
   "group.phase.reason.user_confirmed": "confirmed",
   "group.plan.aria": "Plan board",
   "group.plan.empty": "No plan yet.",
-  "group.plan.unassigned": "unassigned"
+  "group.plan.unassigned": "unassigned",
+  "group.patch.aria": "Patches waiting",
+  "group.patch.empty": "Nothing is waiting to land.",
+  "group.patch.view": "view",
+  "group.patch.approve": "land",
+  "group.patch.reject": "refuse",
+  "group.patch.state.pending": "waiting",
+  "group.patch.state.landed": "landed",
+  "group.patch.state.rejected": "refused",
+  "group.patch.state.superseded": "superseded"
 }

@@ -984,5 +984,14 @@
   "group.phase.reason.user_confirmed": "確認しました",
   "group.plan.aria": "計画ボード",
   "group.plan.empty": "まだ計画はありません。",
-  "group.plan.unassigned": "未割り当て"
+  "group.plan.unassigned": "未割り当て",
+  "group.patch.aria": "着地待ちのパッチ",
+  "group.patch.empty": "着地を待っているパッチはありません。",
+  "group.patch.view": "表示",
+  "group.patch.approve": "着地",
+  "group.patch.reject": "拒否",
+  "group.patch.state.pending": "待機中",
+  "group.patch.state.landed": "着地済み",
+  "group.patch.state.rejected": "拒否済み",
+  "group.patch.state.superseded": "上書き済み"
 }
