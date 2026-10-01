@@ -13,6 +13,8 @@ import {
 } from "../components/chat/ChatComposer";
 import { ThinkingDot } from "../components/chat/ThinkingDot";
 import { ElectionStrip } from "../components/group/ElectionStrip";
+import { PhaseStrip } from "../components/group/PhaseStrip";
+import { PlanBoard } from "../components/group/PlanBoard";
 import { GroupToolSteps } from "../components/group/GroupToolSteps";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { LanPanel } from "../components/group/LanPanel";
@@ -67,6 +69,17 @@ export function GroupRoom() {
     [rooms, roomId]
   );
   const members = room?.members ?? [];
+  const plan = useGroup((s) => s.plan[roomId] ?? []);
+  const phase = useGroup((s) => s.phase[roomId] ?? "chat");
+  const phaseReason = useGroup((s) => s.phaseReason[roomId] ?? "");
+  const setGoal = useGroup((s) => s.setGoal);
+  const confirmDone = useGroup((s) => s.confirmDone);
+  // The board stores the owner's card id only; this page already holds the
+  // roster, so the name is resolved here rather than sent twice.
+  const nameById = useMemo(
+    () => Object.fromEntries(characters.map((c) => [String(c.id), c.name])),
+    [characters]
+  );
 
   useEffect(() => {
     if (Number.isNaN(roomId)) return;
@@ -238,7 +251,22 @@ export function GroupRoom() {
           )}
         </header>
 
+        {room?.agent_mode && (
+          <PhaseStrip
+            phase={phase}
+            reason={phaseReason}
+            onSetGoal={(goal) => setGoal(roomId, goal)}
+            onConfirmDone={() => confirmDone(roomId)}
+          />
+        )}
+
         <ElectionStrip candidates={elections} running={chainRunning} />
+
+        {room?.agent_mode && (
+          <div className="mb-2 max-h-44 overflow-auto rounded-2xl border border-border/60 bg-[color:var(--glass)]/20">
+            <PlanBoard items={plan} names={nameById} />
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-auto">
           <MessageList

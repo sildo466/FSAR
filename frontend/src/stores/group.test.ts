@@ -182,6 +182,9 @@ describe("useGroup store", () => {
           agent_members: [],
           agent_mode: false,
           lan_enabled: false,
+          workspace_id: null,
+          goal: "",
+          phase: "chat",
         },
       ],
     });
@@ -206,6 +209,9 @@ describe("useGroup store", () => {
         agent_members: [],
         agent_mode: false,
         lan_enabled: false,
+        workspace_id: null,
+        goal: "",
+        phase: "chat",
       },
     });
     expect(useGroup.getState().currentRoomId).toBe(5);
@@ -230,6 +236,9 @@ describe("useGroup store", () => {
           agent_members: [],
           agent_mode: false,
           lan_enabled: false,
+          workspace_id: null,
+          goal: "",
+          phase: "chat",
         },
       ],
       currentRoomId: 3,
@@ -261,6 +270,9 @@ describe("useGroup store", () => {
           agent_members: [],
           agent_mode: false,
           lan_enabled: false,
+          workspace_id: null,
+          goal: "",
+          phase: "chat",
         },
       ],
     });
@@ -281,6 +293,9 @@ describe("useGroup store", () => {
         agent_members: [],
         agent_mode: false,
         lan_enabled: false,
+        workspace_id: null,
+        goal: "",
+        phase: "chat",
       },
     });
     expect(useGroup.getState().rooms[0].name).toBe("After");

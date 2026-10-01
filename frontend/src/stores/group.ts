@@ -8,6 +8,8 @@ import type {
   GroupMessage,
   LanBlockEntry,
   LanStatus,
+  PlanItem,
+  RoomPhase,
   RoomSummary,
   ServerMsg,
   WSClient,
@@ -15,6 +17,8 @@ import type {
 
 import { applyToolEvent, asPreview } from "../lib/toolEvents";
 import type { PendingRisk } from "../components/chat/MessageList";
+
+export type { PlanItem, RoomPhase };
 
 interface GroupState {
   rooms: RoomSummary[];
@@ -32,6 +36,11 @@ interface GroupState {
   /** Token metadata per room, keyed by member ref order as sent. Never holds a
    *  plaintext token — the issued event goes straight to a panel-local state. */
   agentMembers: Record<number, AgentMemberDetail[]>;
+  /** The room's plan board and where the room is. Only an agent room has
+   *  either; a companion room's entries stay empty. */
+  plan: Record<number, PlanItem[]>;
+  phase: Record<number, RoomPhase>;
+  phaseReason: Record<number, string>;
   /** Network access: the listener's state, blocked addresses, and the recent
    *  refusals that explain why a member cannot get in. */
   lan: {
@@ -87,6 +96,12 @@ interface GroupState {
   /** The room's own openness. Kept apart from the process-wide listener switch
    *  in LanPanel: one is a fact about this room, the other about the machine. */
   setRoomLan: (roomId: number, enabled: boolean) => void;
+  /** Write the room's goal. This is the only manual start the room has: it is
+   *  what moves the room from chat into planning. */
+  setGoal: (roomId: number, goal: string) => void;
+  refreshPlan: (roomId: number) => void;
+  /** The one phase transition a person makes — "this is finished". */
+  confirmDone: (roomId: number) => void;
   regenerate: (roomId: number, rowId: number) => void;
   send: (msg: ClientMsg) => void;
   applyServerMsg: (msg: ServerMsg) => void;
@@ -266,6 +281,17 @@ export const useGroup = create<GroupState>((set, get) => {
       set((s) => ({
         rooms: s.rooms.map((r) => (r.id === msg.room.id ? msg.room : r)),
       }));
+    } else if (msg.type === "room.plan.updated") {
+      // Only the board itself moves: the row-by-row render comes from the
+      // component reading this slice, not from a whole-page refresh.
+      const roomId = msg.room_id;
+      if (roomId == null) return;
+      set((s) => ({ plan: { ...s.plan, [roomId]: msg.items } }));
+    } else if (msg.type === "room.phase.changed") {
+      set((s) => ({
+        phase: { ...s.phase, [msg.room_id]: msg.phase },
+        phaseReason: { ...s.phaseReason, [msg.room_id]: msg.reason },
+      }));
     } else if (msg.type === "group.agent.list.ok") {
       set((s) => ({
         agentMembers: { ...s.agentMembers, [msg.room_id]: msg.agents },
@@ -295,6 +321,9 @@ export const useGroup = create<GroupState>((set, get) => {
         const { [msg.room_id]: _running, ...chainRunning } = s.chainRunning;
         const { [msg.room_id]: _gauge, ...context } = s.context;
         const { [msg.room_id]: _agents, ...agentMembers } = s.agentMembers;
+        const { [msg.room_id]: _plan, ...plan } = s.plan;
+        const { [msg.room_id]: _phase, ...phase } = s.phase;
+        const { [msg.room_id]: _reason, ...phaseReason } = s.phaseReason;
         return {
           rooms: s.rooms.filter((r) => r.id !== msg.room_id),
           messages,
@@ -302,6 +331,9 @@ export const useGroup = create<GroupState>((set, get) => {
           chainRunning,
           context,
           agentMembers,
+          plan,
+          phase,
+          phaseReason,
           currentRoomId:
             s.currentRoomId === msg.room_id ? null : s.currentRoomId,
         };
@@ -385,6 +417,9 @@ export const useGroup = create<GroupState>((set, get) => {
     loadingHistory: {},
     context: {},
     agentMembers: {},
+    plan: {},
+    phase: {},
+    phaseReason: {},
     lan: { status: null, blocklist: [], audit: [] },
 
     init: (client) => {
@@ -417,6 +452,7 @@ export const useGroup = create<GroupState>((set, get) => {
         loadingHistory: { ...s.loadingHistory, [roomId]: true },
       }));
       attached?.send({ type: "group.history", room_id: roomId });
+      attached?.send({ type: "room.plan.list", room_id: roomId });
     },
 
     closeRoom: () => set({ currentRoomId: null }),
@@ -500,6 +536,15 @@ export const useGroup = create<GroupState>((set, get) => {
         room_id: roomId,
         lan_enabled: enabled,
       }),
+
+    setGoal: (roomId, goal) =>
+      attached?.send({ type: "room.goal.set", room_id: roomId, goal }),
+
+    refreshPlan: (roomId) =>
+      attached?.send({ type: "room.plan.list", room_id: roomId }),
+
+    confirmDone: (roomId) =>
+      attached?.send({ type: "room.phase.confirm_done", room_id: roomId }),
 
     refreshLanStatus: () => attached?.send({ type: "lan.status" }),
 

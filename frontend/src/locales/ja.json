@@ -967,5 +967,22 @@
   "group.roundsUnlimited": "無制限 — 自然に収まるか、あなたが停止するまで続きます。",
   "group.roundsCapped": "{count} ラウンドで停止します。",
   "group.scenarioHint": "全員で共有されます。地の文として書き、ユーザーは「あなた」ではなく名前で書いてください。",
-  "group.waiting": "返答を待っています…"
+  "group.waiting": "返答を待っています…",
+  "group.phase.aria": "ルームのフェーズ",
+  "group.phase.chat": "チャット",
+  "group.phase.planning": "計画中",
+  "group.phase.working": "作業中",
+  "group.phase.review": "確認待ち",
+  "group.phase.done": "完了",
+  "group.phase.confirm": "完了を確認",
+  "group.phase.goalPlaceholder": "このルームで何を成し遂げますか？",
+  "group.phase.reason.goal_set": "目標を設定しました",
+  "group.phase.reason.all_owned": "すべての項目に担当がいます",
+  "group.phase.reason.all_done": "すべて完了しました",
+  "group.phase.reason.all_blocked": "ブロックされた項目があります",
+  "group.phase.reason.no_owner": "担当のいない項目があります",
+  "group.phase.reason.user_confirmed": "確認しました",
+  "group.plan.aria": "計画ボード",
+  "group.plan.empty": "まだ計画はありません。",
+  "group.plan.unassigned": "未割り当て"
 }

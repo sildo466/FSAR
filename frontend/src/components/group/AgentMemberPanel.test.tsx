@@ -32,6 +32,9 @@ function room(agentMembers: AgentMemberSummary[]): RoomSummary {
     members: [7],
     agent_mode: true,
     lan_enabled: false,
+    workspace_id: null,
+    goal: "",
+    phase: "chat",
     agent_members: agentMembers,
   };
 }

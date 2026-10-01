@@ -967,5 +967,22 @@
   "group.roundsUnlimited": "不限 —— 群聊會一直進行到自然停下，或你手動停止。",
   "group.roundsCapped": "最多 {count} 輪後停止。",
   "group.scenarioHint": "所有成員共享。請用敘述口吻寫；提到使用者時直接寫名字，不要用「你」。",
-  "group.waiting": "等待回覆…"
+  "group.waiting": "等待回覆…",
+  "group.phase.aria": "房間階段",
+  "group.phase.chat": "聊天",
+  "group.phase.planning": "規劃中",
+  "group.phase.working": "執行中",
+  "group.phase.review": "待核查",
+  "group.phase.done": "已完成",
+  "group.phase.confirm": "確認完成",
+  "group.phase.goalPlaceholder": "這個房間要完成什麼？",
+  "group.phase.reason.goal_set": "已設定目標",
+  "group.phase.reason.all_owned": "每一項都有人負責",
+  "group.phase.reason.all_done": "全部完成",
+  "group.phase.reason.all_blocked": "有阻塞項",
+  "group.phase.reason.no_owner": "有項沒人負責",
+  "group.phase.reason.user_confirmed": "已確認",
+  "group.plan.aria": "計畫板",
+  "group.plan.empty": "還沒有計畫。",
+  "group.plan.unassigned": "未指派"
 }

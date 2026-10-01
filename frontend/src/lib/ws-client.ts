@@ -117,6 +117,11 @@ export type ClientMsg =
   | { type: "group.agent.token.revoke"; room_id: number; member_ref: string; token_id: number }
   | { type: "group.agent.token.unban"; room_id: number; member_ref: string; token_id: number }
   | { type: "group.stop_all" }
+  | { type: "room.goal.set"; room_id: number; goal: string }
+  | { type: "room.plan.list"; room_id: number }
+  | { type: "room.plan.tick"; room_id: number }
+  | { type: "room.phase.confirm_done"; room_id: number }
+  | { type: "room.plan.unbind"; room_id: number }
   | { type: "lan.status" }
   | { type: "lan.blocklist" }
   | { type: "lan.block_ip"; ip: string; reason?: string }
@@ -220,6 +225,25 @@ export interface RoomSummary {
   agent_members: AgentMemberSummary[];
   agent_mode: boolean;
   lan_enabled: boolean;
+  /** The project a working room is bound to. Null means the board has nothing
+   *  to run against, so nothing gets dispatched. */
+  workspace_id: number | null;
+  goal: string;
+  phase: RoomPhase;
+}
+
+export type RoomPhase = "chat" | "planning" | "working" | "review" | "done";
+
+export interface PlanItem {
+  item_key: string;
+  text: string;
+  status: "todo" | "doing" | "blocked" | "done";
+  owner_kind: string | null;
+  /** A character card id, as a string. The board never carries a display name;
+   *  the page already knows this room's roster and resolves it. */
+  owner_ref: string | null;
+  evidence: string;
+  commit_ref: string | null;
 }
 
 export interface AgentMemberSummary {
@@ -511,6 +535,14 @@ export type ServerMsg =
   /** The plaintext token appears here once and is never stored anywhere. */
   | { type: "group.agent.token.issued"; room_id: number; member_ref: string; token_id: number; token: string }
   | { type: "group.stop_all.ack" }
+  | { type: "room.plan.updated"; room_id: number | null; items: PlanItem[] }
+  | { type: "room.phase.changed"; room_id: number; phase: RoomPhase; reason: string }
+  | { type: "room.work.started"; room_id: number; message_id: string; item_key: string; character_id: number | null; character_name: string }
+  | { type: "room.work.finished"; room_id: number; message_id: string; item_key: string; character_id: number | null; failed: boolean; content: string }
+  | { type: "room.promote.requested"; room_id: number; item_key: string; paths: string[] }
+  | { type: "room.promote.applied"; room_id: number; item_key: string; commit_ref: string; branch: string }
+  | { type: "room.promote.rejected"; room_id: number; item_key: string; reason: string }
+  | { type: "room.updated"; room_id: number; workspace_id: number | null }
   | { type: "lan.status.ok"; enabled: boolean; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
   | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
   | { type: "lan.error"; code: string; message: string }
