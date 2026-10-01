@@ -23,6 +23,9 @@ class Room:
     max_rounds: int = 0
     agent_mode: bool = False
     lan_enabled: bool = False
+    workspace_id: int | None = None
+    goal: str = ""
+    phase: str = "chat"
     created_at: str = ""
     updated_at: str = ""
 
@@ -38,6 +41,9 @@ class Room:
             "max_rounds": self.max_rounds,
             "agent_mode": self.agent_mode,
             "lan_enabled": self.lan_enabled,
+            "workspace_id": self.workspace_id,
+            "goal": self.goal,
+            "phase": self.phase,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -108,6 +114,14 @@ class RoomStore:
             conn.execute(
                 "ALTER TABLE rooms ADD COLUMN lan_enabled INTEGER NOT NULL DEFAULT 0"
             )
+        if "workspace_id" not in cols:
+            conn.execute("ALTER TABLE rooms ADD COLUMN workspace_id INTEGER")
+        if "goal" not in cols:
+            conn.execute("ALTER TABLE rooms ADD COLUMN goal TEXT NOT NULL DEFAULT ''")
+        if "phase" not in cols:
+            conn.execute(
+                "ALTER TABLE rooms ADD COLUMN phase TEXT NOT NULL DEFAULT 'chat'"
+            )
         conn.commit()
 
     @staticmethod
@@ -123,6 +137,9 @@ class RoomStore:
             max_rounds=int(r["max_rounds"] or 0),
             agent_mode=bool(r["agent_mode"]),
             lan_enabled=bool(r["lan_enabled"]),
+            workspace_id=r["workspace_id"],
+            goal=r["goal"] or "",
+            phase=r["phase"] or "chat",
             created_at=r["created_at"],
             updated_at=r["updated_at"],
         )
@@ -189,6 +206,9 @@ class RoomStore:
         max_rounds: int | None = None,
         agent_mode: bool | None = None,
         lan_enabled: bool | None = None,
+        workspace_id: int | None = None,
+        goal: str | None = None,
+        phase: str | None = None,
     ) -> Room | None:
         current = self.get(room_id)
         if current is None:
@@ -197,7 +217,7 @@ class RoomStore:
             conn.execute(
                 "UPDATE rooms SET name = ?, description = ?, scenario_prompt = ?, "
                 "user_card_id = ?, pinned = ?, max_rounds = ?, agent_mode = ?, "
-                "lan_enabled = ?, updated_at = ? "
+                "lan_enabled = ?, workspace_id = ?, goal = ?, phase = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     current.name if name is None else name,
@@ -210,9 +230,24 @@ class RoomStore:
                     int(current.agent_mode if agent_mode is None else bool(agent_mode)),
                     int(current.lan_enabled if lan_enabled is None
                         else bool(lan_enabled)),
+                    current.workspace_id if workspace_id is None else workspace_id,
+                    current.goal if goal is None else goal,
+                    current.phase if phase is None else phase,
                     datetime.now().isoformat(),
                     room_id,
                 ),
+            )
+            conn.commit()
+        return self.get(room_id)
+
+    def clear_workspace(self, room_id: int) -> Room | None:
+        """Unbinding needs its own door: update() reads None as 'leave alone',
+        so a caller that simply forgets the argument cannot clear the project
+        by accident."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE rooms SET workspace_id = NULL, updated_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), room_id),
             )
             conn.commit()
         return self.get(room_id)
