@@ -184,6 +184,7 @@ def _lan_deps() -> RoomDeps:
         cards=_engine.card_repo,
         notify=_lan_notify,
         visitor_screen=VisitorScreener(_config),
+        plans=_room_plans,
     )
 
 

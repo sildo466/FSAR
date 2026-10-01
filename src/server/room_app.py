@@ -55,6 +55,7 @@ class RoomDeps:
     cards: Any = None
     notify: Callable[[str, str, str], None] | None = None
     visitor_screen: Any = None
+    plans: Any = None
     history_limit: int = STATE_PAGE_LIMIT
 
 

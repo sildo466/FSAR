@@ -118,6 +118,26 @@ def _speaker_name(
     return getattr(character, "name", "") or "Unknown"
 
 
+def plan_projection(plans: Any, room_id: int) -> list[dict[str, Any]]:
+    """The board as a member may see it.
+
+    Four fields, deliberately. `owner_ref`, `evidence`, `commit_ref` and
+    `lease_expires_at` are the room's internal account — the lease especially,
+    since it would tell a member who is working right now.
+    """
+    if plans is None:
+        return []
+    return [
+        {
+            "item_key": item.item_key,
+            "text": item.text,
+            "status": item.status,
+            "owner_kind": item.owner_kind,
+        }
+        for item in plans.list(room_id)
+    ]
+
+
 def _state(app: Any, deps: RoomDeps) -> None:
     @app.get("/room/{room_id}/state")
     async def room_state(
@@ -153,6 +173,7 @@ def _state(app: Any, deps: RoomDeps) -> None:
             "member_ref": outcome.member_ref,
             "next_since": int(page[-1].id) if page else cursor,
             "truncated": truncated,
+            "plan": plan_projection(deps.plans, room.id),
             "messages": [
                 {
                     "row_id": int(row.id),

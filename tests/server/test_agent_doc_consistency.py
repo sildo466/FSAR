@@ -94,14 +94,24 @@ def test_every_path_the_doc_mentions_is_a_real_route(tmp_path) -> None:
 
 
 def test_the_doc_never_promises_the_plan_endpoint(tmp_path) -> None:
-    """It arrives in P3; documenting it now would be a lie."""
+    """A member reads the board; it cannot report on it. That endpoint arrives
+    with the members that can be given work."""
     assert "/plan/" not in agent_md(True)
 
 
-def test_the_doc_never_promises_what_p2_does_not_have(tmp_path) -> None:
-    flat = agent_md(True).lower()
-    for absent in ("history_from", "phase", "plan item", "lease", "staging"):
-        assert absent not in flat, absent
+def test_the_doc_never_promises_what_neither_room_has(tmp_path) -> None:
+    """Things that are still internal: the lease that keeps a stuck turn from
+    holding the room, the staging a change lands in, the history window."""
+    for text in (agent_md(True), agent_md(False)):
+        flat = text.lower()
+        for absent in ("history_from", "lease", "staging", "phase"):
+            assert absent not in flat, absent
+
+
+def test_the_chat_only_text_promises_no_board_at_all(tmp_path) -> None:
+    """The member of a chat-only room must never read about work it cannot
+    reach — the whole reason the document has two versions."""
+    assert "plan" not in agent_md(False).lower()
 
 
 def test_the_documented_limits_match_the_budgets() -> None:

@@ -115,13 +115,26 @@ happen to lack; they are not part of this API.
 """
 
 
+_WORKING_EXTRA = """\
+
+## The plan board
+
+This room is a working room, so `GET /room/{room_id}/state` also carries a
+`plan` array: every item the room is currently tracking, each as `item_key`,
+`text`, `status` and `owner_kind`. `status` is one of `todo`, `doing`,
+`blocked` or `done`.
+
+You can read it. You cannot write to it: no endpoint here takes a board change,
+and this room does not accept status reports from members. Who does what, and
+whether a change is kept, is decided inside the room.
+"""
+
+
 def agent_md(agent_mode: bool) -> str:
     """The document for the members of one room.
 
-    One text for now, with the seam in place: P3a gives a member no new route to
-    call, so a working room's document has nothing extra to describe. The plan
-    board is what will make the two differ, and that is P3b — writing a
-    different text before then would tell a member about something it cannot
-    reach, which is exactly what the consistency test exists to catch.
+    The room's own mode picks, never the member: a chat-only room's member is
+    handed the text that describes only reading and speaking, because that is
+    the whole of what it can reach.
     """
-    return _COMMON
+    return _COMMON + _WORKING_EXTRA if agent_mode else _COMMON
