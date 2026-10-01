@@ -12,6 +12,8 @@ eyes on top of the branch rule.
 from __future__ import annotations
 
 import fnmatch
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,7 +29,34 @@ EXECUTION_SURFACE: tuple[str, ...] = (
     ".github/workflows/*",
     ".vscode/tasks.json",
     ".vscode/settings.json",
+    ".gitmodules",
+    ".envrc",
+    "vite.config.*",
+    "webpack.config.*",
+    "rollup.config.*",
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "Jenkinsfile",
+    ".gitlab-ci.yml",
+    ".circleci/config.yml",
+    ".travis.yml",
+    ".devcontainer/**",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    "*.sh",
+    "*.ps1",
+    "*.bat",
+    "*.cmd",
 )
+
+# Git keeps the file kind in the mode, so a path list cannot see any of these.
+_REFUSED_MODES = {
+    "120000": "a symlink",
+    "160000": "a gitlink",
+    "100755": "executable",
+}
 
 
 @dataclass
@@ -37,14 +66,68 @@ class GateVerdict:
     paths: list[str] = field(default_factory=list)
 
 
+def _mode_refusal(old_mode: str, new_mode: str, raw: str) -> str:
+    """The reason this entry may not leave, or an empty string.
+
+    A deletion carries mode 000000 and changes nothing. A new file arrives as
+    000000 -> 100644, which is not a mode change either; anything else that
+    moves the mode is.
+    """
+    if new_mode == "000000":
+        return ""
+    kind = _REFUSED_MODES.get(new_mode)
+    if kind is not None:
+        return f"{raw} arrives as {kind}; only plain files may leave the staging"
+    if new_mode != "100644":
+        return f"{raw} has an unexpected file mode ({new_mode})"
+    if old_mode not in ("000000", new_mode):
+        return f"{raw} changes file mode ({old_mode} -> {new_mode})"
+    return ""
+
+
+def changed_entries(
+    stage_path: str | Path, baseline_ref: str,
+) -> list[tuple[str, str, str]]:
+    """(old_mode, new_mode, path) for everything that differs from the baseline.
+
+    A throwaway index is filled rather than the staging's own, so this stays a
+    read. `--name-only` would report neither symlinks nor mode changes: git
+    keeps the file kind in the mode field, and a list of names cannot see it.
+    `--no-renames` keeps one path per record.
+    """
+    handle, scratch = tempfile.mkstemp(prefix="fsar-gate-index-")
+    os.close(handle)
+    os.unlink(scratch)
+    env = {"GIT_INDEX_FILE": scratch}
+    try:
+        added = git(stage_path, "add", "-A", env=env)
+        if added.returncode != 0:
+            raise RuntimeError(f"staging add failed: {added.stderr.strip()}")
+        raw = git(
+            stage_path, "diff", "--raw", "--cached", "--no-renames", "-z",
+            baseline_ref, env=env,
+        )
+    finally:
+        Path(scratch).unlink(missing_ok=True)
+
+    entries: list[tuple[str, str, str]] = []
+    parts = raw.stdout.split("\0")
+    index = 0
+    while index < len(parts):
+        head = parts[index]
+        index += 1
+        if not head.startswith(":"):
+            continue
+        fields = head[1:].split(" ")
+        path = parts[index] if index < len(parts) else ""
+        index += 1
+        entries.append((fields[0], fields[1], path))
+    return entries
+
+
 def changed_paths(stage_path: str | Path, baseline_ref: str) -> list[str]:
     """Tracked edits plus untracked files, relative to the worktree root."""
-    diff = git(stage_path, "diff", "--name-only", "-z", baseline_ref)
-    others = git(stage_path, "ls-files", "--others", "--exclude-standard", "-z")
-    names: list[str] = []
-    for blob in (diff.stdout, others.stdout):
-        names.extend(part for part in blob.split("\0") if part)
-    return sorted(set(names))
+    return sorted({path for _, _, path in changed_entries(stage_path, baseline_ref)})
 
 
 def _normalise(path: str) -> str:
@@ -54,7 +137,12 @@ def _normalise(path: str) -> str:
     return path
 
 
-def classify(paths: list[str]) -> GateVerdict:
+def classify(entries: list[tuple[str, str, str]]) -> GateVerdict:
+    paths = sorted({path for _, _, path in entries})
+    for old_mode, new_mode, raw in entries:
+        refusal = _mode_refusal(old_mode, new_mode, raw)
+        if refusal:
+            return GateVerdict(False, refusal, list(paths))
     for raw in paths:
         path = raw.replace("\\", "/")
         if path.startswith("/") or path == ".." or path.startswith("../"):

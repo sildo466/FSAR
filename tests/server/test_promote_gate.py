@@ -11,9 +11,16 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from src.server.promote_gate import (
-    EXECUTION_SURFACE, changed_paths, classify, promote,
+    EXECUTION_SURFACE, changed_entries, changed_paths, classify, promote,
 )
+
+
+def _c(*paths: str):
+    """Classify plain-mode paths: the shape a tracked edit arrives in."""
+    return classify([("100644", "100644", path) for path in paths])
 
 
 def _project(tmp_path) -> Path:
@@ -57,7 +64,7 @@ def test_a_clean_stage_has_nothing_to_offer(tmp_path) -> None:
 
 
 def test_ordinary_code_is_allowed() -> None:
-    verdict = classify(["src/app.py", "docs/readme.md"])
+    verdict = _c("src/app.py", "docs/readme.md")
     assert verdict.allowed is True
     assert verdict.reason == ""
 
@@ -65,34 +72,34 @@ def test_ordinary_code_is_allowed() -> None:
 def test_a_write_under_dot_git_rejects_the_whole_contribution() -> None:
     """Not just that file: the whole contribution. A commit that touches the
     repository's own metadata is not a contribution."""
-    verdict = classify(["src/app.py", ".git/hooks/pre-commit"])
+    verdict = _c("src/app.py", ".git/hooks/pre-commit")
     assert verdict.allowed is False
     assert ".git" in verdict.reason
 
 
 def test_a_bare_dot_git_path_is_refused_too() -> None:
-    assert classify([".git"]).allowed is False
+    assert _c(".git").allowed is False
 
 
 def test_the_execution_surface_is_refused() -> None:
     for path in EXECUTION_SURFACE:
-        verdict = classify([path, "src/app.py"])
+        verdict = _c(path, "src/app.py")
         assert verdict.allowed is False, path
         assert path in verdict.reason
 
 
 def test_a_workflow_file_is_refused() -> None:
-    assert classify([".github/workflows/ci.yml"]).allowed is False
+    assert _c(".github/workflows/ci.yml").allowed is False
 
 
 def test_a_backslash_path_cannot_sneak_past() -> None:
-    assert classify(["src\\app.py"]).allowed is True
-    assert classify([".git\\hooks\\pre-commit"]).allowed is False
+    assert _c("src\\app.py").allowed is True
+    assert _c(".git\\hooks\\pre-commit").allowed is False
 
 
 def test_an_absolute_or_escaping_path_is_refused() -> None:
-    assert classify(["../outside.py"]).allowed is False
-    assert classify(["/etc/passwd"]).allowed is False
+    assert _c("../outside.py").allowed is False
+    assert _c("/etc/passwd").allowed is False
 
 
 def test_promoting_lands_one_commit_on_a_branch(tmp_path) -> None:
@@ -185,3 +192,93 @@ def test_promoting_does_not_run_the_stagings_own_hooks_config(tmp_path) -> None:
     promote(project, stage, baseline, "fsar/room-1/item-a", "msg")
 
     assert not sentinel.exists()
+
+
+def test_a_new_file_arrives_with_its_mode(tmp_path) -> None:
+    project = _project(tmp_path)
+    stage, baseline = _stage(tmp_path, project)
+    (stage / "new.py").write_text("x = 1\n", encoding="utf-8")
+
+    assert changed_entries(stage, baseline) == [("000000", "100644", "new.py")]
+
+
+def test_an_edited_file_arrives_with_both_modes(tmp_path) -> None:
+    project = _project(tmp_path)
+    stage, baseline = _stage(tmp_path, project)
+    (stage / "README.md").write_text("hello world\n", encoding="utf-8")
+
+    assert changed_entries(stage, baseline) == [("100644", "100644", "README.md")]
+
+
+def test_a_real_symlink_arrives_as_mode_120000(tmp_path) -> None:
+    project = _project(tmp_path)
+    stage, baseline = _stage(tmp_path, project)
+    try:
+        (stage / "link").symlink_to("README.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform cannot make a symlink without privileges")
+
+    entries = changed_entries(stage, baseline)
+
+    assert entries == [("000000", "120000", "link")]
+    assert classify(entries).allowed is False
+
+
+def test_a_symlink_is_refused() -> None:
+    verdict = classify([("000000", "120000", "link")])
+    assert verdict.allowed is False
+    assert "symlink" in verdict.reason
+
+
+def test_a_gitlink_is_refused() -> None:
+    assert classify([("000000", "160000", "sub")]).allowed is False
+
+
+def test_an_executable_is_refused() -> None:
+    verdict = classify([("000000", "100755", "tool")])
+    assert verdict.allowed is False
+    assert "executable" in verdict.reason
+
+
+def test_a_mode_change_is_refused() -> None:
+    verdict = classify([("100755", "100644", "tool")])
+    assert verdict.allowed is False
+    assert "mode" in verdict.reason
+
+
+def test_a_deletion_is_not_a_mode_change() -> None:
+    assert classify([("100644", "000000", "gone.py")]).allowed is True
+
+
+def test_a_new_plain_file_is_not_a_mode_change() -> None:
+    assert classify([("000000", "100644", "new.py")]).allowed is True
+
+
+@pytest.mark.parametrize("path", [
+    ".gitmodules",
+    ".envrc",
+    "vite.config.js",
+    "webpack.config.ts",
+    "rollup.config.mjs",
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "Jenkinsfile",
+    ".gitlab-ci.yml",
+    ".circleci/config.yml",
+    ".travis.yml",
+    ".devcontainer/devcontainer.json",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    "scripts/setup.sh",
+    "tool.ps1",
+    "run.bat",
+    "run.cmd",
+])
+def test_a_real_name_on_the_execution_surface_is_refused(path: str) -> None:
+    """Named files, not the patterns themselves: `_c("*.sh")` would pass
+    against the pattern it is meant to stand for."""
+    verdict = _c(path)
+    assert verdict.allowed is False, path
+    assert path in verdict.reason
