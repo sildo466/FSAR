@@ -43,10 +43,11 @@ def branch_for(room_id: int, kind: str, ref: str) -> str:
 
 def git(
     cwd: str | Path, *args: str, env: dict[str, str] | None = None,
+    input: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *GIT_SAFE, "-C", str(cwd), *args],
-        capture_output=True, text=True,
+        capture_output=True, text=True, input=input,
         env={**os.environ, **env} if env else None,
     )
 

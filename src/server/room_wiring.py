@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable
 
 from src.memory.room_plan import RoomPlanStore
 from src.memory.workspace import WorkspaceRepo
-from src.server.promote_gate import changed_entries, classify, promote
+from src.server.promote_gate import promote, review
 from src.server.room_stages import ensure_stage, stage_of
 
 
@@ -70,8 +70,7 @@ def dispatch_item(
 
         stage_row = stage_of(workspaces, room.id, kind, ref)
         baseline = str(stage_row["baseline_ref"]) if stage_row else ""
-        entries = changed_entries(workspace.root_path, baseline)
-        paths = sorted({path for _, _, path in entries})
+        paths, refusal = review(workspace.root_path, baseline)
         if not paths:
             if not _reported_done(plans, room, item):
                 await _block(
@@ -80,12 +79,11 @@ def dispatch_item(
                 )
             return
 
-        verdict = classify(entries)
-        if not verdict.allowed:
-            await _block(plans, emit, room, item, verdict.reason)
+        if refusal:
+            await _block(plans, emit, room, item, refusal)
             await emit({
                 "type": "room.promote.rejected", "room_id": room.id,
-                "item_key": item.item_key, "reason": verdict.reason,
+                "item_key": item.item_key, "reason": refusal,
             })
             return
 

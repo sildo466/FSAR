@@ -164,6 +164,21 @@ def classify(entries: list[tuple[str, str, str]]) -> GateVerdict:
     return GateVerdict(True, "", list(paths))
 
 
+def review(
+    stage_path: str | Path, baseline_ref: str,
+) -> tuple[list[str], str]:
+    """What changed, and why it may not leave. An empty reason means it may.
+
+    The decision lives here so that every road into the project — a member's
+    work turn, a patch from elsewhere — is weighed by the same pair of eyes.
+    """
+    entries = changed_entries(stage_path, baseline_ref)
+    paths = sorted({path for _, _, path in entries})
+    if not paths:
+        return [], ""
+    return paths, classify(entries).reason
+
+
 def promote(
     project_root: str | Path, stage_path: str | Path, baseline_ref: str,
     branch: str, message: str,
