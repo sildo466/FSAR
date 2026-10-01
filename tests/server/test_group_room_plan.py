@@ -20,7 +20,7 @@ class FakeWebSocket:
 def _wire(*, agent_mode=True, phase="chat", workspace_id=None, items=None):
     state: dict = {"goal": "", "phase": phase, "workspace_id": workspace_id}
     room = SimpleNamespace(id=1, session_id="s1", agent_mode=agent_mode,
-                           max_rounds=0, **state)
+                           max_rounds=0, user_card_id=None, **state)
 
     def _update(room_id, **kw):
         for key in ("goal", "phase", "workspace_id"):
@@ -44,7 +44,21 @@ def _wire(*, agent_mode=True, phase="chat", workspace_id=None, items=None):
             SimpleNamespace(to_dict=lambda i=i: dict(i)) for i in written["items"]
         ],
     )
+
+    async def run_chain(ws, *, room, user_input, mentioned, user_card):
+        return "settled"
+
+    engine = SimpleNamespace(
+        run_chain=run_chain,
+        chat=SimpleNamespace(card_repo=SimpleNamespace(
+            get_character=lambda c: None,
+            get_user_card=lambda cid: None,
+            get_default_user_card=lambda: None,
+        )),
+    )
+    group_handler.set_engine(engine, rooms)
     group_handler.set_room_plan_engine(rooms, plans)
+    group_handler._tasks.clear()
     return room, written
 
 
@@ -111,6 +125,49 @@ def test_unbinding_clears_the_workspace() -> None:
     asyncio.run(group_handler.dispatch(ws, {"type": "room.plan.unbind", "room_id": 1}))
 
     assert room.workspace_id is None
+
+
+def test_the_goal_is_handed_to_one_round_of_characters() -> None:
+    """Without this the board would stay empty forever: nothing else turns a
+    goal into plan items."""
+    room, _ = _wire()
+    seen: list[str] = []
+
+    async def run_chain(ws, *, room, user_input, mentioned, user_card):
+        seen.append(user_input)
+        return "settled"
+
+    group_handler._engine.run_chain = run_chain
+    ws = FakeWebSocket()
+
+    async def scenario():
+        await group_handler.dispatch(
+            ws, {"type": "room.goal.set", "room_id": 1, "goal": "ship the parser"},
+        )
+        task = group_handler._tasks.get(1)
+        if task is not None:
+            await task
+
+    asyncio.run(scenario())
+
+    assert seen == ["ship the parser"]
+
+
+def test_an_empty_goal_starts_no_round() -> None:
+    _wire()
+    seen: list[str] = []
+
+    async def run_chain(ws, *, room, user_input, mentioned, user_card):
+        seen.append(user_input)
+        return "settled"
+
+    group_handler._engine.run_chain = run_chain
+    ws = FakeWebSocket()
+    asyncio.run(group_handler.dispatch(
+        ws, {"type": "room.goal.set", "room_id": 1, "goal": "   "},
+    ))
+
+    assert seen == []
 
 
 def test_a_room_without_agent_mode_refuses_room_messages() -> None:

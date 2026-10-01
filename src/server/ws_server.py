@@ -28,6 +28,8 @@ from src.security.rate_budget import RateBudget
 from src.server import room_ingress
 from src.server.group_engine import GroupEngine
 from src.server.lan_supervisor import LanSupervisor
+from src.server.room_runner import RoomRunner
+from src.server.room_wiring import dispatch_item
 from src.server.room_app import RoomDeps
 from src.utils.logger import logger
 from src.utils.version import app_version
@@ -102,14 +104,47 @@ conversation_handler.set_engine(_engine)
 _group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
 _agent_members = AgentMemberStore(_config.memory_sqlite_path)
 _member_tokens = MemberTokenStore(_config.memory_sqlite_path)
-_group_engine = GroupEngine(_engine, _group_rooms, _agent_members)
+_room_plans = RoomPlanStore(_config.memory_sqlite_path)
+_group_engine = GroupEngine(_engine, _group_rooms, _agent_members, _room_plans)
 group_handler.set_engine(
     _group_engine, _group_rooms, _agent_members, _member_tokens,
 )
-_room_plans = RoomPlanStore(_config.memory_sqlite_path)
 group_handler.set_room_plan_engine(_group_rooms, _room_plans)
 room_ingress.configure(_member_tokens, _group_rooms)
 app.include_router(room_ingress.router)
+
+
+async def _push_room_event(payload: dict[str, Any]) -> None:
+    """The scheduler has no socket; GUI clients get its events by broadcast."""
+    from src.server.handlers.chat import _broadcast
+
+    await _broadcast(payload)
+
+
+def _room_project_root(room: Any) -> str | None:
+    workspace_id = getattr(room, "workspace_id", None)
+    if not workspace_id:
+        return None
+    workspace = _engine.workspace_repo.get(int(workspace_id))
+    return workspace.root_path if workspace else None
+
+
+_room_runner = RoomRunner(
+    _group_rooms,
+    _room_plans,
+    dispatch_item(
+        group_engine=_group_engine,
+        rooms=_group_rooms,
+        plans=_room_plans,
+        workspaces=_engine.workspace_repo,
+        project_root_for=_room_project_root,
+        emit=_push_room_event,
+        cancel=_group_engine.is_cancelled,
+        ws=group_handler._BroadcastSocket(),
+    ),
+    _push_room_event,
+)
+group_handler.set_room_runner(_room_runner)
 
 _auth_audit = AuthAuditStore(_config.memory_sqlite_path)
 _lan_blocklist = LanBlocklist(_config.memory_sqlite_path)
@@ -161,6 +196,7 @@ lan_handler.set_engine(_lan, _lan_blocklist, _auth_audit, _member_tokens)
 
 LAN_TICK_SECONDS = 30
 _lan_tick_task: Any = None
+_room_tick_task: Any = None
 
 
 async def _lan_tick() -> None:
@@ -172,6 +208,28 @@ async def _lan_tick() -> None:
             await asyncio.to_thread(_lan.sync)
         except Exception as e:
             logger.warning(f"lan tick failed: {e}")
+
+
+ROOM_TICK_SECONDS = 5
+
+
+async def _room_tick() -> None:
+    """The scheduler's heartbeat.
+
+    Handing work out is event-driven, but an event cannot describe "nothing
+    happened" — a lease that ran out, a member that went quiet. Only rooms
+    still in planning or working are touched.
+    """
+    while True:
+        await asyncio.sleep(ROOM_TICK_SECONDS)
+        try:
+            rooms = await asyncio.to_thread(_group_rooms.list)
+            for room in rooms:
+                if str(room.phase) not in {"planning", "working"}:
+                    continue
+                await _room_runner.tick(room)
+        except Exception as e:
+            logger.warning(f"room tick failed: {e}")
 
 _feishu_adapter: Any = None
 _wechat_adapter: Any = None
@@ -292,18 +350,22 @@ async def _startup() -> None:
     start_content_scan()
     start_update_checks()
     _lan.sync()
-    global _lan_tick_task
+    global _lan_tick_task, _room_tick_task
     _lan_tick_task = asyncio.create_task(_lan_tick())
+    _room_tick_task = asyncio.create_task(_room_tick())
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    global _social_router, _social_adapters, _lan_tick_task
+    global _social_router, _social_adapters, _lan_tick_task, _room_tick_task
     from src.server.chat_engine import set_default_chat_engine
     set_default_chat_engine(None)
     if _lan_tick_task is not None:
         _lan_tick_task.cancel()
         _lan_tick_task = None
+    if _room_tick_task is not None:
+        _room_tick_task.cancel()
+        _room_tick_task = None
     _lan.stop()
     if _social_router is not None:
         from src.social.manager import stop_social

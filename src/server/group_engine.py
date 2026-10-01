@@ -285,12 +285,27 @@ class GroupEngine:
     beyond per-room cancellation."""
 
     def __init__(
-        self, chat: "ChatEngine", rooms: "RoomStore", agent_members: Any = None,
+        self, chat: "ChatEngine", rooms: "RoomStore",
+        agent_members: Any = None, plans: Any = None,
     ) -> None:
         self.chat = chat
         self.rooms = rooms
         self.agent_members = agent_members
+        self.plans = plans
         self._cancelled: set[int] = set()
+
+    def _plan_sink_for(self, room: Any) -> Any:
+        """The board this room's turn writes to, or None.
+
+        Per turn, never parked on the engine: a room runs its characters
+        concurrently in one engine, so a shared slot would be cleared by
+        whichever turn finished first.
+        """
+        if self.plans is None or not getattr(room, "agent_mode", False):
+            return None
+        from src.server.plan_sink import RoomPlanSink
+
+        return RoomPlanSink(self.rooms, self.plans, room.id)
 
     async def _safe_send(self, ws: Any, payload: dict[str, Any]) -> None:
         try:
@@ -485,6 +500,7 @@ class GroupEngine:
             history=history,
             save_character_id=char_id,
             workspace_override=workspace_override,
+            plan_sink=self._plan_sink_for(room),
         )
         text = strip_tool_call_markup(
             strip_speaker_marker(result.conclusion, char_name)

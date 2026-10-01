@@ -518,10 +518,6 @@ class ChatEngine:
         self._short_cache: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
         self._arrivals: OrderedDict[str, float | None] = OrderedDict()
         self._task_todos: dict[str, list[dict[str, str]]] = {}
-        # Set by the caller for the duration of a room turn; None everywhere
-        # else, which is what keeps plan_write out of chat, companion and
-        # headless runs.
-        self._agent_plan_sink: Any = None
         self._active_agent_runs: dict[str, AgentRunState] = {}
         self._cancelled = False
         self._mcp_started = False
@@ -1319,7 +1315,8 @@ class ChatEngine:
                          tier_override: str | None = None,
                          history: list[Any] | None = None,
                          save_character_id: int | None = None,
-                         workspace_override: Any = None) -> AgentLoopResult:
+                         workspace_override: Any = None,
+                         plan_sink: Any = None) -> AgentLoopResult:
         """Run one full agent turn.
 
         Everything that scopes the turn comes from the caller and defaults to
@@ -1345,6 +1342,7 @@ class ChatEngine:
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
         runtime.workspace_override = workspace_override
+        runtime.plan_sink = plan_sink
         runtime.active_skill = self._detect_active_skill_from_context(conv_id)
         runtime.agents[task_id] = AgentRecord(
             agent_id=task_id,
@@ -2089,7 +2087,7 @@ class ChatEngine:
             tools.append(DISPATCH_SUBAGENT_SCHEMA)
         if profile.debate_enabled and not runtime.force_convergence:
             tools.append(BLACKBOARD_POST_SCHEMA)
-        return _append_plan_tool(tools, self._agent_plan_sink)
+        return _append_plan_tool(tools, runtime.plan_sink)
 
     def _dynamic_agent_context(
         self,
@@ -2169,8 +2167,7 @@ class ChatEngine:
         self._task_todos[task_id] = items
         return self._render_todos(task_id)
 
-    def _write_plan(self, raw_items: object) -> str:
-        sink = self._agent_plan_sink
+    def _write_plan(self, sink: Any, raw_items: object) -> str:
         if sink is None:
             return "Error: there is no plan board in this room."
         if not isinstance(raw_items, list):
@@ -2178,8 +2175,7 @@ class ChatEngine:
         written = sink.replace(raw_items)
         return f"Plan board updated: {len(written)} item(s)."
 
-    def _agent_plan_items(self) -> list[dict]:
-        sink = self._agent_plan_sink
+    def _plan_items(self, sink: Any) -> list[dict]:
         if sink is None:
             return []
         return list(getattr(sink, "last_written", []) or [])
@@ -2466,11 +2462,11 @@ class ChatEngine:
                 "items": self._task_todos.get(agent_id, []),
             })
         elif name == "plan_write":
-            output = self._write_plan(args.get("items"))
+            output = self._write_plan(runtime.plan_sink, args.get("items"))
             await ws.send_json({
                 "type": "room.plan.updated",
                 "conversation_id": conv_id,
-                "items": self._agent_plan_items(),
+                "items": self._plan_items(runtime.plan_sink),
             })
         elif name == "blackboard_post":
             entry_type = str(args.get("entry_type", "proposal"))

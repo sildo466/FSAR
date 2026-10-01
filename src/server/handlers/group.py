@@ -680,12 +680,21 @@ async def _push_plan(ws: WebSocket, room: Any) -> None:
 
 
 async def _set_goal(ws: WebSocket, room: Any, goal: str) -> None:
-    await asyncio.to_thread(_rooms.update, room.id, goal=goal, phase="planning")
+    """Setting a goal is the room's only manual start: it enters planning and
+    gives the characters one round to turn the goal into plan items."""
+    room = await asyncio.to_thread(
+        _rooms.update, room.id, goal=goal, phase="planning",
+    )
     await ws.send_json({
         "type": "room.phase.changed", "room_id": room.id,
         "phase": "planning", "reason": "goal_set",
     })
     await _push_plan(ws, room)
+    if _engine is not None and goal.strip():
+        _start_chain(room.id, _engine.run_chain(
+            _BroadcastSocket(), room=room, user_input=goal, mentioned=[],
+            user_card=_user_card(_engine, room),
+        ))
 
 
 async def _confirm_done(ws: WebSocket, room: Any) -> None:

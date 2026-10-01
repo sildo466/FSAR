@@ -49,35 +49,43 @@ def test_the_original_tool_list_is_not_mutated() -> None:
 
 def test_using_the_tool_writes_through_the_sink() -> None:
     sink = _Sink()
-    engine = SimpleNamespace(_agent_plan_sink=sink)
-    out = ce.ChatEngine._write_plan(
-        engine, [{"id": "a", "text": "t", "status": "todo"}],
-    )
+    out = ce.ChatEngine._write_plan(None, sink, [{"id": "a", "text": "t", "status": "todo"}])
     assert sink.calls == [[{"id": "a", "text": "t", "status": "todo"}]]
     assert "1" in out
 
 
 def test_using_the_tool_with_a_bad_payload_says_so() -> None:
     sink = _Sink()
-    engine = SimpleNamespace(_agent_plan_sink=sink)
-    out = ce.ChatEngine._write_plan(engine, "not a list")
+    out = ce.ChatEngine._write_plan(None, sink, "not a list")
     assert out.startswith("Error")
     assert sink.calls == []
 
 
 def test_using_the_tool_with_no_sink_says_so() -> None:
-    engine = SimpleNamespace(_agent_plan_sink=None)
-    out = ce.ChatEngine._write_plan(
-        engine, [{"id": "a", "text": "t", "status": "todo"}],
-    )
+    out = ce.ChatEngine._write_plan(None, None, [{"id": "a", "text": "t", "status": "todo"}])
     assert out.startswith("Error")
 
 
 def test_the_event_payload_comes_from_the_sink() -> None:
-    engine = SimpleNamespace(_agent_plan_sink=_Sink())
-    assert ce.ChatEngine._agent_plan_items(engine) == [{"item_key": "a"}]
+    assert ce.ChatEngine._plan_items(None, _Sink()) == [{"item_key": "a"}]
 
 
 def test_the_event_payload_is_empty_without_a_sink() -> None:
-    engine = SimpleNamespace(_agent_plan_sink=None)
-    assert ce.ChatEngine._agent_plan_items(engine) == []
+    assert ce.ChatEngine._plan_items(None, None) == []
+
+
+def test_the_sink_travels_on_the_run_state_not_on_the_engine() -> None:
+    """A room runs two characters at once in one engine: a sink parked on the
+    engine would be cleared by whichever turn finished first."""
+    from src.core.agent_runtime import AgentRunState
+
+    state = AgentRunState(root_task_id="t", profile=None)
+    assert state.plan_sink is None
+
+
+def test_run_agent_accepts_the_sink_keyword() -> None:
+    import inspect
+
+    params = inspect.signature(ce.ChatEngine._run_agent).parameters
+    assert "plan_sink" in params
+    assert params["plan_sink"].default is None

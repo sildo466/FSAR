@@ -182,3 +182,69 @@ def test_speak_agent_does_not_hand_the_loop_a_workspace() -> None:
         user_card=None, history=[], user_input="hi", should_stop=lambda: False,
     ))
     assert captured["workspace_override"] is None
+
+
+class _Plans:
+    def list(self, room_id):
+        return []
+
+
+def test_an_agent_room_hands_the_turn_a_plan_board() -> None:
+    captured: dict = {}
+    engine = GroupEngine(
+        _chat(captured), SimpleNamespace(members=lambda room_id: [7]), None,
+        _Plans(),
+    )
+    asyncio.run(GroupEngine.speak_agent(
+        engine, _WS(), room=_room(), character=_mira(), user_card=None,
+        history=[], user_input="hi", should_stop=lambda: False,
+    ))
+    assert captured["plan_sink"] is not None
+    assert captured["plan_sink"].room_id == 1
+
+
+def test_a_companion_room_hands_the_turn_no_board() -> None:
+    captured: dict = {}
+    engine = GroupEngine(
+        _chat(captured), SimpleNamespace(members=lambda room_id: [7]), None,
+        _Plans(),
+    )
+    asyncio.run(GroupEngine.speak_agent(
+        engine, _WS(), room=_room(agent_mode=False), character=_mira(),
+        user_card=None, history=[], user_input="hi", should_stop=lambda: False,
+    ))
+    assert captured["plan_sink"] is None
+
+
+def test_without_a_plan_store_there_is_no_board() -> None:
+    captured: dict = {}
+    asyncio.run(GroupEngine.speak_agent(
+        _engine(_chat(captured)), _WS(), room=_room(), character=_mira(),
+        user_card=None, history=[], user_input="hi", should_stop=lambda: False,
+    ))
+    assert captured["plan_sink"] is None
+
+
+def test_each_turn_gets_its_own_sink_object() -> None:
+    """Two characters in one room run at once against one engine; a shared
+    sink would be one turn's board seen by the other."""
+    captured: list[dict] = []
+    engine = GroupEngine(
+        _chat({}), SimpleNamespace(members=lambda room_id: [7]), None, _Plans(),
+    )
+    for _ in range(2):
+        seen: dict = {}
+
+        async def fake(ws, message_id, client, model, conv_id, user_input,
+                       character=None, char_name=None, provider_id="", **kw):
+            seen.update(kw)
+            return AgentLoopResult("done", "success")
+
+        engine.chat._run_agent = fake
+        asyncio.run(GroupEngine.speak_agent(
+            engine, _WS(), room=_room(), character=_mira(), user_card=None,
+            history=[], user_input="hi", should_stop=lambda: False,
+        ))
+        captured.append(seen)
+
+    assert captured[0]["plan_sink"] is not captured[1]["plan_sink"]
