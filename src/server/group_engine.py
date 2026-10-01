@@ -521,6 +521,7 @@ class GroupEngine:
         should_stop: Any,
         trigger_speaker: str = "",
         message_id: str | None = None,
+        workspace_override: Any = None,
     ) -> tuple[str, str]:
         """One character's turn through the agent loop instead of a reply."""
         char_id = getattr(character, "id", None)
@@ -537,6 +538,7 @@ class GroupEngine:
             ws, room=room, character=character, history=history,
             user_input=user_input, should_stop=should_stop,
             trigger_speaker=trigger_speaker, message_id=message_id,
+            workspace_override=workspace_override,
         )
         if failed:
             await self._safe_send(ws, {
@@ -570,11 +572,16 @@ class GroupEngine:
         should_stop: Any,
         workspace_override: Any = None,
     ) -> tuple[str, str]:
-        """One plan item, run by the member who owns it."""
+        """One plan item, run by the member who owns it.
+
+        Wrapped in the same speaker events as any other turn: the member's
+        report is a line in the room, and the transcript listens for that pair.
+        `room.work.*` rides alongside so the board knows who is on what.
+        """
         char_id = getattr(character, "id", None)
         char_name = getattr(character, "name", "") or ""
-        message_id = f"work_{uuid.uuid4().hex[:12]}"
         item_key = str(getattr(item, "item_key", ""))
+        message_id = f"work_{uuid.uuid4().hex[:12]}"
         await self._safe_send(ws, {
             "type": "room.work.started",
             "room_id": room.id,
@@ -583,9 +590,9 @@ class GroupEngine:
             "character_id": char_id,
             "character_name": char_name,
         })
-        message_id, text, failed = await self._run_character_turn(
-            ws, room=room, character=character, history=history,
-            user_input=work_instruction(item),
+        message_id, text = await self.speak_agent(
+            ws, room=room, character=character, user_card=None,
+            history=history, user_input=work_instruction(item),
             should_stop=should_stop, message_id=message_id,
             workspace_override=workspace_override,
         )
@@ -595,7 +602,7 @@ class GroupEngine:
             "message_id": message_id,
             "item_key": item_key,
             "character_id": char_id,
-            "failed": failed,
+            "failed": not text.strip(),
             "content": text,
         })
         return message_id, text

@@ -108,9 +108,25 @@ def test_the_work_turn_reports_its_own_events() -> None:
         history=[], item=_item(), should_stop=lambda: False,
     ))
     kinds = [m["type"] for m in ws.sent]
-    assert kinds == ["room.work.started", "room.work.finished"]
-    assert not any(k.startswith("group.speaker.") for k in kinds)
+    assert kinds == [
+        "room.work.started", "group.speaker.start", "group.speaker.done",
+        "room.work.finished",
+    ]
     assert text == "done"
+
+
+def test_the_report_lands_in_the_room_as_a_speaker_line() -> None:
+    """The transcript builds bubbles from the speaker pair; a work turn that
+    only emitted room.work.* would report into nothing."""
+    ws = _WS()
+    asyncio.run(GroupEngine.speak_work(
+        _engine(_chat({})), ws, room=_room(), character=_mira(),
+        history=[], item=_item(), should_stop=lambda: False,
+    ))
+    done = next(m for m in ws.sent if m["type"] == "group.speaker.done")
+    assert done["content"] == "done"
+    assert done["failed"] is False
+    assert done["message_id"] == ws.sent[0]["message_id"]
 
 
 def test_the_work_events_name_the_item_and_the_member() -> None:
