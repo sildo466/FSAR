@@ -61,6 +61,24 @@ TURN_INSTRUCTION = (
 )
 
 
+def work_instruction(item: Any) -> str:
+    text = str(getattr(item, "text", "") or "").strip()
+    evidence = str(getattr(item, "evidence", "") or "").strip()
+    parts = [
+        "You are working on one plan item from your room's plan board.",
+        f"Plan item: {text or '(untitled)'}",
+    ]
+    if evidence:
+        parts.append(f"Whatever is already known about it: {evidence}")
+    parts.append(
+        "Work in your own staging copy. When you are done, record the outcome "
+        "with plan_write: keep every item on the board and set yours to done "
+        "with a short evidence note. If you cannot finish it, set it to blocked "
+        "and say why."
+    )
+    return "\n".join(parts)
+
+
 _TOOL_CALL_RE = re.compile(
     r"<tool_call>.*?</tool_call>", re.DOTALL | re.IGNORECASE,
 )
@@ -427,36 +445,30 @@ class GroupEngine:
         })
         return message_id, text
 
-    async def speak_agent(
+    async def _run_character_turn(
         self,
         ws: Any,
         *,
         room: Any,
         character: Any,
-        user_card: Any,
         history: list[dict[str, str]],
         user_input: str,
         should_stop: Any,
         trigger_speaker: str = "",
         message_id: str | None = None,
-    ) -> tuple[str, str]:
-        """One character's turn through the agent loop instead of a reply.
+        workspace_override: Any = None,
+    ) -> tuple[str, str, bool]:
+        """One character's turn through the agent loop.
 
-        The loop owns persistence, so this writes no row of its own — it only
-        tells the loop whose row this is. Everything else is the room's: the
-        room's history, the room's cancel, the tier a room is fixed at.
+        The loop owns persistence, so nothing is written here. Everything that
+        scopes it is the room's: the room's history, the room's cancel, the
+        tier a room is fixed at — and, for a work turn, the member's staging.
+        Returns (message_id, text, failed), the text empty when it failed.
         """
         chat = self.chat
         message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
         char_id = getattr(character, "id", None)
         char_name = getattr(character, "name", "") or ""
-        await self._safe_send(ws, {
-            "type": "group.speaker.start",
-            "room_id": room.id,
-            "message_id": message_id,
-            "character_id": char_id,
-            "character_name": char_name,
-        })
         client, model, provider_id = chat.client_and_model()
         result = await chat._run_agent(
             ws,
@@ -472,13 +484,45 @@ class GroupEngine:
             tier_override=GROUP_AGENT_TIER,
             history=history,
             save_character_id=char_id,
+            workspace_override=workspace_override,
         )
         text = strip_tool_call_markup(
             strip_speaker_marker(result.conclusion, char_name)
         )
-        row_id = chat._msg_ids.get(message_id)
         self._bound_short_cache(room.session_id)
-        if result.outcome != "success" or not text.strip():
+        failed = result.outcome != "success" or not text.strip()
+        return message_id, ("" if failed else text), failed
+
+    async def speak_agent(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        user_card: Any,
+        history: list[dict[str, str]],
+        user_input: str,
+        should_stop: Any,
+        trigger_speaker: str = "",
+        message_id: str | None = None,
+    ) -> tuple[str, str]:
+        """One character's turn through the agent loop instead of a reply."""
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
+        await self._safe_send(ws, {
+            "type": "group.speaker.start",
+            "room_id": room.id,
+            "message_id": message_id,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+        message_id, text, failed = await self._run_character_turn(
+            ws, room=room, character=character, history=history,
+            user_input=user_input, should_stop=should_stop,
+            trigger_speaker=trigger_speaker, message_id=message_id,
+        )
+        if failed:
             await self._safe_send(ws, {
                 "type": "group.speaker.done",
                 "room_id": room.id,
@@ -491,11 +535,52 @@ class GroupEngine:
             "type": "group.speaker.done",
             "room_id": room.id,
             "message_id": message_id,
-            "row_id": row_id,
+            "row_id": self.chat._msg_ids.get(message_id),
             # Authoritative text: the deltas were emitted before the marker was
             # stripped, and a failed loop reports its own conclusion.
             "content": text,
             "failed": False,
+        })
+        return message_id, text
+
+    async def speak_work(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        history: list[dict[str, str]],
+        item: Any,
+        should_stop: Any,
+        workspace_override: Any = None,
+    ) -> tuple[str, str]:
+        """One plan item, run by the member who owns it."""
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        message_id = f"work_{uuid.uuid4().hex[:12]}"
+        item_key = str(getattr(item, "item_key", ""))
+        await self._safe_send(ws, {
+            "type": "room.work.started",
+            "room_id": room.id,
+            "message_id": message_id,
+            "item_key": item_key,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+        message_id, text, failed = await self._run_character_turn(
+            ws, room=room, character=character, history=history,
+            user_input=work_instruction(item),
+            should_stop=should_stop, message_id=message_id,
+            workspace_override=workspace_override,
+        )
+        await self._safe_send(ws, {
+            "type": "room.work.finished",
+            "room_id": room.id,
+            "message_id": message_id,
+            "item_key": item_key,
+            "character_id": char_id,
+            "failed": failed,
+            "content": text,
         })
         return message_id, text
 
