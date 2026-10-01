@@ -32,9 +32,12 @@ READ_BUDGET = (120, 60.0, 10)
 SPEAK_BUDGET = (20, 60.0, 5)
 ROOM_SPEAK_BUDGET = (60, 60.0, 10)
 UNAUTH_BUDGET = (30, 60.0, 10)
+# A patch is an hour's work, not a remark, so the allowance is far smaller.
+PATCH_BUDGET = (10, 60.0, 3)
 
 MAX_CONTENT_BYTES = 16 * 1024
 MAX_BODY_BYTES = 64 * 1024
+MAX_PATCH_BYTES = 512 * 1024
 IDEMPOTENCY_TTL_SECONDS = 24 * 3600
 STATE_PAGE_LIMIT = 100
 # One alert per credential+address per minute. A rejected request is something
@@ -219,30 +222,33 @@ def require_room(
     return room
 
 
-async def read_body(request: Request) -> bytes:
+async def read_body(request: Request, limit: int | None = None) -> bytes:
     """Read the body with the size cap enforced as it arrives.
 
     `await request.body()` buffers whatever the caller sent before any check
     can run, so the limit would only ever describe a body already in memory.
-    Read in chunks and stop at the cap instead. MAX_BODY_BYTES is read at call
-    time so a patched value applies."""
-    limit = MAX_BODY_BYTES
+    Read in chunks and stop at the cap instead. The cap is read at call time
+    so a patched value applies."""
+    cap = MAX_BODY_BYTES if limit is None else limit
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():
         total += len(chunk)
-        if total > limit:
+        if total > cap:
             raise HTTPException(status_code=413, detail="too_long")
         chunks.append(chunk)
     return b"".join(chunks)
 
 
-def read_json_object(request: Request, raw: bytes) -> dict[str, Any]:
+def read_json_object(
+    request: Request, raw: bytes, limit: int | None = None,
+) -> dict[str, Any]:
     """Strict body parsing: unknown fields, duplicate keys and non-objects are
     refused, because an extra field is how a caller tries to name a room."""
+    cap = MAX_BODY_BYTES if limit is None else limit
     if not raw:
         raise HTTPException(status_code=400, detail="bad_json")
-    if len(raw) > MAX_BODY_BYTES:
+    if len(raw) > cap:
         # "Too large" is its own answer: a caller sending an oversized body has
         # not written malformed JSON, and 400 would send it looking for a bug.
         raise HTTPException(status_code=413, detail="too_long")

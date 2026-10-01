@@ -41,6 +41,7 @@ def register_routes(app: Any, deps: RoomDeps) -> None:
     _state(app, deps)
     _messages(app, deps)
     _publish(app, deps)
+    _patches(app, deps)
     _doc(app, deps)
 
 
@@ -316,6 +317,75 @@ def _publish(app: Any, deps: RoomDeps) -> None:
         return FileResponse(
             path, media_type="application/gzip", filename=path.name,
         )
+
+
+def _patches(app: Any, deps: RoomDeps) -> None:
+    from src.server.patch_text import check_patch
+
+    @app.post("/room/{room_id}/patches")
+    async def post_patch(request: Request, room_id: str) -> dict[str, Any]:
+        outcome = room_app.auth_guard(deps, request)
+        rid = _row_id(room_id, "room_id")
+        room = room_app.require_room(deps, request, rid, outcome)
+        if deps.patches is None:
+            raise HTTPException(status_code=503, detail="not_ready")
+
+        idempotency_key = request.headers.get("idempotency-key", "").strip()
+        if not idempotency_key:
+            raise HTTPException(
+                status_code=400, detail="idempotency_key_required",
+            )
+
+        cap = room_app.MAX_PATCH_BYTES
+        raw = await room_app.read_body(request, limit=cap)
+        payload = room_app.read_json_object(request, raw, limit=cap)
+        if set(payload) - {"patch", "item_key"}:
+            raise HTTPException(status_code=400, detail="unknown_field")
+        patch_text = payload.get("patch")
+        if not isinstance(patch_text, str):
+            raise HTTPException(status_code=400, detail="bad_patch")
+        item_key = payload.get("item_key")
+        if item_key is not None and not isinstance(item_key, str):
+            raise HTTPException(status_code=400, detail="bad_item_key")
+
+        # Shape first, so a malformed patch never spends the sender's
+        # allowance and never reaches the queue.
+        accepted, why = check_patch(patch_text, max_bytes=cap)
+        if not accepted:
+            room_app.audit(deps, request, action="lan_patch", result="deny",
+                           reason="bad_patch", room_id=room.id,
+                           member_ref=outcome.member_ref,
+                           token_id=outcome.token_id)
+            raise HTTPException(status_code=400, detail="bad_patch")
+
+        limit, per_seconds, burst = room_app.PATCH_BUDGET
+        if not deps.budget.allow(
+            f"patch:{outcome.token_id}", limit=limit, per_seconds=per_seconds,
+            burst=burst,
+        ):
+            raise HTTPException(status_code=429, detail="rate_limited")
+
+        scope = f"room:{room.id}:patch:{outcome.member_ref}"
+        digest = hashlib.sha256(raw).hexdigest()
+        if deps.idempotency is not None:
+            verdict, stored = deps.idempotency.lookup(scope, idempotency_key, digest)
+            if verdict == "replay" and stored is not None:
+                return stored
+            if verdict == "conflict":
+                raise HTTPException(status_code=409, detail="idempotency_conflict")
+
+        record = await asyncio.to_thread(
+            deps.patches.add, room.id, outcome.member_ref,
+            patch_text=patch_text, digest=digest, size=len(raw),
+            item_key=item_key,
+        )
+        body = {"patch_id": record.id, "state": record.state}
+        if deps.idempotency is not None:
+            deps.idempotency.remember(scope, idempotency_key, digest, 200, body)
+        room_app.audit(deps, request, action="lan_patch", result="allow",
+                       reason="ok", room_id=room.id,
+                       member_ref=outcome.member_ref, token_id=outcome.token_id)
+        return body
 
 
 def _doc(app: Any, deps: RoomDeps) -> None:

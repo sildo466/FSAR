@@ -22,6 +22,7 @@ from src.memory.auth_audit import AuthAuditStore
 from src.memory.idempotency import IdempotencyStore
 from src.memory.lan_blocklist import LanBlocklist
 from src.memory.member_tokens import MemberTokenStore
+from src.memory.patches import PatchStore
 from src.memory.publishes import PublishStore
 from src.memory.room_plan import RoomPlanStore
 from src.memory.rooms import RoomStore
@@ -107,6 +108,7 @@ _agent_members = AgentMemberStore(_config.memory_sqlite_path)
 _member_tokens = MemberTokenStore(_config.memory_sqlite_path)
 _room_plans = RoomPlanStore(_config.memory_sqlite_path)
 _room_publishes = PublishStore(_config.memory_sqlite_path)
+_room_patches = PatchStore(_config.memory_sqlite_path)
 _group_engine = GroupEngine(_engine, _group_rooms, _agent_members, _room_plans)
 group_handler.set_engine(
     _group_engine, _group_rooms, _agent_members, _member_tokens,
@@ -191,6 +193,7 @@ def _lan_deps() -> RoomDeps:
         visitor_screen=VisitorScreener(_config),
         plans=_room_plans,
         publishes=_room_publishes,
+        patches=_room_patches,
     )
 
 
