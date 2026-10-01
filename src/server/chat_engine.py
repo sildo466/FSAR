@@ -277,6 +277,52 @@ TODO_TOOL_SCHEMA = {
     },
 }
 
+PLAN_WRITE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "plan_write",
+        "description": (
+            "Replace the room's plan board. Include every item on every call and "
+            "update statuses as work progresses. Give each item a stable id; items "
+            "missing from a call are removed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "owner": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": ["character", "agent"],
+                                    },
+                                    "ref": {"type": "string"},
+                                },
+                                "required": ["kind", "ref"],
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["todo", "doing", "blocked", "done"],
+                            },
+                            "evidence": {"type": "string"},
+                        },
+                        "required": ["id", "text", "status"],
+                    },
+                }
+            },
+            "required": ["items"],
+        },
+    },
+}
+
 DISPATCH_SUBAGENT_SCHEMA = {
     "type": "function",
     "function": {
@@ -385,6 +431,15 @@ def get_default_chat_engine() -> "ChatEngine":
     return _default_chat_engine
 
 
+def _append_plan_tool(
+    tools: list[dict[str, Any]], sink: Any,
+) -> list[dict[str, Any]]:
+    """Offer plan_write only where there is a board to write to."""
+    if sink is None:
+        return tools
+    return [*tools, PLAN_WRITE_SCHEMA]
+
+
 class ChatEngine:
     """One per server process. Owns the same subsystem instances the CLI builds."""
 
@@ -463,6 +518,10 @@ class ChatEngine:
         self._short_cache: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
         self._arrivals: OrderedDict[str, float | None] = OrderedDict()
         self._task_todos: dict[str, list[dict[str, str]]] = {}
+        # Set by the caller for the duration of a room turn; None everywhere
+        # else, which is what keeps plan_write out of chat, companion and
+        # headless runs.
+        self._agent_plan_sink: Any = None
         self._active_agent_runs: dict[str, AgentRunState] = {}
         self._cancelled = False
         self._mcp_started = False
@@ -2027,7 +2086,7 @@ class ChatEngine:
             tools.append(DISPATCH_SUBAGENT_SCHEMA)
         if profile.debate_enabled and not runtime.force_convergence:
             tools.append(BLACKBOARD_POST_SCHEMA)
-        return tools
+        return _append_plan_tool(tools, self._agent_plan_sink)
 
     def _dynamic_agent_context(
         self,
@@ -2106,6 +2165,21 @@ class ChatEngine:
             items.append({"id": item_id, "content": content, "status": status})
         self._task_todos[task_id] = items
         return self._render_todos(task_id)
+
+    def _write_plan(self, raw_items: object) -> str:
+        sink = self._agent_plan_sink
+        if sink is None:
+            return "Error: there is no plan board in this room."
+        if not isinstance(raw_items, list):
+            return "Error: items must be an array"
+        written = sink.replace(raw_items)
+        return f"Plan board updated: {len(written)} item(s)."
+
+    def _agent_plan_items(self) -> list[dict]:
+        sink = self._agent_plan_sink
+        if sink is None:
+            return []
+        return list(getattr(sink, "last_written", []) or [])
 
     def _verification_prompt(self, task_id: str, candidate: str) -> str:
         return (
@@ -2363,7 +2437,7 @@ class ChatEngine:
                         break
             except Exception:
                 pass
-        if name not in {"todo_write", "dispatch_subagent", "blackboard_post"}:
+        if name not in {"todo_write", "plan_write", "dispatch_subagent", "blackboard_post"}:
             return await self._execute_guarded(
                 ws, message_id, call_id, name, args, conv_id,
             )
@@ -2386,6 +2460,13 @@ class ChatEngine:
                 "task_id": runtime.root_task_id,
                 "agent_id": agent_id,
                 "items": self._task_todos.get(agent_id, []),
+            })
+        elif name == "plan_write":
+            output = self._write_plan(args.get("items"))
+            await ws.send_json({
+                "type": "room.plan.updated",
+                "conversation_id": conv_id,
+                "items": self._agent_plan_items(),
             })
         elif name == "blackboard_post":
             entry_type = str(args.get("entry_type", "proposal"))
