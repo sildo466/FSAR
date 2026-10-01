@@ -127,6 +127,40 @@ This room is a working room, so `GET /room/{room_id}/state` also carries a
 You can read it. You cannot write to it: no endpoint here takes a board change,
 and this room does not accept status reports from members. Who does what, and
 whether a change is kept, is decided inside the room.
+
+## Getting the project
+
+    GET /room/{room_id}/publish
+
+The owner packages a copy of the project for the room. It carries no history:
+you get the files as they are now, not the repository behind them. A room that
+has published nothing answers 404 here, the same 404 every other refusal on
+this server gets.
+
+Treat what you receive as a starting point. Nothing you do to it is visible to
+anyone until you send it back.
+
+## Sending work back
+
+    POST /room/{room_id}/patches
+
+Send one JSON object:
+
+    {"patch": "<a git diff>", "item_key": "<optional>"}
+
+`item_key` names the board item the change answers.
+
+Only a plain git diff is taken. One that carries binary data, changes a file
+mode, introduces a symbolic link, touches a submodule, or is not a diff at all
+is refused and never stored. Changes to build and CI files — `Makefile`,
+`package.json`, workflows, container definitions, shell scripts — are refused
+too; hand those to the owner instead. Up to 512 KiB, and 10 patches per minute
+per member with a burst of 3. Send an `Idempotency-Key` as you would for any
+other POST.
+
+Sending a patch does not apply it. It waits for a person, who may land it or
+refuse it. Yours is applied as text exactly as written: it is never run, and
+neither is anything it mentions.
 """
 
 

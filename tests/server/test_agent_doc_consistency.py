@@ -68,12 +68,14 @@ def _registered(app) -> set[tuple[str, str]]:
     }
 
 
-def test_the_app_exposes_exactly_four_routes(tmp_path) -> None:
-    """The whole containment argument: these four, and nothing else."""
+def test_the_app_exposes_exactly_these_routes(tmp_path) -> None:
+    """The whole containment argument: this set, and nothing else."""
     assert _registered(_wire(tmp_path).app) == {
         ("/room/index", "GET"),
         ("/room/{room_id}/state", "GET"),
         ("/room/{room_id}/messages", "POST"),
+        ("/room/{room_id}/publish", "GET"),
+        ("/room/{room_id}/patches", "POST"),
         ("/room/agent.md", "GET"),
     }
 
@@ -111,7 +113,9 @@ def test_the_doc_never_promises_what_neither_room_has(tmp_path) -> None:
 def test_the_chat_only_text_promises_no_board_at_all(tmp_path) -> None:
     """The member of a chat-only room must never read about work it cannot
     reach — the whole reason the document has two versions."""
-    assert "plan" not in agent_md(False).lower()
+    flat = agent_md(False).lower()
+    for absent in ("plan", "patch", "publish"):
+        assert absent not in flat, absent
 
 
 def test_the_documented_limits_match_the_budgets() -> None:
@@ -131,6 +135,18 @@ def test_the_documented_limits_match_the_budgets() -> None:
     assert f"a burst of {room_burst}" in flat
     assert f"{read_limit} per minute with a burst of {read_burst}" in flat
     assert f"{room_app.MAX_CONTENT_BYTES // 1024} KiB" in flat
+
+    patch_limit, patch_window, patch_burst = room_app.PATCH_BUDGET
+    assert patch_window == 60, "the document says 'per minute'; change it and this test together"
+    assert f"{patch_limit} patches per minute per member" in flat
+    assert f"a burst of {patch_burst}" in flat
+    assert f"{room_app.MAX_PATCH_BYTES // 1024} KiB" in flat
+
+
+def test_the_doc_says_a_patch_is_applied_and_never_run(tmp_path) -> None:
+    """The one sentence a member must not have to guess at."""
+    flat = _flat(agent_md(True)).lower()
+    assert "never run" in flat
 
 
 def test_the_doc_never_carries_a_real_credential(tmp_path) -> None:
