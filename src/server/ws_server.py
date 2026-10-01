@@ -22,6 +22,7 @@ from src.memory.auth_audit import AuthAuditStore
 from src.memory.idempotency import IdempotencyStore
 from src.memory.lan_blocklist import LanBlocklist
 from src.memory.member_tokens import MemberTokenStore
+from src.memory.room_plan import RoomPlanStore
 from src.memory.rooms import RoomStore
 from src.security.rate_budget import RateBudget
 from src.server import room_ingress
@@ -105,6 +106,8 @@ _group_engine = GroupEngine(_engine, _group_rooms, _agent_members)
 group_handler.set_engine(
     _group_engine, _group_rooms, _agent_members, _member_tokens,
 )
+_room_plans = RoomPlanStore(_config.memory_sqlite_path)
+group_handler.set_room_plan_engine(_group_rooms, _room_plans)
 room_ingress.configure(_member_tokens, _group_rooms)
 app.include_router(room_ingress.router)
 

@@ -19,12 +19,26 @@ _rooms: RoomStore | None = None
 _agent_members: AgentMemberStore | None = None
 _member_tokens: MemberTokenStore | None = None
 _lan_supervisor: Any = None
+_room_plans: Any = None
+_room_runner: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
 
 
 def set_lan_supervisor(supervisor: Any) -> None:
     global _lan_supervisor
     _lan_supervisor = supervisor
+
+
+def set_room_plan_engine(rooms: Any, plans: Any) -> None:
+    """Wired once from ws_server alongside set_engine."""
+    global _rooms, _room_plans
+    _rooms = rooms
+    _room_plans = plans
+
+
+def set_room_runner(runner: Any) -> None:
+    global _room_runner
+    _room_runner = runner
 
 
 def _sync_lan() -> None:
@@ -201,6 +215,11 @@ async def post_member_message(
 
 async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
     t = msg.get("type")
+    if t.startswith("room."):
+        if _rooms is None or _room_plans is None:
+            return False
+        await _handle_room_message(ws, msg)
+        return True
     if _engine is None or _rooms is None or not t.startswith("group."):
         return False
 
@@ -605,3 +624,83 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
         return True
 
     return False
+
+
+async def _handle_room_message(ws: WebSocket, msg: dict[str, Any]) -> None:
+    """The room's own messages: a goal, the board, the phase.
+
+    Room messages never execute anything and are not offered to members — the
+    LAN app does not register them at all.
+    """
+    room_id = int(msg.get("room_id") or 0)
+    try:
+        room = await asyncio.to_thread(_rooms.get, room_id)
+        if room is None:
+            await ws.send_json({
+                "type": "group.error", "room_id": room_id,
+                "code": "not_found", "message": "No such room.",
+            })
+            return
+        if not getattr(room, "agent_mode", False):
+            await ws.send_json({
+                "type": "group.error", "room_id": room_id,
+                "code": "not_agent_room",
+                "message": "That room is not in agent mode.",
+            })
+            return
+
+        msg_type = str(msg.get("type"))
+        if msg_type == "room.goal.set":
+            await _set_goal(ws, room, str(msg.get("goal") or ""))
+        elif msg_type == "room.plan.list":
+            await _push_plan(ws, room)
+        elif msg_type == "room.plan.tick":
+            if _room_runner is not None:
+                await _room_runner.tick(room)
+            await _push_plan(ws, room)
+        elif msg_type == "room.phase.confirm_done":
+            await _confirm_done(ws, room)
+        elif msg_type == "room.plan.unbind":
+            await _unbind_workspace(ws, room)
+    except Exception as e:
+        logger.warning(f"room handler failed: {e}")
+        await ws.send_json({
+            "type": "group.error", "room_id": room_id,
+            "code": "group_handler", "message": "The room action failed.",
+        })
+
+
+async def _push_plan(ws: WebSocket, room: Any) -> None:
+    items = await asyncio.to_thread(_room_plans.list, room.id)
+    await ws.send_json({
+        "type": "room.plan.updated",
+        "room_id": room.id,
+        "items": [i.to_dict() for i in items],
+    })
+
+
+async def _set_goal(ws: WebSocket, room: Any, goal: str) -> None:
+    await asyncio.to_thread(_rooms.update, room.id, goal=goal, phase="planning")
+    await ws.send_json({
+        "type": "room.phase.changed", "room_id": room.id,
+        "phase": "planning", "reason": "goal_set",
+    })
+    await _push_plan(ws, room)
+
+
+async def _confirm_done(ws: WebSocket, room: Any) -> None:
+    await asyncio.to_thread(_rooms.update, room.id, phase="done")
+    await ws.send_json({
+        "type": "room.phase.changed", "room_id": room.id,
+        "phase": "done", "reason": "user_confirmed",
+    })
+
+
+async def _unbind_workspace(ws: WebSocket, room: Any) -> None:
+    """RoomStore.update treats None as 'leave alone', so unbinding needs its
+    own door — otherwise a caller that simply forgets the argument would
+    silently clear the binding."""
+    await asyncio.to_thread(_rooms.clear_workspace, room.id)
+    await ws.send_json({
+        "type": "room.updated", "room_id": room.id, "workspace_id": None,
+    })
