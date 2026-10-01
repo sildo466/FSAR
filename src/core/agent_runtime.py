@@ -47,6 +47,7 @@ class AgentRunState:
     character: Any = None
     unlocked_tools: set[str] = field(default_factory=set)
     character_mode: bool = False
+    workspace_override: Any = None
 
     async def reserve_agent(
         self,

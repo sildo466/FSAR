@@ -1318,7 +1318,8 @@ class ChatEngine:
                          *, should_stop: Any = None,
                          tier_override: str | None = None,
                          history: list[Any] | None = None,
-                         save_character_id: int | None = None) -> AgentLoopResult:
+                         save_character_id: int | None = None,
+                         workspace_override: Any = None) -> AgentLoopResult:
         """Run one full agent turn.
 
         Everything that scopes the turn comes from the caller and defaults to
@@ -1332,6 +1333,7 @@ class ChatEngine:
         )
         system_prompt = await self._build_prompt(
             conv_id, "agent", user_input, profile=profile, character=character,
+            workspace_override=workspace_override,
         )
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
         context_window, max_output = self._model_limits()
@@ -1342,6 +1344,7 @@ class ChatEngine:
         await self._emit_context(ws, conv_id)
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
+        runtime.workspace_override = workspace_override
         runtime.active_skill = self._detect_active_skill_from_context(conv_id)
         runtime.agents[task_id] = AgentRecord(
             agent_id=task_id,
@@ -2440,6 +2443,7 @@ class ChatEngine:
         if name not in {"todo_write", "plan_write", "dispatch_subagent", "blackboard_post"}:
             return await self._execute_guarded(
                 ws, message_id, call_id, name, args, conv_id,
+                getattr(runtime, "workspace_override", None),
             )
 
         await ws.send_json({
@@ -2578,7 +2582,7 @@ class ChatEngine:
             f"{autonomy}\n\nAssigned responsibility:\n{record.assignment}"
         )
         base_prompt = (
-            f"{await self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character)}"
+            f"{await self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character, workspace_override=runtime.workspace_override)}"
             f"\n\n{boundary}"
         )
         messages: list[Any] = [
@@ -2841,7 +2845,8 @@ class ChatEngine:
         })
 
     async def _execute_guarded(self, ws: WebSocket, message_id: str, call_id: str,
-                               name: str, args: dict, conv_id: str) -> str:
+                               name: str, args: dict, conv_id: str,
+                               workspace_override: Any = None) -> str:
         self.permissions.no_trust_mode = bool(
             self.config.get("security.session.no_trust_mode", False)
         )
@@ -2865,7 +2870,9 @@ class ChatEngine:
                 })
                 return result
 
-        sandbox_result = await self._sandbox_tool_call(ws, call_id, name, args, conv_id)
+        sandbox_result = await self._sandbox_tool_call(
+            ws, call_id, name, args, conv_id, workspace_override,
+        )
         if sandbox_result is not None:
             await ws.send_json({
                 "type": "chat.tool_call", "message_id": message_id,
@@ -2945,7 +2952,7 @@ class ChatEngine:
                         execution_args["character_id"] = character.id
                 execution_args.setdefault("session_id", conv_id)
             if name in {"file_ops", "edit"}:
-                workspace = self.workspace_repo.get_or_create_binding(conv_id)
+                workspace = self._turn_workspace(conv_id, workspace_override)
                 if name == "file_ops":
                     execution_args["path"] = self.workspace_gate.validate_path(
                         str(args.get("path", "")), workspace_id=workspace.id,
@@ -2968,7 +2975,9 @@ class ChatEngine:
                 egress_decision = check_command(str(args.get("command", "")), self.config)
                 if not egress_decision.allowed:
                     return await _result(f"[BLOCKED: egress denied ({egress_decision.reason})]")
-                workspace_root = self.workspace_repo.get_or_create_binding(conv_id).root_path
+                workspace_root = self._turn_workspace(
+                    conv_id, workspace_override,
+                ).root_path
                 if command_reads_blacklisted(
                     str(args.get("command", "")), Path(workspace_root), self.config
                 ):
@@ -3000,10 +3009,11 @@ class ChatEngine:
         return await _result(result, duration_ms)
 
     async def _sandbox_tool_call(self, ws: WebSocket, call_id: str, name: str,
-                                 args: dict, conv_id: str) -> str | None:
+                                 args: dict, conv_id: str,
+                                 workspace_override: Any = None) -> str | None:
         if name not in {"file_ops", "edit", "run_command", "process"}:
             return None
-        workspace = self.workspace_repo.get_or_create_binding(conv_id)
+        workspace = self._turn_workspace(conv_id, workspace_override)
         operation = str(args.get("operation") or ("edit" if name == "edit" else "execute"))
         is_command = name in {"run_command", "process"}
         command = str(args.get("command", "")) if is_command else None
@@ -3691,6 +3701,7 @@ class ChatEngine:
         *,
         profile: TierProfile | None = None,
         character: Any = None,
+        workspace_override: Any = None,
     ) -> str:
         if character is None:
             char_id = self.session_store.get_character(conv_id)
@@ -3742,7 +3753,7 @@ class ChatEngine:
             memory_block=memory_block,
             strategy_block=strategy_block,
             experience_block=experience_block,
-            workspace_context=self._workspace_context(conv_id),
+            workspace_context=self._workspace_context(conv_id, workspace_override),
             slim=slim,
             time_block=self._time_block(conv_id),
         )
@@ -3750,8 +3761,18 @@ class ChatEngine:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
         return prompt
 
-    def _workspace_context(self, conv_id: str) -> str:
-        workspace = self.workspace_repo.get_or_create_binding(conv_id)
+    def _turn_workspace(self, conv_id: str, override: Any = None) -> Any:
+        """The workspace this turn runs in.
+
+        A room hands each member its own staging; everything else keeps the
+        conversation's binding, which is what this resolved before.
+        """
+        if override is not None:
+            return override
+        return self.workspace_repo.get_or_create_binding(conv_id)
+
+    def _workspace_context(self, conv_id: str, workspace_override: Any = None) -> str:
+        workspace = self._turn_workspace(conv_id, workspace_override)
         root = Path(workspace.root_path).resolve(strict=False)
         full_root = root == Path(root.anchor) if root.anchor else False
         default_output = str(Path.home() / "FSAR-workspace")
