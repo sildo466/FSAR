@@ -234,3 +234,28 @@ def test_streamed_turn_with_tool_calls_keeps_them(monkeypatch):
         "id": "c1", "type": "function",
         "function": {"name": "file_ops", "arguments": '{"a": 1}'},
     }]
+
+
+def test_streamed_turn_failure_does_not_leak_the_provider_error(monkeypatch):
+    # The rebuilt message's content is persisted and can be posted as a room
+    # line, so the provider's own error body (which carries a trace_id) must
+    # never travel in it — only a human sentence.
+    import asyncio
+
+    def _boom(*a, **k):
+        raise RuntimeError(
+            "Error code: 400 - {'error': {'message': "
+            "'{\"message\":\"invalid request error trace_id: c95100714ccf88dd\"}'}}"
+        )
+
+    monkeypatch.setattr(ce, "chat_completion", _boom)
+    message = asyncio.run(ws_mod._engine._stream_agent_completion(
+        client=object(),
+        provider_id="prov",
+        call_kwargs={"model": "model-x", "messages": []},
+        stream_sink=(_RecordingWS(), "message", "conversation"),
+    ))
+
+    assert "trace_id" not in message["content"]
+    assert "Error code" not in message["content"]
+    assert message["content"].strip()

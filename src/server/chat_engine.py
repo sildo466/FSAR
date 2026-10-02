@@ -1905,7 +1905,8 @@ class ChatEngine:
                 )
                 if result is None:
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, ("delta", "\nLLM stream failed: empty response"),
+                        queue.put_nowait,
+                        ("delta", "\n\n[The model returned an empty response.]"),
                     )
                     return
                 # Some providers/tests return a complete response despite
@@ -1948,8 +1949,12 @@ class ChatEngine:
                                 entry["arguments"] += fn.arguments
             except Exception as e:
                 logger.warning(f"agent stream failed: {e}")
+                # The rebuilt content is persisted and may be posted as a
+                # room line, so the provider's own error body — which carries
+                # a request trace id — stays in the log, not in the reply.
                 loop.call_soon_threadsafe(
-                    queue.put_nowait, ("delta", f"\nLLM stream failed: {e}"),
+                    queue.put_nowait,
+                    ("delta", "\n\n[The model call failed.]"),
                 )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
