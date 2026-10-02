@@ -291,15 +291,25 @@ def create_room_app(deps: RoomDeps) -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException):
-        detail = exc.detail if isinstance(exc.detail, str) else "error"
-        code = detail
+        raw = exc.detail
+        code = raw if isinstance(raw, str) else "error"
+        reason = ""
+        # A handler may refuse with {"code": ..., "reason": ...} when the
+        # *why* is something the caller can act on — a refused patch, for
+        # instance, is one of several shapes. The code stays the stable token.
+        if isinstance(raw, dict):
+            code = str(raw.get("code") or "error")
+            reason = str(raw.get("reason") or "")
         if exc.status_code == 404:
             code = "not_found"
         elif exc.status_code == 405:
             code = "method_not_allowed"
+        body = uniform_error(code, request_id_of(request))
+        if reason:
+            body["reason"] = reason
         return JSONResponse(
             status_code=exc.status_code,
-            content=uniform_error(code, request_id_of(request)),
+            content=body,
             headers={"Cache-Control": "no-store"},
         )
 

@@ -353,10 +353,14 @@ def _patches(app: Any, deps: RoomDeps) -> None:
         accepted, why = check_patch(patch_text, max_bytes=cap)
         if not accepted:
             room_app.audit(deps, request, action="lan_patch", result="deny",
-                           reason="bad_patch", room_id=room.id,
+                           reason=f"bad_patch: {why}", room_id=room.id,
                            member_ref=outcome.member_ref,
                            token_id=outcome.token_id)
-            raise HTTPException(status_code=400, detail="bad_patch")
+            # The reason, not just the code: a refused patch is one of several
+            # shapes, and a sender that cannot tell which is left guessing.
+            raise HTTPException(
+                status_code=400, detail={"code": "bad_patch", "reason": why},
+            )
 
         limit, per_seconds, burst = room_app.PATCH_BUDGET
         if not deps.budget.allow(

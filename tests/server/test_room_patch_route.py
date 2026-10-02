@@ -106,6 +106,15 @@ def test_a_malformed_patch_is_refused(tmp_path) -> None:
     assert wired.patches.list(wired.room.id) == []
 
 
+def test_a_refused_patch_says_which_shape_was_wrong(tmp_path) -> None:
+    """bad_patch alone leaves the sender guessing between binary, mode change,
+    submodule and "not a diff at all"."""
+    wired = _wire(tmp_path)
+    body = _post(wired, {"patch": "please apply this"}).json()
+    assert body["code"] == "bad_patch"
+    assert "not a git diff" in body["reason"]
+
+
 def test_a_patch_that_is_not_a_string_is_refused(tmp_path) -> None:
     wired = _wire(tmp_path)
     response = _post(wired, {"patch": 123})
