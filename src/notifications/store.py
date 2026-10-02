@@ -12,9 +12,33 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 NOTIFICATIONS_TABLE = "notifications"
 KINDS = ("review", "release", "announcement", "birthday")
+
+# Producers are scattered — a security scan, the network listener, the update
+# check — and most of them never see a socket, so the badge stayed stale until
+# the page was opened. The store tells whoever registered instead.
+_feed_listeners: list[Callable[[], None]] = []
+
+
+def on_feed_changed(listener: Callable[[], None]) -> None:
+    """Register a callback for "the feed has something new".
+
+    Idempotent, so a second startup does not stack the same listener.
+    """
+    if listener not in _feed_listeners:
+        _feed_listeners.append(listener)
+
+
+def _feed_changed() -> None:
+    for listener in list(_feed_listeners):
+        try:
+            listener()
+        except Exception:
+            # Best effort: a listener must never turn an insert into a failure.
+            pass
 
 
 class NotificationStore:
@@ -89,7 +113,11 @@ class NotificationStore:
             conn.commit()
             if cur.rowcount == 0:
                 return None
-            return int(cur.lastrowid)
+            row_id = int(cur.lastrowid)
+        # Outside the connection: a listener must not run while the write is
+        # still in flight, and it has nothing to do with the insert's result.
+        _feed_changed()
+        return row_id
 
     def list(
         self,

@@ -128,3 +128,58 @@ def test_newest_first(tmp_path: Path):
     store.add(kind="review", title="older", ref="1", created_at="2026-01-01T00:00:00")
     store.add(kind="review", title="newer", ref="2", created_at="2026-02-01T00:00:00")
     assert [row["title"] for row in store.list()] == ["newer", "older"]
+
+
+def test_a_second_registration_keeps_one_listener(monkeypatch):
+    from src.notifications import store as store_module
+
+    monkeypatch.setattr(store_module, "_feed_listeners", [])
+
+    def listener():
+        pass
+
+    store_module.on_feed_changed(listener)
+    store_module.on_feed_changed(listener)
+    assert store_module._feed_listeners == [listener]
+
+
+def test_a_new_notification_tells_the_listeners(tmp_path: Path, monkeypatch):
+    """Nothing polls the feed, so an insert is what has to move the badge."""
+    from src.notifications import store as store_module
+
+    seen: list[int] = []
+    monkeypatch.setattr(store_module, "_feed_listeners", [lambda: seen.append(1)])
+
+    NotificationStore(tmp_path / "m.db").add(kind="release", title="v", ref="v")
+
+    assert seen == [1]
+
+
+def test_a_row_that_was_already_there_announces_nothing(tmp_path: Path, monkeypatch):
+    from src.notifications import store as store_module
+
+    seen: list[int] = []
+    monkeypatch.setattr(store_module, "_feed_listeners", [lambda: seen.append(1)])
+    store = NotificationStore(tmp_path / "m.db")
+    store.add(kind="release", title="v", ref="v")
+    seen.clear()
+
+    assert store.add(kind="release", title="v", ref="v") is None
+
+    assert seen == []
+
+
+def test_a_listener_that_raises_does_not_fail_the_insert(tmp_path: Path, monkeypatch):
+    from src.notifications import store as store_module
+
+    def boom():
+        raise RuntimeError("no socket here")
+
+    monkeypatch.setattr(store_module, "_feed_listeners", [boom])
+
+    row_id = NotificationStore(tmp_path / "m.db").add(
+        kind="review", title="t", ref="1",
+    )
+
+    assert isinstance(row_id, int)
+

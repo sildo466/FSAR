@@ -182,6 +182,34 @@ def _lan_notify(title: str, body: str, ref: str) -> None:
         logger.warning(f"lan alert failed: {e}")
 
 
+# The loop the GUI's websockets live on. A notification is written from
+# wherever its producer runs — the network listener's thread, a background
+# scan — so the feed push has to be scheduled onto that loop rather than
+# awaited from the writer.
+_gui_loop: asyncio.AbstractEventLoop | None = None
+
+
+def notify_feed_changed() -> None:
+    """Tell every open GUI that the notification feed has something new.
+
+    Registered with the notification store, which calls this from whichever
+    thread inserted the row. Safe from any thread, and a no-op before startup
+    or after shutdown.
+    """
+    loop = _gui_loop
+    if loop is None or loop.is_closed():
+        return
+    from src.server.handlers.chat import _broadcast
+
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _broadcast({"type": "notifications.changed"}), loop,
+        )
+    except Exception:
+        # Best effort: a badge that lags is not worth failing a write for.
+        pass
+
+
 def _lan_deps() -> RoomDeps:
     """Rebuilt per listener start so the app gets the live stores."""
     from src.security.visitor_screen import VisitorScreener
@@ -342,6 +370,8 @@ async def _reload_social() -> None:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    global _gui_loop
+    _gui_loop = asyncio.get_running_loop()
     load_security_keys()
     _ws_auth.rotate()
     from src.server.chat_engine import set_default_chat_engine
@@ -356,6 +386,8 @@ async def _startup() -> None:
         loop = asyncio.get_event_loop()
         loop.create_task(_chat_broadcast({"type": event_type, **payload}))
     _engine.card_repo.set_change_listener(_listener)
+    from src.notifications.store import on_feed_changed
+    on_feed_changed(notify_feed_changed)
     seeded = _engine.card_repo.seed_builtins_if_empty()
     if seeded:
         logger.info(f"seeded {seeded} built-in card(s) from data/cards")
