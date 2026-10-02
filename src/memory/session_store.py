@@ -48,6 +48,9 @@ class MessageRow:
     tags: str = ""
     speaker_kind: str | None = None
     speaker_ref: str | None = None
+    # JSON: the tool calls this turn made. Names and arguments only — a tool's
+    # output is whatever it read, and that does not belong in a transcript.
+    tool_steps: str = ""
 
     def to_dict(self) -> dict:
         data = {
@@ -107,6 +110,7 @@ class SessionStore:
             self._migrate_unlocked_tools(conn)
             self._migrate_message_attribution(conn)
             self._migrate_member_speaker(conn)
+            self._migrate_tool_steps(conn)
             self._migrate_session_kind(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
@@ -178,6 +182,21 @@ class SessionStore:
             conn.execute("ALTER TABLE conversations ADD COLUMN speaker_kind TEXT")
         if "speaker_ref" not in cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN speaker_ref TEXT")
+        conn.commit()
+
+    def _migrate_tool_steps(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: let an assistant row carry the tool calls it made.
+
+        The GUI showed a turn's steps only while it was live; a reload dropped
+        them, because nothing stored them. Existing rows leave the column NULL
+        and read back as no steps.
+        """
+        cols = [
+            r[1]
+            for r in conn.execute("PRAGMA table_info(conversations)").fetchall()
+        ]
+        if cols and "tool_steps" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN tool_steps TEXT")
         conn.commit()
 
     def get_unlocked_tools(self, session_id: str) -> set[str]:
@@ -501,12 +520,31 @@ class SessionStore:
     ) -> bool:
         """Rewrite one message in place, keeping its row id and position.
 
-        Regenerating must not append a second copy at the end of the room."""
+        Regenerating must not append a second copy at the end of the room. The
+        steps go with the reply they belonged to: the replacement has not made
+        any yet."""
         with self._connect() as conn:
             cur = conn.execute(
-                "UPDATE conversations SET content = ?, character_card_id = ? "
-                "WHERE id = ?",
+                "UPDATE conversations SET content = ?, character_card_id = ?, "
+                "tool_steps = '' WHERE id = ?",
                 (content, character_card_id, message_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def set_message_tool_steps(
+        self, message_id: int, steps: list[dict],
+    ) -> bool:
+        """Attach the tool calls one assistant turn made.
+
+        Names, arguments and call ids only: whatever the tool returned is what
+        it read, and that is not transcript material.
+        """
+        payload = json.dumps(steps, ensure_ascii=False) if steps else ""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE conversations SET tool_steps = ? WHERE id = ?",
+                (payload, int(message_id)),
             )
             conn.commit()
             return cur.rowcount > 0
@@ -517,7 +555,7 @@ class SessionStore:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags, speaker_kind, speaker_ref "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                 "FROM conversations WHERE session_fk = ? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (conversation_id, limit),
@@ -531,7 +569,7 @@ class SessionStore:
             if limit:
                 rows = conn.execute(
                     "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags, speaker_kind, speaker_ref "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                     "FROM conversations WHERE session_fk = ? "
                     "ORDER BY timestamp ASC LIMIT ?",
                     (conversation_id, limit),
@@ -539,7 +577,7 @@ class SessionStore:
             else:
                 rows = conn.execute(
                     "SELECT id, session_fk, role, content, character_card_id, "
-                "timestamp, summary, tags, speaker_kind, speaker_ref "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                     "FROM conversations WHERE session_fk = ? ORDER BY timestamp ASC",
                     (conversation_id,),
                 ).fetchall()
@@ -572,4 +610,5 @@ class SessionStore:
             tags=r[7] or "",
             speaker_kind=r[8],
             speaker_ref=r[9],
+            tool_steps=r[10] or "",
         )

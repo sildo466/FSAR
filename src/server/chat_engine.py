@@ -1476,6 +1476,12 @@ class ChatEngine:
             )
         else:
             await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
+        # Store the turn's tool calls with its message. The live events carry
+        # them, so a reload used to lose the whole process; what is written is
+        # the names and arguments, not what any tool returned.
+        row_id = self._msg_ids.get(message_id)
+        if row_id is not None and runtime.tool_steps:
+            self.session_store.set_message_tool_steps(row_id, runtime.tool_steps)
         await self._done(
             ws,
             message_id,
@@ -2397,6 +2403,9 @@ class ChatEngine:
                         args=args,
                     )
             is_error = self._tool_result_is_error(output)
+            runtime.tool_steps.append({
+                "callId": tool_call.id, "tool": name, "args": args,
+            })
             return tool_call.id, name, output, is_error
 
         parallel = (

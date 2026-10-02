@@ -372,6 +372,15 @@ export interface GroupMessage {
   tools?: ToolEvent[];
 }
 
+/** A tool step as the server stores it and as history returns it: the raw
+ *  arguments, no preview string. The client renders the preview, so a reloaded
+ *  row reads exactly like the one that streamed in. No result is stored. */
+export interface StoredToolStep {
+  callId: string;
+  tool: string;
+  args?: unknown;
+}
+
 export interface ElectionCandidate {
   character_id: number;
   character_name: string;
@@ -553,7 +562,11 @@ export type ServerMsg =
   | { type: "group.created"; room: RoomSummary }
   | { type: "group.updated"; room: RoomSummary }
   | { type: "group.deleted"; room_id: number }
-  | { type: "group.history.ok"; room_id: number; messages: GroupMessage[] }
+  | {
+      type: "group.history.ok";
+      room_id: number;
+      messages: Array<Omit<GroupMessage, "tools"> & { tools?: StoredToolStep[] }>;
+    }
   | { type: "group.elect.started"; room_id: number; chain_id: string; round: number; candidates: number[] }
   | { type: "group.elect.candidate"; room_id: number; chain_id: string; round: number; character_id: number; character_name: string; eagerness: number; reason: string }
   | { type: "group.elect.decided"; room_id: number; chain_id: string; round: number; speakers: number[] }

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from fastapi import WebSocket
@@ -28,6 +29,25 @@ _room_patches: Any = None
 _room_workspaces: Any = None
 _room_project_root: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
+
+
+def stored_tool_steps(row: Any) -> list[dict]:
+    """The tool calls a stored turn made.
+
+    The arguments go out as they were recorded, so the client renders them
+    with the same helper its live events use. No result is stored, so none is
+    sent.
+    """
+    raw = getattr(row, "tool_steps", "") or ""
+    if not raw:
+        return []
+    try:
+        steps = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(steps, list):
+        return []
+    return [s for s in steps if isinstance(s, dict)]
 
 
 def set_lan_supervisor(supervisor: Any) -> None:
@@ -387,6 +407,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     ),
                     "speaker_kind": getattr(r, "speaker_kind", None),
                     "user_name": user_name if r.role == "user" else None,
+                    "tools": stored_tool_steps(r),
                     "timestamp": r.timestamp.isoformat(),
                 }
                 for r in rooms.messages_with_speaker(room_id)

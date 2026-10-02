@@ -314,6 +314,27 @@ describe("useGroup store", () => {
     expect(stored[0].row_id).toBe(11);
   });
 
+  it("renders a reloaded turn's steps the way the live ones were", () => {
+    // The server stores the raw arguments; the preview is the client's.
+    useGroup.getState().applyServerMsg({
+      type: "group.history.ok",
+      room_id: 1,
+      messages: [
+        {
+          ...assistant("11", 7, "Mira"),
+          row_id: 11,
+          tools: [{ callId: "c1", tool: "read_file", args: { path: "a.txt" } }],
+        },
+      ],
+    });
+    const steps = useGroup.getState().messages[1][0].tools;
+    expect(steps).toHaveLength(1);
+    expect(steps?.[0].tool).toBe("read_file");
+    expect(steps?.[0].argsPreview).toContain("a.txt");
+    // A result is never stored, so a reloaded row has none.
+    expect(steps?.[0].result).toBeUndefined();
+  });
+
   it("collects election candidates one by one", () => {
     useGroup.getState().applyServerMsg({
       type: "group.elect.started",

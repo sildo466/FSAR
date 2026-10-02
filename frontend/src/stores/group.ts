@@ -19,7 +19,23 @@ import type {
 } from "../lib/ws-client";
 
 import { applyToolEvent, asPreview } from "../lib/toolEvents";
+import type { ToolEvent } from "../lib/toolEvents";
 import type { PendingRisk } from "../components/chat/MessageList";
+
+/**
+ * Steps as the server stores them: the raw arguments, no preview string.
+ *
+ * Rendered here with the same `asPreview` the live events use, so a reloaded
+ * step row reads exactly like the one that streamed in.
+ */
+function storedSteps(raw: unknown): ToolEvent[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return (raw as Array<Record<string, unknown>>).map((step) => ({
+    callId: String(step.callId ?? ""),
+    tool: String(step.tool ?? ""),
+    argsPreview: asPreview(step.args),
+  }));
+}
 
 export type { PatchItem, PatchState, PlanItem, PublishRecord, RoomPhase };
 
@@ -373,7 +389,11 @@ export const useGroup = create<GroupState>((set, get) => {
       set((s) => ({
         messages: {
           ...s.messages,
-          [msg.room_id]: msg.messages.map((m) => ({ ...m, streaming: false })),
+          [msg.room_id]: msg.messages.map((m) => ({
+            ...m,
+            streaming: false,
+            tools: storedSteps(m.tools),
+          })),
         },
         loadingHistory: { ...s.loadingHistory, [msg.room_id]: false },
       }));
