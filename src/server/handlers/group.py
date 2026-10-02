@@ -31,7 +31,7 @@ _room_project_root: Any = None
 _tasks: dict[int, asyncio.Task[None]] = {}
 
 
-def stored_tool_steps(row: Any) -> list[dict]:
+def _stored_tool_steps(row: Any) -> list[dict]:
     """The tool calls a stored turn made.
 
     The arguments go out as they were recorded, so the client renders them
@@ -407,7 +407,7 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                     ),
                     "speaker_kind": getattr(r, "speaker_kind", None),
                     "user_name": user_name if r.role == "user" else None,
-                    "tools": stored_tool_steps(r),
+                    "tools": _stored_tool_steps(r),
                     "timestamp": r.timestamp.isoformat(),
                 }
                 for r in rooms.messages_with_speaker(room_id)
