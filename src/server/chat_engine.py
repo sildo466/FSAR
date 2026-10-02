@@ -1489,11 +1489,11 @@ class ChatEngine:
             conv_id=conv_id,
             tts_text=result.conclusion,
         )
+        self._maybe_title(conv_id, user_input)
         if profile.post_reflection:
             await asyncio.to_thread(
                 self._reflect, task_id, conv_id, user_input, result.outcome,
             )
-            self._maybe_title(conv_id, user_input)
             self.idle_reflector.bump_event()
             await self._run_idle_reflection_if_due()
 
@@ -3295,6 +3295,7 @@ class ChatEngine:
             ws, message_id, result.outcome, conv_id=conv_id,
             tts_text=result.conclusion,
         )
+        self._maybe_title(conv_id, user_input)
 
     # ---------- companion mode ----------
 
