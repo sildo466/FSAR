@@ -108,7 +108,10 @@ def _index(app: Any, deps: RoomDeps) -> None:
         _read_budget(deps, outcome)
 
         room = room_app.require_room(deps, request, outcome.room_id, outcome)
-        member = deps.members.get(room.id, outcome.member_ref)
+        member, listed = await asyncio.gather(
+            asyncio.to_thread(deps.members.get, room.id, outcome.member_ref),
+            asyncio.to_thread(room_members, deps, room),
+        )
         room_app.audit(deps, request, action="lan_read", result="allow",
                        reason="ok", room_id=room.id,
                        member_ref=outcome.member_ref, token_id=outcome.token_id)
@@ -122,7 +125,7 @@ def _index(app: Any, deps: RoomDeps) -> None:
                     or outcome.member_ref,
                     "state": getattr(member, "state", "active"),
                     "max_rounds": int(getattr(room, "max_rounds", 0) or 0),
-                    "members": room_members(deps, room),
+                    "members": listed,
                 }
             ]
         }
@@ -206,11 +209,17 @@ def _state(app: Any, deps: RoomDeps) -> None:
         _read_budget(deps, outcome)
 
         room = room_app.require_room(deps, request, rid, outcome)
-        agent_names = {
-            member.ref: member.display_name
-            for member in deps.members.members(room.id)
-        }
-        rows = deps.rooms.session_store.get_session_messages(room.session_id)
+        # Every store here is synchronous SQLite, and the GUI thread writes the
+        # same file while a room is live. A read that waits on that writer waits
+        # while holding this loop, which is what refused connections — so the
+        # reads that scale with the room go to a thread.
+        member_list, rows = await asyncio.gather(
+            asyncio.to_thread(deps.members.members, room.id),
+            asyncio.to_thread(
+                deps.rooms.session_store.get_session_messages, room.session_id,
+            ),
+        )
+        agent_names = {member.ref: member.display_name for member in member_list}
         # Required, not defaulted: an absent or negative cursor used to mean
         # "everything", which reads whole rooms out in one response and hides
         # the caller's own mistake behind a plausible answer.
@@ -246,10 +255,15 @@ def _state(app: Any, deps: RoomDeps) -> None:
         # Only a room that has a board and can run it gets the key at all: an
         # always-empty array reads like a promise about something that is not
         # there.
-        if getattr(room, "agent_mode", False) and deps.plans is not None:
-            payload["plan"] = plan_projection(deps.plans, room.id)
-        if getattr(room, "agent_mode", False) and deps.patches is not None:
-            payload["patches"] = patch_projection(deps.patches, room.id)
+        if getattr(room, "agent_mode", False):
+            if deps.plans is not None:
+                payload["plan"] = await asyncio.to_thread(
+                    plan_projection, deps.plans, room.id,
+                )
+            if deps.patches is not None:
+                payload["patches"] = await asyncio.to_thread(
+                    patch_projection, deps.patches, room.id,
+                )
         return payload
 
 

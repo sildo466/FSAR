@@ -19,6 +19,7 @@ from src.utils.fsar_config import get_default_config
 from src.utils.fsar_home import get_fsar_home
 from src.memory.agent_members import AgentMemberStore
 from src.memory.auth_audit import AuthAuditStore
+from src.memory.db import enable_wal
 from src.memory.idempotency import IdempotencyStore
 from src.memory.lan_blocklist import LanBlocklist
 from src.memory.member_tokens import MemberTokenStore
@@ -103,6 +104,10 @@ _ctx: dict[str, Any] = {
 }
 chat_handler.set_engine(_engine)
 conversation_handler.set_engine(_engine)
+# The room API listens on its own event loop in a second thread and writes to
+# this same file on every request. Without WAL its reads queue behind whatever
+# the GUI thread is committing, and a stalled loop is a refused connection.
+enable_wal(_config.memory_sqlite_path)
 _group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
 _agent_members = AgentMemberStore(_config.memory_sqlite_path)
 _member_tokens = MemberTokenStore(_config.memory_sqlite_path)
