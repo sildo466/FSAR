@@ -148,6 +148,17 @@ def test_a05_index_never_hints_at_other_rooms(tmp_path) -> None:
     assert "Another Secret" not in json.dumps(body)
 
 
+def test_a05_index_names_the_members_of_the_room(tmp_path) -> None:
+    """A member cannot address anyone it cannot see, so index lists them."""
+    wired = _wire(tmp_path, client_host="192.168.1.20")
+    wired.members.add(wired.room.id, ref="ori-box", display_name="Ori")
+    body = wired.client.get("/room/index", headers=_auth(wired.token)).json()
+    listed = {m["ref"]: m for m in body["rooms"][0]["members"]}
+    assert listed["claude-laptop"]["display_name"] == "Claude"
+    assert listed["ori-box"]["display_name"] == "Ori"
+    assert all(m["kind"] == "agent" for m in listed.values())
+
+
 def test_a05_since_zero_returns_only_the_credentials_own_room(tmp_path) -> None:
     wired = _wire(tmp_path, client_host="192.168.1.20")
     other = wired.rooms.create(name="Elsewhere", character_ids=[],

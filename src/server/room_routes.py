@@ -72,6 +72,35 @@ def _read_budget(deps: RoomDeps, outcome: Any) -> None:
         raise HTTPException(status_code=429, detail="rate_limited")
 
 
+def room_members(deps: RoomDeps, room: Any) -> list[dict[str, Any]]:
+    """Everyone the room can hear from, by the ref a member addresses them with.
+
+    A character and a token-holding member are different things — one speaks
+    from inside the room, the other connects to it — so they are named as
+    such. Names come from the card repo, so a room whose cards are not wired
+    still lists its members."""
+    out: list[dict[str, Any]] = []
+    if deps.members is not None:
+        for member in deps.members.members(room.id):
+            out.append({
+                "kind": "agent",
+                "ref": member.ref,
+                "display_name": member.display_name,
+                "state": member.state,
+            })
+    if deps.cards is not None and deps.rooms is not None:
+        for card_id in deps.rooms.members(room.id):
+            character = deps.cards.get_character(card_id)
+            if character is not None:
+                out.append({
+                    "kind": "character",
+                    "ref": str(card_id),
+                    "display_name": getattr(character, "name", "") or "",
+                    "state": "active",
+                })
+    return out
+
+
 def _index(app: Any, deps: RoomDeps) -> None:
     @app.get("/room/index")
     async def room_index(request: Request) -> dict[str, Any]:
@@ -93,6 +122,7 @@ def _index(app: Any, deps: RoomDeps) -> None:
                     or outcome.member_ref,
                     "state": getattr(member, "state", "active"),
                     "max_rounds": int(getattr(room, "max_rounds", 0) or 0),
+                    "members": room_members(deps, room),
                 }
             ]
         }
