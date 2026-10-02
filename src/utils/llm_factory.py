@@ -42,6 +42,12 @@ _GEMINI_CLIENTS: dict[str, Any] = {}
 _ANTHROPIC_CLIENTS: dict[str, Any] = {}
 _FACTORY_LOCK = __import__("threading").Lock()
 
+# The SDK's own default is connect=5s, which a provider that is merely slow to
+# open a TLS handshake trips before a single token has been asked for; the
+# failure then surfaces as "Request timed out". Read stays at the SDK's 600s —
+# a long generation is not a failure.
+HTTP_TIMEOUT = httpx.Timeout(600.0, connect=30.0)
+
 
 def normalise_usage(usage: Any) -> dict[str, int]:
     """Normalize a provider `usage` object into canonical token counts.
@@ -288,13 +294,15 @@ def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> 
             client = OpenAI(
                 api_key=resolved_api_key,
                 base_url=resolved_base_url,
-                http_client=httpx.Client(verify=ctx),
+                http_client=httpx.Client(verify=ctx, timeout=HTTP_TIMEOUT),
+                timeout=HTTP_TIMEOUT,
             )
         except TypeError:
             # OpenAI SDK < 1.0 or custom subclasses: fall back without http_client.
             client = OpenAI(
                 api_key=resolved_api_key,
                 base_url=resolved_base_url,
+                timeout=HTTP_TIMEOUT,
             )
         _CLIENTS[client_key] = client
         return client
