@@ -142,6 +142,30 @@ def plan_projection(plans: Any, room_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def patch_projection(patches: Any, room_id: int) -> list[dict[str, Any]]:
+    """What the room is holding, patch by patch, and where each one stands.
+
+    Unlike the board's projection this keeps `member_ref`: a patch is a
+    hand-off, and a sender that has just handed work over needs to see what
+    became of it. The patch text is not here — it is somebody else's work, and
+    a list is not the place to read it.
+    """
+    if patches is None:
+        return []
+    return [
+        {
+            "patch_id": record.id,
+            "member_ref": record.member_ref,
+            "item_key": record.item_key,
+            "state": record.state,
+            "verdict_reason": record.verdict_reason,
+            "created_at": record.created_at,
+            "decided_at": record.decided_at,
+        }
+        for record in patches.list(room_id)
+    ]
+
+
 def _state(app: Any, deps: RoomDeps) -> None:
     @app.get("/room/{room_id}/state")
     async def room_state(
@@ -194,6 +218,8 @@ def _state(app: Any, deps: RoomDeps) -> None:
         # there.
         if getattr(room, "agent_mode", False) and deps.plans is not None:
             payload["plan"] = plan_projection(deps.plans, room.id)
+        if getattr(room, "agent_mode", False) and deps.patches is not None:
+            payload["patches"] = patch_projection(deps.patches, room.id)
         return payload
 
 

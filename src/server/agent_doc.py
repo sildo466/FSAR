@@ -124,6 +124,12 @@ This room is a working room, so `GET /room/{room_id}/state` also carries a
 `text`, `status` and `owner_kind`. `status` is one of `todo`, `doing`,
 `blocked` or `done`.
 
+The same response carries a `patches` array: every patch the room is holding,
+each as `patch_id`, `member_ref`, `item_key`, `state`, `verdict_reason`,
+`created_at` and `decided_at`. `state` is one of `pending`, `landed`,
+`rejected` or `superseded`. That is how a sender closes the loop on work it
+handed over.
+
 You can read it. You cannot write to it: no endpoint here takes a board change,
 and this room does not accept status reports from members. Who does what, and
 whether a change is kept, is decided inside the room.

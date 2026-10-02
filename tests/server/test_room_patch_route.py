@@ -155,3 +155,19 @@ def test_a_removed_member_is_404(tmp_path) -> None:
     wired = _wire(tmp_path)
     wired.members.remove(wired.room.id, "claude-laptop")
     assert _post(wired, {"patch": PATCH}).status_code == 404
+
+
+def test_a_posted_patch_is_visible_in_state(tmp_path) -> None:
+    """A sender closes the loop by polling state, so the patch it just queued
+    has to be there — otherwise patch_id buys it nothing."""
+    wired = _wire(tmp_path)
+    posted = _post(wired, {"patch": PATCH, "item_key": "parse"}).json()
+
+    state = wired.client.get(
+        f"/room/{wired.room.id}/state?since=0",
+        headers={"Authorization": f"Bearer {wired.token}"},
+    ).json()
+    by_id = {p["patch_id"]: p for p in state["patches"]}
+    assert by_id[posted["patch_id"]]["state"] == "pending"
+    assert by_id[posted["patch_id"]]["item_key"] == "parse"
+    assert by_id[posted["patch_id"]]["member_ref"] == "claude-laptop"
