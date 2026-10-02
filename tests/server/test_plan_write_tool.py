@@ -79,6 +79,18 @@ def test_using_the_tool_with_no_sink_says_so() -> None:
     assert out.startswith("Error")
 
 
+def test_the_board_event_is_keyed_by_room() -> None:
+    """The client keeps the board per room and drops an event that arrives
+    without a room id, so an open panel only moved on reopen."""
+    sink = _Sink()
+    sink.room_id = 3
+    sink.last_written = [{"item_key": "a"}]
+    event = ce._plan_updated_event(sink)
+    assert event["type"] == "room.plan.updated"
+    assert event["room_id"] == 3
+    assert event["items"] == [{"item_key": "a"}]
+
+
 def test_the_event_payload_comes_from_the_sink() -> None:
     assert ce.ChatEngine._plan_items(None, _Sink()) == [{"item_key": "a"}]
 

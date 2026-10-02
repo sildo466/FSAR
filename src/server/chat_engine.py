@@ -432,6 +432,20 @@ def get_default_chat_engine() -> "ChatEngine":
     return _default_chat_engine
 
 
+def _plan_updated_event(sink: Any) -> dict[str, Any]:
+    """`room.plan.updated`, keyed by room.
+
+    The client keeps the board per room and drops an event that arrives
+    without a room id, so this field is what makes an open panel move. Every
+    other emitter already sends it.
+    """
+    return {
+        "type": "room.plan.updated",
+        "room_id": getattr(sink, "room_id", None),
+        "items": list(getattr(sink, "last_written", None) or []),
+    }
+
+
 def _append_plan_tool(
     tools: list[dict[str, Any]], sink: Any,
 ) -> list[dict[str, Any]]:
@@ -2487,11 +2501,7 @@ class ChatEngine:
             })
         elif name == "plan_write":
             output = self._write_plan(runtime.plan_sink, args.get("items"))
-            await ws.send_json({
-                "type": "room.plan.updated",
-                "conversation_id": conv_id,
-                "items": self._plan_items(runtime.plan_sink),
-            })
+            await ws.send_json(_plan_updated_event(runtime.plan_sink))
         elif name == "blackboard_post":
             entry_type = str(args.get("entry_type", "proposal"))
             content = str(args.get("content", "")).strip()
