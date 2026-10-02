@@ -198,7 +198,7 @@ def build_character_prompt(
     """
     from src.core.persona import assemble_character_persona_block
     persona = assemble_character_persona_block(
-        character, user_card, tools_enabled=tools_enabled,
+        character, user_card, tools_enabled=tools_enabled, group_mode=group_mode,
     )
     parts: list[str] = []
     if persona.character_block:

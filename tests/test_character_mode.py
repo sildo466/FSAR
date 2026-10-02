@@ -80,6 +80,17 @@ def test_persona_block_split():
     assert "You are talking to tester" in p.user_block
 
 
+def test_group_mode_does_not_name_the_owner_as_the_speaker():
+    """A room holds members besides the owner. Stated flatly that the character
+    is talking to the owner, a member's line got answered with the owner's
+    name."""
+    p: CharacterPersona = assemble_character_persona_block(
+        make_character(), make_user_card(), group_mode=True
+    )
+    assert "You are talking to" not in p.user_block
+    assert "tester" in p.user_block
+
+
 def test_prompt_persona_share_at_least_half():
     c = make_character()
     prompt = build_character_prompt(character=c, user_card=make_user_card())

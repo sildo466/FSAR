@@ -47,11 +47,22 @@ def _example_section(c: CharacterCard) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _user_section(u: UserCard) -> str:
+def _user_section(u: UserCard, *, group_mode: bool = False) -> str:
     style = u.communication_style or "(unspecified)"
+    if group_mode:
+        # Stated flatly, "you are talking to <owner>" made the character
+        # answer whichever member spoke with the owner's name. In a room the
+        # owner is one voice among several, and the transcript marks each.
+        opening = (
+            f"{u.name} owns this room. Others may speak here too, so the line "
+            f"you are answering names its own speaker — do not assume it is "
+            f"{u.name}.\n"
+        )
+    else:
+        opening = f"You are talking to {u.name}.\n"
     return (
         "[USER CARD]\n"
-        f"You are talking to {u.name}.\n"
+        f"{opening}"
         f"About them: {u.description}\n"
         f"Their style: {style}\n"
         f"Known preferences: {json.dumps(u.preferences or {}, ensure_ascii=False)}\n"
@@ -120,6 +131,7 @@ def assemble_character_persona_block(
     user_card: UserCard | None,
     *,
     tools_enabled: bool = True,
+    group_mode: bool = False,
 ) -> CharacterPersona:
     """Persona split for character mode: everything about the character first
     (card + examples + emotion), the user card kept separate so the character
@@ -132,5 +144,8 @@ def assemble_character_persona_block(
             _example_section(character),
             _emotion_section(character, tools_enabled=tools_enabled),
         ) if s)
-    user_block = _user_section(user_card) if user_card is not None else ""
+    user_block = (
+        _user_section(user_card, group_mode=group_mode)
+        if user_card is not None else ""
+    )
     return CharacterPersona(character_block=character_block, user_block=user_block)
