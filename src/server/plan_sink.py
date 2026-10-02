@@ -43,10 +43,17 @@ def _validated_owner(raw: Any, member_ids: set[int]) -> tuple[str | None, str | 
 
 
 class RoomPlanSink:
-    def __init__(self, rooms: RoomStore, plans: RoomPlanStore, room_id: int) -> None:
+    def __init__(
+        self, rooms: RoomStore, plans: RoomPlanStore, room_id: int,
+        *, owners: list[tuple[str, str]] | None = None,
+    ) -> None:
         self.rooms = rooms
         self.plans = plans
         self.room_id = room_id
+        # (ref, name) of every member that may own an item, so the tool the
+        # model is handed can name them. Without it the model had no valid ref
+        # to write and every item came back unowned.
+        self.owners = list(owners or [])
         self.last_written: list[dict] = []
 
     def replace(self, items: list[dict]) -> list[dict]:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import time
@@ -437,7 +438,25 @@ def _append_plan_tool(
     """Offer plan_write only where there is a board to write to."""
     if sink is None:
         return tools
-    return [*tools, PLAN_WRITE_SCHEMA]
+    return [*tools, _plan_write_schema(sink)]
+
+
+def _plan_write_schema(sink: Any) -> dict[str, Any]:
+    """The board schema, with the room's members named in it.
+
+    An item's owner is set by the model, and the only refs that survive
+    validation are the room's own members. Listed nowhere, the model had
+    nothing valid to write and every item came back unowned.
+    """
+    schema = copy.deepcopy(PLAN_WRITE_SCHEMA)
+    owners = list(getattr(sink, "owners", None) or [])
+    if owners:
+        choices = ", ".join(f'"{ref}" ({name})' for ref, name in owners)
+        schema["function"]["description"] += (
+            ' To assign an item, set owner to {"kind": "character", "ref":'
+            f" <one of: {choices}>}}."
+        )
+    return schema
 
 
 class ChatEngine:

@@ -27,6 +27,19 @@ def test_the_schema_names_the_tool_and_its_owner_field() -> None:
     assert item["properties"]["status"]["enum"] == ["todo", "doing", "blocked", "done"]
 
 
+def test_the_offered_schema_names_the_members_that_may_own_an_item() -> None:
+    """plan_write sets the owner itself, so the only refs it can legally write
+    have to be in front of it — otherwise every item came back unowned."""
+    sink = _Sink()
+    sink.owners = [("4", "FSAR (zh)"), ("9", "Ori")]
+    description = ce._plan_write_schema(sink)["function"]["description"]
+    assert '"4" (FSAR (zh))' in description
+    assert '"9" (Ori)' in description
+    assert "owner" in description
+    # The module-level schema is a shared constant, not a per-call template.
+    assert '"4"' not in ce.PLAN_WRITE_SCHEMA["function"]["description"]
+
+
 def test_no_sink_means_the_tool_is_absent() -> None:
     """A chat-mode turn has no board, so the tool must not be offered."""
     tools = [{"function": {"name": "read_file"}}]

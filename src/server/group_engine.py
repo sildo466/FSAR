@@ -305,7 +305,14 @@ class GroupEngine:
             return None
         from src.server.plan_sink import RoomPlanSink
 
-        return RoomPlanSink(self.rooms, self.plans, room.id)
+        owners = [
+            (str(cid), getattr(character, "name", "") or "")
+            for cid in self.rooms.members(room.id)
+            if (character := self.chat.card_repo.get_character(cid)) is not None
+        ]
+        return RoomPlanSink(
+            self.rooms, self.plans, room.id, owners=owners,
+        )
 
     async def _safe_send(self, ws: Any, payload: dict[str, Any]) -> None:
         try:
