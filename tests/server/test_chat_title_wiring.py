@@ -6,13 +6,16 @@ off) never called _maybe_title, so those sessions stayed untitled forever.
 """
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from src.core.agent_tiers import get_tier_profile
 from src.memory.session_store import SessionStore
+from src.server.title_generator import TitleGenerator
 import src.server.chat_engine as ce
+import src.server.title_generator as tg_mod
 import src.server.ws_server as ws_mod
 
 
@@ -86,3 +89,42 @@ def test_companion_mode_schedules_title(monkeypatch, tmp_path):
     with TestClient(ws_mod.app).websocket_connect("/ws") as ws:
         _send(ws, "hi there", "companion")
     assert len(spy.calls) == 1, f"companion mode never scheduled a title: {spy.calls}"
+
+
+def _slow_title(*a, **k):
+    # A real title call takes seconds. The delay is the whole point: it holds
+    # the naming work open across the end of the turn, which is where the
+    # previous implementation lost it.
+    time.sleep(0.6)
+    return _resp(content="Game Files")
+
+
+def test_title_reaches_the_store(monkeypatch, tmp_path):
+    """The tests above only prove `schedule` was called — an earlier version of
+    this file stopped there, and the feature stayed broken through four fixes.
+    Assert the title actually lands: naming is fire-and-forget, so a generator
+    whose work does not survive the turn's own task or event loop wires up
+    perfectly and still leaves every conversation untitled."""
+    engine = ws_mod._engine
+    store = SessionStore(str(tmp_path / "m.db"))
+    monkeypatch.setattr(engine, "session_store", store)
+    engine.title_generator = TitleGenerator(
+        config=engine.config,
+        store=store,
+        client_factory=lambda: (object(), "model-x", "prov"),
+        push_event=engine._broadcast,
+    )
+    monkeypatch.setattr(tg_mod, "chat_completion", _slow_title)
+    monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: _resp(content="hello!"))
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
+
+    with TestClient(ws_mod.app).websocket_connect("/ws") as ws:
+        _send(ws, "hi there", "agent")
+
+    for _ in range(60):
+        if any(row.title for row in store.list(limit=20)):
+            break
+        time.sleep(0.25)
+
+    titles = [row.title for row in store.list(limit=20) if row.title]
+    assert titles == ["Game Files"], f"title never reached the store: {titles}"
