@@ -11,6 +11,25 @@ from src.core.agent_tiers import is_valid_tier
 from src.providers.llm.thinking import EFFORT_LEVELS
 from src.security.permissions import PathRule, save_permissions
 from src.utils.fsar_config import FsarConfig
+from src.utils.logger import logger
+
+_lan_supervisor: Any = None
+
+
+def set_lan_supervisor(supervisor: Any) -> None:
+    global _lan_supervisor
+    _lan_supervisor = supervisor
+
+
+def _sync_lan() -> None:
+    """`lan.enabled` lives in the config, so the listener follows this patch.
+    Best effort: the periodic tick in ws_server corrects any drift."""
+    if _lan_supervisor is None:
+        return
+    try:
+        _lan_supervisor.sync()
+    except Exception as e:
+        logger.warning(f"lan sync failed: {e}")
 
 _VALID_PERM_MODES = {"strict", "normal", "trust"}
 _VALID_TOOL_MODES = {"ask", "trust", "deny"}
@@ -105,6 +124,10 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             config.save()
         except Exception:
             pass
+        if engine is not None and _affects_injection_patch(patch):
+            engine.refresh_injection_pipeline()
+        if "lan.enabled" in patch:
+            _sync_lan()
         await ws.send_json({"type": "settings.changed", "patch": patch, "by": "user"})
         return True
     if t == "style.patch":
@@ -200,6 +223,8 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             reset_clients()
         except Exception:
             pass
+        if engine is not None:
+            engine.refresh_injection_pipeline()
         return True
     if t == "llm.get_vision":
         vm = config.get_vision_model()
@@ -235,7 +260,55 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any], config: FsarConfig, engin
             return True
         await ws.send_json({"type": "llm.vision_changed", "vision_model": config.get_vision_model()})
         return True
+    if t == "llm.get_judge":
+        await ws.send_json({"type": "llm.judge_config", "judge": config.get_judge()})
+        return True
+    if t == "llm.set_judge":
+        cfg = {
+            "base_url": str(msg.get("base_url", "") or ""),
+            "api_key": str(msg.get("api_key", "") or ""),
+            "model": str(msg.get("model", "") or ""),
+        }
+        # A custom judge endpoint needs both a model id and a base URL; a
+        # half-filled config would silently enable judging with broken creds.
+        if cfg["model"] or cfg["base_url"]:
+            if not cfg["model"] or not cfg["base_url"]:
+                await ws.send_json({
+                    "type": "error",
+                    "code": "incomplete_judge",
+                    "message": "Custom judge endpoint requires both a base URL and a model id.",
+                    "recoverable": True,
+                })
+                return True
+        config.set_judge(cfg)
+        try:
+            config.save()
+        except Exception as e:
+            await ws.send_json({
+                "type": "error",
+                "code": "save_failed",
+                "message": f"Failed to save judge config: {e}",
+                "recoverable": True,
+            })
+            return True
+        if engine is not None:
+            engine.refresh_injection_pipeline()
+        await ws.send_json({"type": "llm.judge_changed", "judge": config.get_judge()})
+        return True
     return False
+
+
+_INJECTION_PATCH_PREFIXES = (
+    "memory.inject_", "llm.judge", "llm.active", "llm.providers",
+)
+
+
+def _affects_injection_patch(patch: dict) -> bool:
+    """True when a settings patch changes what the injection pipeline reads."""
+    return any(
+        isinstance(key, str) and key.startswith(_INJECTION_PATCH_PREFIXES)
+        for key in patch
+    )
 
 
 def _sync_permissions_to_engine(patch: dict[str, Any], engine: Any) -> str | None:

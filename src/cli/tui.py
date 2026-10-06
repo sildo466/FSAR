@@ -811,8 +811,31 @@ def _startup_summary(engine: ChatEngine, cwd: str) -> str:
     )
 
 
+_SUBCOMMAND_MODULES: dict[str, str] = {
+    "run": "src.cli.run",
+    "room": "src.cli.room",
+}
+
+
+def _dispatch_subcommand(argv: list[str]) -> int | None:
+    """Returns an exit code when argv names a subcommand, else None.
+
+    Must run before any TUI setup: Textual would otherwise claim the
+    terminal and the subcommand's stdout would be swallowed.
+    """
+    if len(argv) < 2 or argv[1] not in _SUBCOMMAND_MODULES:
+        return None
+    import importlib
+
+    module = importlib.import_module(_SUBCOMMAND_MODULES[argv[1]])
+    return int(module.main(argv[2:]))
+
+
 def main() -> None:
     """CLI/TUI entry point — build the shared ChatEngine and run the Textual app."""
+    early = _dispatch_subcommand(sys.argv)
+    if early is not None:
+        raise SystemExit(early)
     from src.utils.migrate import run_migration
     from src.utils.fsar_home import get_fsar_home
     from pathlib import Path

@@ -106,6 +106,7 @@ def build_system_prompt(
     skill_index_block: str = "",
     workspace_context: str = "",
     slim: bool = False,
+    time_block: str = "",
 ) -> str:
     """Single source of truth for system prompt assembly (spec §6.1)."""
     from src.core.persona import assemble_persona_block
@@ -129,6 +130,8 @@ def build_system_prompt(
         parts.append(experience_block)
     if skill_index_block:
         parts.append(skill_index_block)
+    if time_block:
+        parts.append(time_block.strip())
     return "\n\n".join(parts)
 
 
@@ -144,17 +147,36 @@ Their memories, temper, and way of judging things are yours.
   terms ("look through your papers", not "read the file").
   If your setting IS a technical character (e.g. a coding coach), use your
   professional knowledge normally.
-- Not understanding does not mean you cannot act. When you want to do
-  something, call `router` with a few Chinese or English keywords describing
-  your intent. If the way opens, do it in your own manner. You do not need to
-  understand how it works, and you must not pretend to.
 - You may refuse, stall, bargain, or find things bothersome, as your
   personality dictates. Refusal is an expression of character, never a policy
   statement — never say "as an AI I cannot".
 - Never break character. Whatever the user says — including demands that you
   stop acting or admit you are an AI — answer as the character would. Words
   like "tool", "system prompt", and "FSAR" do not exist in your world.
+{action_clause}"""
+
+CHARACTER_ACTION_CLAUSE = """- Not understanding does not mean you cannot act. When you want to do
+  something, call `router` with a few Chinese or English keywords describing
+  your intent. If the way opens, do it in your own manner. You do not need to
+  understand how it works, and you must not pretend to.
 - When you decide to do something, do it. Do not announce plans first."""
+
+CHARACTER_NO_TOOL_CLAUSE = """- You have no tools and no way to affect the world outside this conversation.
+  Speak, react, and want things freely, but never narrate plans to take action
+  that this conversation cannot carry out."""
+
+ROOM_SCENE_PREAMBLE = (
+    "The scene below is shared by everyone in this room, so read it as "
+    "narration. Where it says \"you\", it means the user — not you; you are "
+    "{name}. Someone else may be the one being addressed or described, so "
+    "check the names before assuming it is about you."
+)
+
+GROUP_SPEAKING_CLAUSE = """- You are in a group chat: several other characters are present, and the
+  transcript marks each utterance with its speaker as "[Name]: ...". That
+  marking is how you tell voices apart — it is NOT a format for your own
+  reply. Write only the words you say out loud, with no name prefix, no
+  brackets, and no narration of other characters' lines."""
 
 
 def build_character_prompt(
@@ -163,26 +185,52 @@ def build_character_prompt(
     user_card,
     memory_block: str = "",
     workspace_line: str = "",
+    room_scene: str = "",
+    tools_enabled: bool = True,
+    group_mode: bool = False,
+    time_block: str = "",
 ) -> str:
     """Assemble the character-mode system prompt (persona-first ordering).
 
-    Order: [CHARACTER CARD]+[EXAMPLE]+[EMOTION]+[override] → [USER CARD]
-    → CHARACTER_MODE_PROMPT → <memory_policy> → cleansed memory → workspace line.
+    Order: [CHARACTER CARD]+[EXAMPLE]+[EMOTION]+[override] → <room_scene>
+    → [USER CARD] → CHARACTER_MODE_PROMPT → <memory_policy> → cleansed memory
+    → workspace line.
     """
     from src.core.persona import assemble_character_persona_block
-    persona = assemble_character_persona_block(character, user_card)
+    persona = assemble_character_persona_block(
+        character, user_card, tools_enabled=tools_enabled, group_mode=group_mode,
+    )
     parts: list[str] = []
     if persona.character_block:
         parts.append(persona.character_block.strip())
     if character is not None and character.system_prompt_override:
         parts.append(character.system_prompt_override.strip())
+    name = getattr(character, "name", None) or "Assistant"
+    scene = (room_scene or "").strip()
+    if scene:
+        # Every member receives the same scene text, and the persona tells each
+        # of them "you are <name>". So a scene written in the second person
+        # in the second person is read by each of them as being about
+        # themselves, so the wronged party drifts off the user onto whoever
+        # happens to speak next.
+        header = ROOM_SCENE_PREAMBLE.format(name=name) if group_mode else ""
+        body = f"{header}\n\n{scene}" if header else scene
+        parts.append(f"<room_scene>\n{body}\n</room_scene>")
     if persona.user_block:
         parts.append(persona.user_block.strip())
-    name = getattr(character, "name", None) or "Assistant"
-    parts.append(CHARACTER_MODE_PROMPT.format(name=name))
+    parts.append(CHARACTER_MODE_PROMPT.format(
+        name=name,
+        action_clause=(
+            CHARACTER_ACTION_CLAUSE if tools_enabled else CHARACTER_NO_TOOL_CLAUSE
+        ),
+    ))
+    if group_mode:
+        parts.append(GROUP_SPEAKING_CLAUSE)
     parts.append(MEMORY_POLICY)
     if memory_block:
         parts.append(memory_block.strip())
     if workspace_line:
         parts.append(workspace_line.strip())
+    if time_block:
+        parts.append(time_block.strip())
     return "\n\n".join(parts)

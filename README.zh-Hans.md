@@ -54,6 +54,11 @@ FSAR 是一个**属于你**的本地优先 AI 伴侣——不挂在任何服务�
 - 「入戏」聊天模式——助手完全进入所选角色卡设定(可以拒绝、拖延、讨价还价),通过 router 元工具按意图解锁会话内可用的能力
 - 把新 skill 落库成 SQLite experience 行(P6)
 - 通过 Telegram / 飞书 / 微信 社交桥接对话
+- 和多个角色共处一个房间——他们自己选出下一个发言的人,`@` 点名某位角色就把话筒交给它
+- 把房间当作项目来推进——一块计划板,每个成员在各自那份仓库副本里走一个回合,补丁由你手动落地或驳回,快照由你发布
+- 筛查已存记忆里的提示词注入,把标记出的隔离起来;通知中心同时也承载新版本发布和官方公告
+- 记住日期和你的生日,让角色不再把上个月当作今天
+- 无头跑单个回合——`fsar run`,或用 `fsar room say` / `fsar room read` 打到房间的 API
 
 ## 快速开始
 
@@ -144,6 +149,10 @@ pip install -r requirements.txt --upgrade
 
 每个会话跑的是你写的角色卡:名字、性格、场景、可选的情绪状态。再配上一张用户卡描述你自己,LLM 拿到的是一个边界清晰的 persona,不会跑题的"helpful AI assistant"。换卡就换角色,代码不用动。
 
+### 房间,不只是一对一
+
+除了单聊,FSAR 还有房间。**群聊房间**同时容纳多个角色和你,角色们自己选出下一个发言的人。**项目房间**更进一步:它维护一块计划板,把每一项交给负责它的成员,在那个成员独享的项目副本里跑这一回合,再把结果作为补丁带回来,由你决定落地还是驳回。没有你点头,什么都不会跑。
+
 ### 跨会话记住你
 
 几次对话之后,FSAR 会攒出一个稳定的画像:明确偏好("用 VSCode")、推断行为("经常晚上写代码")、重复模式("常用 file_ops 整理下载")。下次会话一开,这些上下文已经在系统提示里——你不用每次重新介绍自己。
@@ -174,7 +183,7 @@ computer-use 套件(`cua`)让模型在桌面上截图、点击、输入、按键
 
 ### 体积小
 
-FSAR 很轻——一个 Python 服务加一个精简的 Tauri 前端。源码仅约 6~7 MB,安装前端依赖后约 200 MB(不含 Python 依赖)。没有重型运行时、不依赖云端,普通配置的机器也能跑得很顺。
+FSAR 很轻——一个 Python 服务加一个浏览器前端。源码仅约 6~7 MB,安装前端依赖后约 200 MB(不含 Python 依赖)。没有重型运行时、不依赖云端,普通配置的机器也能跑得很顺。
 
 ## 教程
 
@@ -187,6 +196,8 @@ src/
   server/         FastAPI WebSocket 传输层
   core/           Agent 循环、prompts、injectors
   memory/         短期/长期/语义/用户模型/experience
+  notifications/  审核 / 发布 / 公告流
+  updates/        版本检查、公告、git 更新流程
   tools/builtin/  ~25 个内置工具
   security/       风险引擎、permissions、审计
   sandbox/        hardline 守卫、workspace gate
@@ -195,7 +206,7 @@ src/
   providers/      LLM / TTS / ASR 适配器
   cli/            终端 TUI(Textual)+ 斜杠命令
   utils/          日志、配置、migrations
-frontend/         Tauri 2 / React UI
+frontend/         React UI(Vite)
 data/             SQLite + ChromaDB + 日志 + 缓存
 config/           自带的 yaml 默认值
 ```
@@ -207,7 +218,7 @@ config/           自带的 yaml 默认值
 - `config/fsar.yaml.template` —— 自带默认值,只读参考
 - `~/.fsar/config/fsar.yaml` —— 你的副本,UI 改或手编都行
 
-第一次运行如果副本不存在就复制模板。section:`llm` / `tts` / `asr` / `memory` / `security` / `social` / `mcp` / `reflection` / `permissions` / `user` / `style`。完整 schema 看 [`config/fsar.yaml.template`](config/fsar.yaml.template)。
+第一次运行如果副本不存在就复制模板。section:`llm` / `tts` / `asr` / `memory` / `security` / `notifications` / `github` / `social` / `mcp` / `reflection` / `permissions` / `user` / `time` / `lan` / `style`。完整 schema 看 [`config/fsar.yaml.template`](config/fsar.yaml.template)。
 
 ### 数据布局
 
@@ -218,7 +229,7 @@ FSAR 关于你的一切都在 `~/.fsar/` 下:
 ~/.fsar/data/
   memory.db           对话、决策、用户模型、experience
   chroma/             语义嵌入
-  llm_cache.db        L1/L2 响应缓存
+  llm_cache.db        供应商 prompt 缓存记录
   tts_cache.db        TTS 音频缓存
   logs/               滚动日志
 ```
@@ -227,7 +238,7 @@ FSAR 关于你的一切都在 `~/.fsar/` 下:
 
 ### 构建与测试
 
-Python 后端和 Tauri 前端是两份产物,没有单一的"build"步骤。
+Python 后端和前端是两份产物,没有单一的"build"步骤。
 
 ```bash
 # 后端

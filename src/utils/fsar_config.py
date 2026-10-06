@@ -179,6 +179,61 @@ class FsarConfig:
                 "model": str(cfg.get("model", "") or ""),
             })
 
+    def get_judge(self) -> dict:
+        value = _expand_env(self.get("llm.judge", {}) or {})
+        return {
+            "base_url": str(value.get("base_url", "") or ""),
+            "api_key": str(value.get("api_key", "") or ""),
+            "model": str(value.get("model", "") or ""),
+        }
+
+    def set_judge(self, cfg: dict | None) -> None:
+        self.patch("llm.judge", {
+            "base_url": str((cfg or {}).get("base_url", "") or ""),
+            "api_key": str((cfg or {}).get("api_key", "") or ""),
+            "model": str((cfg or {}).get("model", "") or ""),
+        })
+
+    @property
+    def inject_budget_chars(self) -> int:
+        return int(self.get("memory.inject_budget_chars", 2400))
+
+    @property
+    def inject_candidate_cap(self) -> int:
+        return int(self.get("memory.inject_candidate_cap", 40))
+
+    @property
+    def inject_score_floor(self) -> float:
+        return float(self.get("memory.inject_score_floor", 0.35))
+
+    @property
+    def inject_max_item_chars(self) -> int:
+        return int(self.get("memory.inject_max_item_chars", 600))
+
+    def lan_enabled(self) -> bool:
+        """Fail closed: a malformed value means off, not on.
+
+        `bool("false")` is True, and this is the switch that opens a network
+        listener — a user who quotes a value should not get a socket they did
+        not ask for.
+        """
+        value = self.get("lan.enabled", False)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def lan_bind_host(self) -> str:
+        return str(self.get("lan.bind_host", "0.0.0.0") or "0.0.0.0")
+
+    def lan_port(self) -> int:
+        try:
+            return int(self.get("lan.port", 8766))
+        except (TypeError, ValueError):
+            return 8766
+
+    def lan_cert_dir(self) -> str:
+        return str(self.get("lan.cert_dir", "") or "")
+
     def add_provider(self, provider: dict) -> None:
         providers = self.list_providers()
         providers.append(provider)

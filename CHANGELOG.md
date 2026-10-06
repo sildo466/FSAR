@@ -5,7 +5,153 @@ All notable changes to FSAR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-06
+
+Minor release, and the largest one so far. It moves in three directions at
+once: **characters share rooms** with each other and with you, **stored content
+is screened** and everything that needs your attention lands in one feed, and
+**rooms can do work** — a plan, a copy of the project per member, patches you
+land by hand, snapshots you publish, and outside agents that can join over the
+network. Alongside those: FSAR now knows the date, remembers your birthday, and
+can run a single turn from the terminal.
+
+### Added
+
+- **Group chat rooms** — a `/group` room list and `/group/:roomId` for the room
+  itself, separate from single chat. Every member scores its own eagerness in
+  parallel and the top few get the floor; there is no director. Naming a
+  character with `@` skips the election. Rounds chain until the room settles or
+  you stop it, and a room can be capped to N rounds or left unlimited.
+- **The room's own instruments** — a member panel (add/remove characters, choose
+  who "you" are, edit the shared scene), a live election strip that shows the
+  scoring as it happens and is never written to the database, a live context
+  gauge, and per-message speak (TTS), rate and regenerate.
+- **Speaker attribution in memory** — each message records who said it;
+  characters write back to their own memory plus a room-level memory.
+- **Content screening** — every memory write (facts, experience, preferences,
+  patterns, reflections) is screened on a background thread, so conversation is
+  never blocked. A model judges "normal roleplay" against "an instruction aimed
+  at the model", which a keyword regex cannot see.
+- **Quarantine** — flagged items move out of their store into a quarantine list.
+  Restoring one allowlists its hash; purging it hides the row without destroying
+  the record.
+- **Notification center** — one feed for three kinds of message: `review`
+  (quarantine), `release`, and `announcement`. Category and unread filters,
+  mark-all-read, clear-all. Entries start collapsed and are marked read when
+  opened.
+- **Update check** — the GitHub Releases API is polled at startup. One
+  notification per newer release carries that release's own notes, and an Update
+  button runs a gated local git flow for it.
+- **Stable and beta channels kept apart** — a stable build hears about stable
+  releases, a beta build hears about both, and an opt-in toggle widens a stable
+  build to pre-releases. The version string in the sidebar is derived from the
+  git tag at HEAD instead of being hardcoded.
+- **Official announcements** — markdown files in this repository's
+  `announcements/` folder are pulled at startup, diffed by content hash, screened
+  through the same pipeline, stored locally, and shown in the feed.
+- **The plan board** — a working room keeps a list of what it is doing. The
+  characters write it through a tool; you read it in the room. Every item carries
+  its status and the member that owns it.
+- **Work turns in a copy** — an item handed to its owner runs as a real turn in
+  that member's own copy of the project, so two members working at once cannot
+  tread on each other.
+- **A gate, not a leash** — when a turn produces changes, they are inspected
+  (file modes, anything that would execute) and become a branch. Nothing is run.
+- **Patches** — work can come back from outside as a git diff. It is read for its
+  shape before anything is touched, queued, and waits for a person to land or
+  refuse it; a refusal says which shape was wrong.
+- **Publishing a snapshot** — a room can hand out the project by allowlist: the
+  files as they are now, with no history and nothing runnable. Each publish is
+  recorded in a ledger, so "what did this room get?" has an answer later.
+- **Outside members over the network** — a room can open a listener for outside
+  agents, each with its own credential: expiry, first-use address binding,
+  per-credential rate budgets, an audit trail, an abuse screen, and a global
+  address blocklist. The room names those members as speakers alongside the
+  characters, and the switch says why the listener is down if it cannot bind.
+- **One document for the members** — that listener serves a single page
+  describing exactly what a member can reach. Nothing else is registered on it.
+- **Progress while it works** — a character's tool steps fold to the newest one,
+  calls that need your approval queue up in the room, and a round's speakers run
+  at the same time. The steps stay with the message, so a refresh keeps them.
+- **Time awareness** — prompts carry the date, how long you were away, and
+  memories dated by their age, so a character stops treating last month as today.
+- **Birthdays** — tell FSAR your birthday and the characters mark the day with a
+  letter, a fitting skin and a notification. The onboarding wizard and the You
+  tab both ask for it.
+- **Headless one-shot** — `fsar run` does a single turn without the UI, and
+  `fsar room say` / `fsar room read` drive a room over its network API.
+- **Optional memory judge endpoint** (`llm.judge` in `fsar.yaml`, *Models* tab in
+  Settings). Point it at a JEV / System One evaluation endpoint to score
+  injection candidates by relevance; leave all three fields empty to fall back to
+  static priority order. `base_url` and `api_key` accept `${ENV_VAR}`.
+- **Injection budget settings** (`memory.inject_*`), editable in
+  Settings → Advanced. Defaults: 2400-character budget, 40 candidates judged,
+  0.35 relevance floor, 600 characters per item.
+- **Room UI translated** into all six locales, the patch surface included.
+
+### Changed
+
+- **Memory injection no longer truncates by position.** The assembled block was
+  cut at 2000 characters, which both split items mid-sentence and starved
+  `history` — the source holding most query-relevant recall — because profile and
+  preferences were injected in full ahead of it. Recall results are now turned
+  into individual candidates, judged per item, packed whole into one shared
+  character budget across memory / strategy / experience, and regrouped by source
+  when rendered. Operational tool-stat warnings still bypass the budget and are
+  injected unconditionally.
+- **Character mode runs its persona filter before the budget is allocated**, so
+  the filter sees every candidate instead of only the survivors of a priority
+  cut. It is also now fail-closed: if the filter cannot run, the character
+  receives no memory rather than unfiltered memory. Agent mode keeps the
+  priority-order fallback, where unfiltered recall is intended.
+- **Recalled memories come from the dated local store** — a character can say how
+  long ago something happened, and recall reads that store rather than the
+  embedding index.
+- **Content scan at startup** depends on whether a judge endpoint is configured:
+  with one, every launch re-checks everything; without one, only items newer than
+  the last scan are checked, so a full pass does not spend your API budget on
+  every launch.
+- **A room's mode is fixed at creation; network access is a switch** you can flip
+  any time. A room that outside members can talk to no longer runs unbounded
+  rounds.
+
+### Fixed
+
+- A failed model call put the provider's own error text — trace id and all — into
+  the conversation. It now shows a plain sentence, and the detail goes to the log.
+- Chat titles were lost two ways: character mode never asked for one at all, and
+  agent mode only asked when reflection was on. Titles are their own feature, not
+  a side effect of reflection, so all chat modes now name their first turn.
+- Naming ran as a fire-and-forget task bound to the turn's event loop, so any
+  loop that closed when the turn returned took the naming with it — silently,
+  because the cancellation was invisible to the error handling. Naming now runs
+  on its own thread and survives the turn that asked for it.
+- A reply that used no tool sent `tool_calls: null`, which strict
+  OpenAI-compatible gateways reject with a 400. The field is left out now.
+- The notification dot only lit up after you opened the Notifications page, so a
+  quarantined item or a new release never showed on it. Any new notification now
+  reaches the dot, wherever it was written.
+- A speaker's name marker could leak into the reply body and self-accumulate
+  across rounds when that was left to prompt discipline alone; it is stripped
+  deterministically before the reply is stored or shown.
+- Conversation titles fell back to a truncated copy of your first message when
+  the model was a reasoning model — the title budget was too small for the
+  reasoning tokens it emits before any text.
+- The Insights page reported a cache share of 0% regardless of activity.
+- A channel's enable toggle pushed its knob outside the track when switched on,
+  and several status colours never rendered at all (they referenced colour tokens
+  that were never defined).
+- Quarantined character cards stayed in the card list as empty shells, and empty
+  sessions that were titled but never used accumulated in history.
+- The workspace picker opened with no animation and an almost transparent panel.
+- Birthday letters wrote tool calls as text, and a late gift was paid to someone
+  who had not been there on the day.
+
+### Removed
+
+- `memory.recall_max_chars`, replaced by `memory.inject_budget_chars`. The old
+  value was tuned for positional truncation and would badly under-allocate an
+  atomic packer.
 
 ## [0.5.0] - 2026-09-05
 

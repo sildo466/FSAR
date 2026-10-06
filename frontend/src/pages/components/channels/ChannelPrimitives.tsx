@@ -49,7 +49,7 @@ export function ChannelSection({
           onClick={() => onEnabledChange(!enabled)}
           className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${enabled ? "border-success/60 bg-success/25" : "border-border bg-surface"}`}
         >
-          <span className={`absolute top-[3px] h-3 w-3 rounded-full transition-transform ${enabled ? "translate-x-[19px] bg-success" : "translate-x-[3px] bg-text-muted"}`} />
+          <span className={`absolute left-[3px] top-[3px] h-3 w-3 rounded-full transition-transform ${enabled ? "translate-x-[16px] bg-success" : "translate-x-0 bg-text-muted"}`} />
         </button>
       </div>
 

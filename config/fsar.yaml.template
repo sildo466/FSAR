@@ -47,6 +47,7 @@ security:
     allowlist:
       - "api.openai.com:443"
       - "api.anthropic.com:443"
+      - "api.github.com:443"
       - "127.0.0.0/8"
     blocklist:
       - "*.onion"
@@ -59,6 +60,17 @@ security:
       enabled: true
       block_on_match: true
       custom_patterns: []
+  content_screening:
+    enabled: true
+    threshold: 0.62
+    scan_on_startup: true
+  visitor_screening:
+    # Reads every line an outside room member sends, and bans that member's
+    # credential when the line tries to steer the model, attacks someone,
+    # floods, or reaches for this machine. Off by default: it can take a
+    # credential away on a model's say-so, so it is a decision, not a default.
+    enabled: false
+    threshold: 0.7
   file_read_blacklist:
     enabled: true
     defaults: true
@@ -67,6 +79,16 @@ security:
     no_trust_mode: false
   small_agent_review:
     enabled: false
+notifications:
+  review:
+    enabled: true
+  release:
+    enabled: true
+    include_prerelease: false
+  announcement:
+    enabled: true
+github:
+  token: ""
 
 llm:
   active: ""
@@ -75,6 +97,15 @@ llm:
   # understanding). Leave empty to use the active chat model. base_url and
   # api_key may reference ${ENV_VAR}.
   vision_model:
+    base_url: ""
+    api_key: ""
+    model: ""
+  # Optional per-candidate relevance judge for memory/experience injection.
+  # This endpoint must speak JEV's protocol: it returns typed judgments rather
+  # than text, so an OpenAI-compatible model cannot be dropped in here.
+  # Leave all three empty to disable; injection then falls back to priority
+  # order (never to truncation). base_url / api_key may reference ${ENV_VAR}.
+  judge:
     base_url: ""
     api_key: ""
     model: ""
@@ -112,7 +143,13 @@ memory:
   short_term_window: 50
   reflection_interval_hours: 12
   reflection_intensity: medium
-  recall_max_chars: 2000
+  # Injection is packed by relevance into a character budget instead of being
+  # truncated by position. Budget sits near the old truncation limit on purpose:
+  # the judge only earns its keep when the candidate pool exceeds the budget.
+  inject_budget_chars: 2400
+  inject_candidate_cap: 40
+  inject_score_floor: 0.35
+  inject_max_item_chars: 600
   enable_rating_prompt: true
   embedder:
     provider: ""
@@ -145,6 +182,21 @@ reflection:
       threshold_hours: 12
 user:
   display_name: ""
+  birthday: null
+  birthday_letter_shown: null
+time:
+  enabled: true
+  gap_floor_minutes: 120
+lan:
+  # Master switch for the LAN room listener. Off means no socket is opened at
+  # all, whatever the per-room setting says. Rooms must set lan_enabled too.
+  enabled: false
+  # 0.0.0.0 follows the machine onto whatever network it joins, which is the
+  # point — but it also means a café wifi reaches the port. Leave it off there.
+  bind_host: "0.0.0.0"
+  port: 8766
+  # Empty = ~/.fsar/security/lan
+  cert_dir: ""
 style:
   theme: system
   font_scale: 1.0

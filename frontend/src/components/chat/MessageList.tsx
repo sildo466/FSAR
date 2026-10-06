@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useCardsStore } from "../../stores/cards";
 import { Avatar } from "../ui/Avatar";
@@ -14,6 +15,7 @@ import { ThinkingDot } from "./ThinkingDot";
 import { RiskConfirm } from "./RiskConfirm";
 import { RateStars } from "./RateStars";
 import { splitThinkBlocks } from "../../lib/thinking";
+import type { ToolEvent } from "../../lib/toolEvents";
 import { motion } from "framer-motion";
 import { MessageReplayButton } from "./MessageReplayButton";
 
@@ -22,13 +24,9 @@ import { MessageReplayButton } from "./MessageReplayButton";
 const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }]];
 
-export interface ToolEvent {
-  callId: string;
-  tool: string;
-  argsPreview: string;
-  result?: string;
-  latencyMs?: number;
-}
+// Re-exported so the files that already name it through this module keep
+// working; the definition lives in lib/toolEvents with the rule that builds it.
+export type { ToolEvent };
 
 export interface ChatMessage {
   id: string;
@@ -55,9 +53,15 @@ interface Props {
   onRespond: (callId: string, response: "y" | "n" | "all" | "never") => void;
   onRate: (messageId: string, score: 1 | 2 | 3 | 4 | 5, reason?: string) => Promise<void> | void;
   onRegenerate?: () => void;
+  /** Per-message regenerate. Group rooms need it because the last assistant
+   *  message may belong to a character the user did not mean to re-run. */
+  onRegenerateMessage?: (messageId: string) => void;
+  /** How a message's tool steps are drawn. The chat page shows every one; a
+   *  room folds them, because several characters can be mid-loop at once. */
+  renderTools?: (steps: ToolEvent[]) => ReactNode;
 }
 
-function ToolCallRow({ ev }: { ev: ToolEvent }) {
+export function ToolCallRow({ ev }: { ev: ToolEvent }) {
   return (
     <details className="glass rounded-xl px-3 py-2 text-sm">
       <summary className="cursor-pointer select-none">
@@ -140,7 +144,7 @@ function AssistantBody({ content }: { content: string }) {
   );
 }
 
-export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate }: Props) {
+export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegenerate, onRegenerateMessage, renderTools }: Props) {
   const { t } = useTranslation();
   const characters = useCardsStore((s) => s.characters);
   const charactersById = useMemo(() => {
@@ -174,7 +178,10 @@ export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegen
           <span className="px-2 text-[10px] font-medium uppercase tracking-[0.14em] text-text-faint">
             {m.role === "user" ? (m.user_name ?? t("messageList.you")) : (m.character_name ?? character?.name ?? t("messageList.assistant"))}
           </span>
-          {m.tools?.map((ev) => <ToolCallRow key={ev.callId} ev={ev} />)}
+          {m.tools && m.tools.length > 0 &&
+            (renderTools
+              ? renderTools(m.tools)
+              : m.tools.map((ev) => <ToolCallRow key={ev.callId} ev={ev} />))}
           <div className={`leading-relaxed [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_code]:font-mono [&_code]:text-[13px] [&_pre]:overflow-auto [&_pre]:bg-bg [&_pre]:p-3 [&_pre]:rounded-xl ${m.role === "user" ? "rounded-[24px] rounded-br-md bg-text px-4 py-3 text-bg shadow-[0_8px_24px_var(--glow-faint)]" : "glass rounded-[24px] rounded-bl-md px-4 py-3 text-text"}`}>
             {m.thinking ? (
               <ThinkingDot />
@@ -187,7 +194,19 @@ export function MessageList({ messages, pendingRisks, onRespond, onRate, onRegen
           {m.role === "assistant" && !m.thinking && !m.streaming && (
             <div className="flex w-full items-center justify-between gap-3 px-1">
               <RateStars messageId={m.id} onRate={onRate} />
-              <MessageReplayButton messageId={m.id} text={m.content} voiceOverride={String(character?.tts_voice ?? "")} instructionsOverride={String(character?.tts_instructions ?? "")} onRegenerate={m.id === lastAssistantId ? onRegenerate : undefined} />
+              <MessageReplayButton
+                messageId={m.id}
+                text={m.content}
+                voiceOverride={String(character?.tts_voice ?? "")}
+                instructionsOverride={String(character?.tts_instructions ?? "")}
+                onRegenerate={
+                  onRegenerateMessage
+                    ? () => onRegenerateMessage(m.id)
+                    : m.id === lastAssistantId
+                      ? onRegenerate
+                      : undefined
+                }
+              />
             </div>
           )}
           </div>

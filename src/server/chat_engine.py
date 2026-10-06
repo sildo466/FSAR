@@ -4,14 +4,16 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import time
 import uuid
 from collections import OrderedDict, deque
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import WebSocket
 
@@ -39,7 +41,11 @@ from src.memory import (
     set_task_context,
 )
 from src.memory.cards import CardRepo
-from src.memory.cleanse import cleanse_memory_block
+from src.memory.cleanse import _character_summary
+from src.memory.experience_store import EXPERIENCE_INDEX_HEADER, SKILL_LOADING_RULE
+from src.memory.judge import JevJudge, LlmJudge
+from src.memory.pipeline import InjectionPipeline
+from src.memory.recall import RecallResult
 from src.mcp import MCPManager
 from src.security import (
     RiskEngine,
@@ -156,22 +162,25 @@ def handle_user_message(conversation_id: str, user_msg: str, *,
     return str(getattr(choices[0].message, "content", "") or "")
 
 
-async def handle_user_agent_message(
-    conversation_id: str,
+async def handle_user_agent_message_result(
+    conversation_id: str | None,
     user_msg: str,
     *,
     character_card_id: int | None = None,
     user_card_id: int | None = None,
-) -> str:
-    """Run one full agent turn for a headless caller (the social bridge) and
-    return the final conclusion. Drives the wired engine's agent loop with a
-    no-op websocket so tools, memory, and risk gating behave exactly like GUI
-    agent mode. Persistence (user + assistant turns) is owned by the engine,
-    so callers must not also write to the conversation store."""
+) -> tuple[str, str, str]:
+    """Run one full agent turn for a headless caller and report how it ended.
+
+    Same drive as handle_user_agent_message, but also returns the outcome so a
+    CLI can exit non-zero instead of printing an error string as if it were the
+    answer. Passing conversation_id=None starts a fresh conversation."""
     engine = get_default_chat_engine()
     client, model, provider_id = engine.client_and_model()
     if client is None:
         raise RuntimeError("No active LLM provider is configured")
+
+    if conversation_id is None:
+        conversation_id = engine.session_store.create(kind="chat").session_id
 
     char_id = engine.session_store.get_character(conversation_id)
     character = engine.card_repo.get_character(char_id) if char_id else None
@@ -198,13 +207,39 @@ async def handle_user_agent_message(
         char_name=character.name if character else "Assistant",
         provider_id=provider_id,
     )
-    return result.conclusion
+    return conversation_id, result.conclusion, result.outcome
+
+
+async def handle_user_agent_message(
+    conversation_id: str,
+    user_msg: str,
+    *,
+    character_card_id: int | None = None,
+    user_card_id: int | None = None,
+) -> str:
+    """Run one full agent turn for a headless caller (the social bridge) and
+    return the final conclusion. Drives the wired engine's agent loop with a
+    no-op websocket so tools, memory, and risk gating behave exactly like GUI
+    agent mode. Persistence (user + assistant turns) is owned by the engine,
+    so callers must not also write to the conversation store."""
+    _conv_id, conclusion, _outcome = await handle_user_agent_message_result(
+        conversation_id,
+        user_msg,
+        character_card_id=character_card_id,
+        user_card_id=user_card_id,
+    )
+    return conclusion
 
 DELTA_CHUNK = 120
 SHORT_TERM_LIMIT = 10
 SHORT_TERM_LRU = 50
+ARRIVAL_LRU = 200
+DEFAULT_GAP_FLOOR_MINUTES = 120
 DEFAULT_CONTEXT_WINDOW = 128000
-DEFAULT_MAX_OUTPUT_TOKENS = 4096
+# A reasoning model burns the whole budget on reasoning tokens before emitting
+# visible text, so this must be well above 4096 — but kept under the output cap
+# hosted models enforce, since exceeding it is a hard HTTP 400 on OpenAI.
+DEFAULT_MAX_OUTPUT_TOKENS = 12800
 # Seconds without any streamed delta before the agent turn is aborted. Guards
 # against a stalled provider call blocking the executor thread forever (the
 # pump would never enqueue "done" and the loop would hang with no error).
@@ -235,6 +270,52 @@ TODO_TOOL_SCHEMA = {
                             },
                         },
                         "required": ["id", "content", "status"],
+                    },
+                }
+            },
+            "required": ["items"],
+        },
+    },
+}
+
+PLAN_WRITE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "plan_write",
+        "description": (
+            "Replace the room's plan board. Include every item on every call and "
+            "update statuses as work progresses. Give each item a stable id; items "
+            "missing from a call are removed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "owner": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": ["character", "agent"],
+                                    },
+                                    "ref": {"type": "string"},
+                                },
+                                "required": ["kind", "ref"],
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["todo", "doing", "blocked", "done"],
+                            },
+                            "evidence": {"type": "string"},
+                        },
+                        "required": ["id", "text", "status"],
                     },
                 }
             },
@@ -351,6 +432,47 @@ def get_default_chat_engine() -> "ChatEngine":
     return _default_chat_engine
 
 
+def _plan_updated_event(sink: Any) -> dict[str, Any]:
+    """`room.plan.updated`, keyed by room.
+
+    The client keeps the board per room and drops an event that arrives
+    without a room id, so this field is what makes an open panel move. Every
+    other emitter already sends it.
+    """
+    return {
+        "type": "room.plan.updated",
+        "room_id": getattr(sink, "room_id", None),
+        "items": list(getattr(sink, "last_written", None) or []),
+    }
+
+
+def _append_plan_tool(
+    tools: list[dict[str, Any]], sink: Any,
+) -> list[dict[str, Any]]:
+    """Offer plan_write only where there is a board to write to."""
+    if sink is None:
+        return tools
+    return [*tools, _plan_write_schema(sink)]
+
+
+def _plan_write_schema(sink: Any) -> dict[str, Any]:
+    """The board schema, with the room's members named in it.
+
+    An item's owner is set by the model, and the only refs that survive
+    validation are the room's own members. Listed nowhere, the model had
+    nothing valid to write and every item came back unowned.
+    """
+    schema = copy.deepcopy(PLAN_WRITE_SCHEMA)
+    owners = list(getattr(sink, "owners", None) or [])
+    if owners:
+        choices = ", ".join(f'"{ref}" ({name})' for ref, name in owners)
+        schema["function"]["description"] += (
+            ' To assign an item, set owner to {"kind": "character", "ref":'
+            f" <one of: {choices}>}}."
+        )
+    return schema
+
+
 class ChatEngine:
     """One per server process. Owns the same subsystem instances the CLI builds."""
 
@@ -358,7 +480,7 @@ class ChatEngine:
         self.config = config
         self.bridge = bridge
         self.registry: ToolRegistry = create_default_registry(config)
-        self._cleanse_cache: dict[tuple[int, str], str] = {}
+        self._cleanse_cache: dict[str, set[str]] = {}
         self.mcp = MCPManager(
             self.registry,
             config_path=config.get("mcp.config_path", "config/mcp_servers.yaml"),
@@ -427,6 +549,7 @@ class ChatEngine:
         self._msg_ids: dict[str, int] = {}
         self._conv_locks: dict[str, asyncio.Lock] = {}
         self._short_cache: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
+        self._arrivals: OrderedDict[str, float | None] = OrderedDict()
         self._task_todos: dict[str, list[dict[str, str]]] = {}
         self._active_agent_runs: dict[str, AgentRunState] = {}
         self._cancelled = False
@@ -444,6 +567,9 @@ class ChatEngine:
         # Real context size (per conversation) actually handed to the model,
         # kept so UI gauges reflect usage instead of just the short-cache tail.
         self._conv_context_tokens: dict[str, int] = {}
+        # Built last: the judge factory resolves the active provider, which
+        # depends on the session overrides assigned just above.
+        self.injection_pipeline = self._build_injection_pipeline()
 
     # ---------- session lifecycle ----------
 
@@ -516,7 +642,6 @@ class ChatEngine:
             task_id=f"compact_{conversation_id}",
             transcript=old,
             previous=None,
-            max_output=max(256, min(2048, before_tokens // 2)),
         )
         if not summary or not summary.strip():
             return before_tokens, before_tokens, False
@@ -834,7 +959,10 @@ class ChatEngine:
             *(message for group in current_groups for message in group),
         ]
 
-    def rate(self, message_id: str, score: int, reason: str = "") -> dict[str, Any]:
+    def rate(
+        self, message_id: str, score: int, reason: str = "",
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         msg_id = self._msg_ids.get(message_id)
         if msg_id is None and message_id.isdigit():
             msg_id = int(message_id)
@@ -842,7 +970,7 @@ class ChatEngine:
             return {"status": "no_message"}
         self.feedback.add_or_update_rating(
             message_id=msg_id,
-            session_id=self._active_conv_id or "",
+            session_id=session_id or self._active_conv_id or "",
             rating=score,
             reason=reason,
         )
@@ -1182,27 +1310,72 @@ class ChatEngine:
 
     # ---------- agent mode ----------
 
+    def _agent_scope(
+        self, *, should_stop: Any, tier_override: str | None,
+    ) -> tuple[Any, TierProfile]:
+        """Resolve the two things that scope one agent turn.
+
+        Both are process-wide on the engine, and a room runs several turns at
+        once in one engine. Passing neither is exactly the old behaviour.
+        """
+        stop = should_stop if should_stop is not None else (lambda: self._cancelled)
+        tier = tier_override or self._session_tier_override or self.config.get(
+            "agent.tier", "medium"
+        )
+        return stop, get_tier_profile(tier)
+
+    def _agent_messages(
+        self, system_prompt: str, conv_id: str, history: list[Any] | None,
+        context_window: int, max_output: int,
+    ) -> list[Any]:
+        """The history for one agent turn.
+
+        A caller that keeps its own transcript (a room reads the session store)
+        passes it in; otherwise this hydrates the shared short cache.
+        """
+        if history is None:
+            self._ensure_short(conv_id)
+            history = list(self._short_cache[conv_id])
+        return self._fit_history(
+            system_prompt, list(history), context_window, max_output,
+        )
+
     async def _run_agent(self, ws: WebSocket, message_id: str, client: Any,
                          model: str, conv_id: str, user_input: str,
                          character: Any = None, char_name: str | None = None,
-                         provider_id: str = "") -> AgentLoopResult:
+                         provider_id: str = "",
+                         *, should_stop: Any = None,
+                         tier_override: str | None = None,
+                         history: list[Any] | None = None,
+                         save_character_id: int | None = None,
+                         workspace_override: Any = None,
+                         plan_sink: Any = None) -> AgentLoopResult:
+        """Run one full agent turn.
+
+        Everything that scopes the turn comes from the caller and defaults to
+        the engine's own state, so the chat, companion and headless paths are
+        unchanged.
+        """
         if ws is None:
             ws = _NoOpWebSocket()
-        tier = self._session_tier_override or self.config.get("agent.tier", "medium")
-        profile = get_tier_profile(tier)
+        stop, profile = self._agent_scope(
+            should_stop=should_stop, tier_override=tier_override,
+        )
         system_prompt = await self._build_prompt(
             conv_id, "agent", user_input, profile=profile, character=character,
+            workspace_override=workspace_override,
         )
         messages: list[Any] = [{"role": "system", "content": system_prompt}]
-        self._ensure_short(conv_id)
         context_window, max_output = self._model_limits()
-        messages.extend(self._fit_history(
-            system_prompt, list(self._short_cache[conv_id]), context_window, max_output,
+        messages.extend(self._agent_messages(
+            system_prompt, conv_id, history, context_window, max_output,
         ))
         self._track_context(conv_id, messages)
         await self._emit_context(ws, conv_id)
         task_id = f"gui_{uuid.uuid4().hex[:12]}"
         runtime = AgentRunState(root_task_id=task_id, profile=profile, character=character)
+        runtime.workspace_override = workspace_override
+        runtime.plan_sink = plan_sink
         runtime.active_skill = self._detect_active_skill_from_context(conv_id)
         runtime.agents[task_id] = AgentRecord(
             agent_id=task_id,
@@ -1266,6 +1439,7 @@ class ChatEngine:
                 agent_id=task_id,
                 depth=0,
                 is_subagent=False,
+                stop=stop,
             )
         except asyncio.CancelledError:
             await self._emit_agent_status(
@@ -1296,9 +1470,18 @@ class ChatEngine:
         if runtime.streamed_main and result.outcome == "success":
             # Conclusion was already streamed live as the final turn's content;
             # save it to history without re-emitting (avoid duplicate text).
-            self._save_assistant(message_id, conv_id, result.conclusion)
+            self._save_assistant(
+                message_id, conv_id, result.conclusion,
+                character_id=save_character_id,
+            )
         else:
             await self._emit_text(ws, message_id, result.conclusion, conv_id=conv_id)
+        # Store the turn's tool calls with its message. The live events carry
+        # them, so a reload used to lose the whole process; what is written is
+        # the names and arguments, not what any tool returned.
+        row_id = self._msg_ids.get(message_id)
+        if row_id is not None and runtime.tool_steps:
+            self.session_store.set_message_tool_steps(row_id, runtime.tool_steps)
         await self._done(
             ws,
             message_id,
@@ -1306,11 +1489,11 @@ class ChatEngine:
             conv_id=conv_id,
             tts_text=result.conclusion,
         )
+        self._maybe_title(conv_id, user_input)
         if profile.post_reflection:
             await asyncio.to_thread(
                 self._reflect, task_id, conv_id, user_input, result.outcome,
             )
-            self._maybe_title(conv_id, user_input)
             self.idle_reflector.bump_event()
             await self._run_idle_reflection_if_due()
 
@@ -1365,8 +1548,11 @@ class ChatEngine:
         agent_id: str,
         depth: int,
         is_subagent: bool,
+        stop: Any = None,
     ) -> AgentLoopResult:
         profile = runtime.profile
+        if stop is None:
+            stop = lambda: self._cancelled
         context_window, max_output = self._model_limits()
         tool_steps = 0
         verify_count = 0
@@ -1379,7 +1565,7 @@ class ChatEngine:
         )
 
         for turn in range(profile.max_tool_turns):
-            if self._cancelled:
+            if stop():
                 return AgentLoopResult("(Cancelled.)", "failure", tool_steps)
 
             if not is_subagent:
@@ -1407,7 +1593,6 @@ class ChatEngine:
                     task_id=agent_id,
                     transcript=transcript,
                     previous=previous,
-                    max_output=max_output,
                 ),
             )
             if compacted:
@@ -1446,6 +1631,7 @@ class ChatEngine:
                 provider_family=self._active_provider_family(),
                 stream_sink=(ws, message_id, conv_id)
                 if (not is_subagent and not awaiting_selfcheck_response) else None,
+                stop=stop,
             )
             # Only mark streamed_main when this turn actually streamed. The
             # self-check turn runs with stream_sink=None; flagging it here made
@@ -1609,7 +1795,6 @@ class ChatEngine:
                     runtime=runtime,
                     agent_id=agent_id,
                     had_error=had_error,
-                    max_output=max_output,
                 )
                 if review:
                     messages.append({
@@ -1662,6 +1847,7 @@ class ChatEngine:
         model_effort: str = "off",
         provider_family: str = "",
         stream_sink: tuple[Any, str, str] | None = None,
+        stop: Any = None,
     ) -> Any:
         call_kwargs: dict[str, Any] = {
             "model": model,
@@ -1721,6 +1907,7 @@ class ChatEngine:
                 provider_id=provider_id,
                 call_kwargs=call_kwargs,
                 stream_sink=stream_sink,
+                stop=stop,
             )
 
         response = await asyncio.to_thread(
@@ -1738,11 +1925,13 @@ class ChatEngine:
         provider_id: str,
         call_kwargs: dict[str, Any],
         stream_sink: tuple[Any, str, str],
+        stop: Any = None,
     ) -> dict[str, Any]:
         """Run one agent-loop LLM call with stream=True, emitting each content
         chunk to the frontend as `chat.delta` while rebuilding the full message
         (content + tool_calls) for the loop state."""
         ws, message_id, conv_id = stream_sink
+        halted = stop if stop is not None else (lambda: self._cancelled)
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         content_parts: list[str] = []
@@ -1755,7 +1944,8 @@ class ChatEngine:
                 )
                 if result is None:
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, ("delta", "\nLLM stream failed: empty response"),
+                        queue.put_nowait,
+                        ("delta", "\n\n[The model returned an empty response.]"),
                     )
                     return
                 # Some providers/tests return a complete response despite
@@ -1771,7 +1961,7 @@ class ChatEngine:
                     except TypeError:
                         stream = iter([result])
                 for chunk in stream:
-                    if self._cancelled:
+                    if halted():
                         break
                     if not getattr(chunk, "choices", None):
                         continue
@@ -1798,8 +1988,12 @@ class ChatEngine:
                                 entry["arguments"] += fn.arguments
             except Exception as e:
                 logger.warning(f"agent stream failed: {e}")
+                # The rebuilt content is persisted and may be posted as a
+                # room line, so the provider's own error body — which carries
+                # a request trace id — stays in the log, not in the reply.
                 loop.call_soon_threadsafe(
-                    queue.put_nowait, ("delta", f"\nLLM stream failed: {e}"),
+                    queue.put_nowait,
+                    ("delta", "\n\n[The model call failed.]"),
                 )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
@@ -1848,12 +2042,18 @@ class ChatEngine:
             {"id": e["id"], "type": e["type"],
              "function": {"name": e["name"], "arguments": e["arguments"]}}
             for _, e in sorted(tool_map.items())
-        ] or None
-        return {
+        ]
+        message: dict[str, Any] = {
             "role": "assistant",
             "content": "".join(content_parts),
-            "tool_calls": tool_calls,
         }
+        # The key is left out rather than set to None on purpose: this message
+        # is re-sent on the next turn (the self-check turn does exactly that),
+        # and strict OpenAI-compatible gateways reject `tool_calls: null` with
+        # a 400 instead of treating it as "no tool calls".
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return message
 
     async def _summarize_context_chunk(
         self,
@@ -1864,7 +2064,6 @@ class ChatEngine:
         task_id: str,
         transcript: list[dict[str, str]],
         previous: str | None,
-        max_output: int,
     ) -> str:
         payload = {
             "previous_checkpoint": previous or "",
@@ -1883,7 +2082,7 @@ class ChatEngine:
                 },
             ],
             tools=[],
-            max_tokens=min(2048, max_output),
+            max_tokens=100000,
             thinking=False,
             model_effort=self._model_thinking_effort(),
             provider_family=self._active_provider_family(),
@@ -1932,7 +2131,7 @@ class ChatEngine:
             tools.append(DISPATCH_SUBAGENT_SCHEMA)
         if profile.debate_enabled and not runtime.force_convergence:
             tools.append(BLACKBOARD_POST_SCHEMA)
-        return tools
+        return _append_plan_tool(tools, runtime.plan_sink)
 
     def _dynamic_agent_context(
         self,
@@ -2011,6 +2210,19 @@ class ChatEngine:
             items.append({"id": item_id, "content": content, "status": status})
         self._task_todos[task_id] = items
         return self._render_todos(task_id)
+
+    def _write_plan(self, sink: Any, raw_items: object) -> str:
+        if sink is None:
+            return "Error: there is no plan board in this room."
+        if not isinstance(raw_items, list):
+            return "Error: items must be an array"
+        written = sink.replace(raw_items)
+        return f"Plan board updated: {len(written)} item(s)."
+
+    def _plan_items(self, sink: Any) -> list[dict]:
+        if sink is None:
+            return []
+        return list(getattr(sink, "last_written", []) or [])
 
     def _verification_prompt(self, task_id: str, candidate: str) -> str:
         return (
@@ -2191,6 +2403,9 @@ class ChatEngine:
                         args=args,
                     )
             is_error = self._tool_result_is_error(output)
+            runtime.tool_steps.append({
+                "callId": tool_call.id, "tool": name, "args": args,
+            })
             return tool_call.id, name, output, is_error
 
         parallel = (
@@ -2268,9 +2483,10 @@ class ChatEngine:
                         break
             except Exception:
                 pass
-        if name not in {"todo_write", "dispatch_subagent", "blackboard_post"}:
+        if name not in {"todo_write", "plan_write", "dispatch_subagent", "blackboard_post"}:
             return await self._execute_guarded(
                 ws, message_id, call_id, name, args, conv_id,
+                getattr(runtime, "workspace_override", None),
             )
 
         await ws.send_json({
@@ -2292,6 +2508,9 @@ class ChatEngine:
                 "agent_id": agent_id,
                 "items": self._task_todos.get(agent_id, []),
             })
+        elif name == "plan_write":
+            output = self._write_plan(runtime.plan_sink, args.get("items"))
+            await ws.send_json(_plan_updated_event(runtime.plan_sink))
         elif name == "blackboard_post":
             entry_type = str(args.get("entry_type", "proposal"))
             content = str(args.get("content", "")).strip()
@@ -2402,7 +2621,7 @@ class ChatEngine:
             f"{autonomy}\n\nAssigned responsibility:\n{record.assignment}"
         )
         base_prompt = (
-            f"{await self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character)}"
+            f"{await self._build_prompt(conv_id, 'agent', record.assignment, profile=profile, character=runtime.character, workspace_override=runtime.workspace_override)}"
             f"\n\n{boundary}"
         )
         messages: list[Any] = [
@@ -2591,7 +2810,6 @@ class ChatEngine:
         runtime: AgentRunState,
         agent_id: str,
         had_error: bool,
-        max_output: int,
     ) -> str:
         await self._emit_agent_status(
             ws, runtime, agent_id, "reflecting", "Reviewing the latest step",
@@ -2634,7 +2852,7 @@ class ChatEngine:
                 {"role": "user", "content": prompt},
             ],
             tools=[],
-            max_tokens=min(768, max_output),
+            max_tokens=100000,
             thinking=profile.thinking,
             model_effort=self._model_thinking_effort(),
             provider_family=self._active_provider_family(),
@@ -2666,7 +2884,8 @@ class ChatEngine:
         })
 
     async def _execute_guarded(self, ws: WebSocket, message_id: str, call_id: str,
-                               name: str, args: dict, conv_id: str) -> str:
+                               name: str, args: dict, conv_id: str,
+                               workspace_override: Any = None) -> str:
         self.permissions.no_trust_mode = bool(
             self.config.get("security.session.no_trust_mode", False)
         )
@@ -2690,7 +2909,9 @@ class ChatEngine:
                 })
                 return result
 
-        sandbox_result = await self._sandbox_tool_call(ws, call_id, name, args, conv_id)
+        sandbox_result = await self._sandbox_tool_call(
+            ws, call_id, name, args, conv_id, workspace_override,
+        )
         if sandbox_result is not None:
             await ws.send_json({
                 "type": "chat.tool_call", "message_id": message_id,
@@ -2770,7 +2991,7 @@ class ChatEngine:
                         execution_args["character_id"] = character.id
                 execution_args.setdefault("session_id", conv_id)
             if name in {"file_ops", "edit"}:
-                workspace = self.workspace_repo.get_or_create_binding(conv_id)
+                workspace = self._turn_workspace(conv_id, workspace_override)
                 if name == "file_ops":
                     execution_args["path"] = self.workspace_gate.validate_path(
                         str(args.get("path", "")), workspace_id=workspace.id,
@@ -2793,7 +3014,9 @@ class ChatEngine:
                 egress_decision = check_command(str(args.get("command", "")), self.config)
                 if not egress_decision.allowed:
                     return await _result(f"[BLOCKED: egress denied ({egress_decision.reason})]")
-                workspace_root = self.workspace_repo.get_or_create_binding(conv_id).root_path
+                workspace_root = self._turn_workspace(
+                    conv_id, workspace_override,
+                ).root_path
                 if command_reads_blacklisted(
                     str(args.get("command", "")), Path(workspace_root), self.config
                 ):
@@ -2825,10 +3048,11 @@ class ChatEngine:
         return await _result(result, duration_ms)
 
     async def _sandbox_tool_call(self, ws: WebSocket, call_id: str, name: str,
-                                 args: dict, conv_id: str) -> str | None:
+                                 args: dict, conv_id: str,
+                                 workspace_override: Any = None) -> str | None:
         if name not in {"file_ops", "edit", "run_command", "process"}:
             return None
-        workspace = self.workspace_repo.get_or_create_binding(conv_id)
+        workspace = self._turn_workspace(conv_id, workspace_override)
         operation = str(args.get("operation") or ("edit" if name == "edit" else "execute"))
         is_command = name in {"run_command", "process"}
         command = str(args.get("command", "")) if is_command else None
@@ -2933,8 +3157,14 @@ class ChatEngine:
 
     async def _build_character_prompt(
         self, conv_id: str, user_input: str, character: Any,
+        tools_enabled: bool = True,
     ) -> str:
-        """Character prompt: raw memory → LLM-cleansed → persona-first assembly."""
+        """Character prompt: candidates → persona judge → pack → persona-first assembly.
+
+        The persona filter runs before the budget is allocated so it sees every
+        candidate. Judging after packing meant it only ever screened the
+        survivors of a priority cut.
+        """
         user_card_id = self._session_user_override
         user_card = (
             self.card_repo.get_user_card(user_card_id)
@@ -2942,26 +3172,22 @@ class ChatEngine:
         )
         if user_card is None:
             user_card = self.card_repo.get_default_user_card()
-        raw = await asyncio.to_thread(
-            self._memory_block, user_input, character=character
+        slots = await asyncio.to_thread(
+            self._injection_slots,
+            user_input,
+            mode="character",
+            character=character,
+            include_strategy=False,
+            include_experience=False,
+            conv_id=conv_id,
         )
-        cleaned = ""
-        if raw:
-            client, model, provider_id = self.client_and_model()
-            cleaned = await asyncio.to_thread(
-                cleanse_memory_block,
-                raw,
-                character,
-                client,
-                model,
-                provider_id,
-                cache=self._cleanse_cache,
-            )
         return build_character_prompt(
             character=character,
             user_card=user_card,
-            memory_block=cleaned,
+            memory_block=slots["memory"],
             workspace_line=self._character_workspace_line(),
+            tools_enabled=tools_enabled,
+            time_block=self._time_block(conv_id),
         )
 
     async def _run_character(
@@ -3069,6 +3295,7 @@ class ChatEngine:
             ws, message_id, result.outcome, conv_id=conv_id,
             tts_text=result.conclusion,
         )
+        self._maybe_title(conv_id, user_input)
 
     # ---------- companion mode ----------
 
@@ -3086,11 +3313,60 @@ class ChatEngine:
         ))
         self._track_context(conv_id, messages)
         await self._emit_context(ws, conv_id)
+        text = await self._stream_one_reply(
+            ws,
+            message_id=message_id,
+            conv_id=conv_id,
+            client=client,
+            model=model,
+            provider_id=provider_id,
+            provider_family=provider_family,
+            messages=messages,
+            max_output=max_output,
+            model_effort=model_effort,
+            character=character,
+            char_name=char_name,
+        )
+        self._save_assistant(message_id, conv_id, text)
+        await self._done(
+            ws,
+            message_id,
+            "success",
+            conv_id=conv_id,
+            tts_text=text,
+        )
+        self._maybe_title(conv_id, user_input)
+        self.idle_reflector.bump_event()
+        await self._run_idle_reflection_if_due()
+
+    async def _stream_one_reply(
+        self,
+        ws: WebSocket,
+        *,
+        message_id: str,
+        conv_id: str,
+        client: Any,
+        model: str,
+        provider_id: str,
+        provider_family: str,
+        messages: list[Any],
+        max_output: int,
+        model_effort: str = "off",
+        should_stop: Callable[[], bool] | None = None,
+        character: Any = None,
+        char_name: str | None = None,
+    ) -> str:
+        """Single streaming completion with no tools; returns accumulated text.
+
+        Emits chat.thinking / chat.delta only. Persistence and chat.done stay
+        with the caller so companion and group turn-taking can differ."""
+        stop = should_stop if should_stop is not None else (lambda: self._cancelled)
         base_url = str(getattr(client, "base_url", "") or "")
         deepseek = is_deepseek_official(base_url)
         thinking_payload = resolve_thinking_payload(
             provider_family, model, model_effort, base_url,
         )
+        char_id = getattr(character, "id", None)
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[tuple[str, str | None]] = asyncio.Queue()
@@ -3108,7 +3384,7 @@ class ChatEngine:
                     stream=True,
                 )
                 async for chunk in stream:
-                    if self._cancelled:
+                    if stop():
                         break
                     if chunk.get("thinking"):
                         queue.put_nowait(("thinking", chunk["thinking"]))
@@ -3133,7 +3409,7 @@ class ChatEngine:
                     stream_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                 stream = chat_completion(client, provider_id=provider_id, **stream_kwargs)
                 for chunk in stream:
-                    if self._cancelled:
+                    if stop():
                         break
                     if not chunk.choices:
                         continue
@@ -3166,7 +3442,7 @@ class ChatEngine:
                     "message_id": message_id,
                     "conversation_id": conv_id,
                     "content": content,
-                    "character_id": character.id if character else None,
+                    "character_id": char_id,
                     "character_name": char_name,
                 })
                 continue
@@ -3174,22 +3450,11 @@ class ChatEngine:
             await ws.send_json({
                 "type": "chat.delta", "message_id": message_id,
                 "conversation_id": conv_id, "content": content,
-                "character_id": character.id if character else None,
+                "character_id": char_id,
                 "character_name": char_name,
             })
         await pump
-        text = "".join(full)
-        self._save_assistant(message_id, conv_id, text)
-        await self._done(
-            ws,
-            message_id,
-            "success",
-            conv_id=conv_id,
-            tts_text=text,
-        )
-        self._maybe_title(conv_id, user_input)
-        self.idle_reflector.bump_event()
-        await self._run_idle_reflection_if_due()
+        return "".join(full)
 
     # ---------- helpers ----------
 
@@ -3220,9 +3485,12 @@ class ChatEngine:
             if cid:
                 self._save_assistant(message_id, cid, text)
 
-    def _post_turn_emotion_pass(self, conv_id: str) -> dict | None:
+    def _post_turn_emotion_pass(
+        self, conv_id: str, char_id: int | None = None,
+    ) -> dict | None:
         from src.core.formula_engine import execute_emotion_formulas
-        char_id = self.session_store.get_character(conv_id)
+        if char_id is None:
+            char_id = self.session_store.get_character(conv_id)
         character = self.card_repo.get_character(char_id) if char_id else None
         if character is None:
             character = self.card_repo.get_default_character()
@@ -3244,18 +3512,22 @@ class ChatEngine:
         outcome: str,
         conv_id: str | None = None,
         tts_text: str = "",
+        character_id: int | None = None,
     ) -> None:
         emotion_state = None
-        char_id = None
+        char_id = character_id
         char_name = None
         if conv_id is not None:
             try:
-                emotion_state = self._post_turn_emotion_pass(conv_id)
+                emotion_state = self._post_turn_emotion_pass(
+                    conv_id, char_id=character_id,
+                )
             except Exception as e:
                 logger.debug(f"Post-turn emotion pass skipped: {e}")
             try:
-                cid = self.session_store.get_character(conv_id)
-                c = self.card_repo.get_character(cid) if cid else None
+                if char_id is None:
+                    char_id = self.session_store.get_character(conv_id)
+                c = self.card_repo.get_character(char_id) if char_id else None
                 if c:
                     char_id, char_name = c.id, c.name
             except Exception:
@@ -3276,6 +3548,7 @@ class ChatEngine:
                 message_id=message_id,
                 text=tts_text,
                 conversation_id=conv_id,
+                character_id=character_id,
             )
 
     async def _maybe_queue_tts(
@@ -3285,6 +3558,7 @@ class ChatEngine:
         message_id: str,
         text: str,
         conversation_id: str,
+        character_id: int | None = None,
     ) -> None:
         if not str(self.config.get("tts.active") or ""):
             return
@@ -3295,7 +3569,8 @@ class ChatEngine:
             return
         autoplay_on_card = 1
         try:
-            character_id = self.session_store.get_character(conversation_id)
+            if character_id is None:
+                character_id = self.session_store.get_character(conversation_id)
             character = (
                 self.card_repo.get_character(character_id)
                 if character_id is not None
@@ -3323,7 +3598,54 @@ class ChatEngine:
         else:
             self._short_cache.move_to_end(conv_id)
 
+    def note_arrival(self, conv_id: str) -> None:
+        """Record how long the user was away, before their new message lands.
+
+        Called at every user-message append site. Deriving the gap at prompt
+        time instead would zero it out on a regenerate: by then the previous
+        row is the character's own reply, and the greeting would vanish.
+        """
+        gap: float | None = None
+        try:
+            rows = self.session_store.get_recent_messages(conv_id, limit=1)
+        except Exception as e:
+            logger.debug(f"Arrival lookup failed: {e}")
+            rows = []
+        if rows:
+            delta = (datetime.now() - rows[0].timestamp).total_seconds()
+            if delta >= 0:
+                gap = delta
+        self._arrivals[conv_id] = gap
+        self._arrivals.move_to_end(conv_id)
+        while len(self._arrivals) > ARRIVAL_LRU:
+            self._arrivals.popitem(last=False)
+
+    def arrival_gap(self, conv_id: str) -> float | None:
+        """None when nothing is recorded — a restart, or a path that skipped
+        note_arrival. The block simply omits the gap line then."""
+        return self._arrivals.get(conv_id)
+
+    def _time_block(self, conv_id: str, *, group_mode: bool = False) -> str:
+        from src.core.time_context import build_time_block
+
+        if not bool(self.config.get("time.enabled", True)):
+            return ""
+        try:
+            floor_minutes = int(self.config.get(
+                "time.gap_floor_minutes", DEFAULT_GAP_FLOOR_MINUTES,
+            ))
+        except (TypeError, ValueError):
+            floor_minutes = DEFAULT_GAP_FLOOR_MINUTES
+        return build_time_block(
+            now=datetime.now(),
+            gap_seconds=self.arrival_gap(conv_id),
+            birthday_raw=self.config.get("user.birthday", None),
+            gap_floor_seconds=floor_minutes * 60,
+            group_mode=group_mode,
+        )
+
     def _save_user(self, conv_id: str, content: str) -> None:
+        self.note_arrival(conv_id)
         self._ensure_short(conv_id)
         dq = self._short_cache[conv_id]
         dq.append({"role": "user", "content": content})
@@ -3338,12 +3660,16 @@ class ChatEngine:
         except Exception as e:
             logger.warning(f"save user message failed: {e}")
 
-    def _save_assistant(self, message_id: str, conv_id: str, content: str) -> None:
+    def _save_assistant(
+        self, message_id: str, conv_id: str, content: str,
+        character_id: int | None = None,
+    ) -> None:
         self._ensure_short(conv_id)
         self._short_cache[conv_id].append({"role": "assistant", "content": content})
         try:
             msg_id = self.session_store.append_message(
                 conv_id, "assistant", content, tags="reply",
+                character_card_id=character_id,
             )
             if msg_id is not None:
                 self._msg_ids[message_id] = msg_id
@@ -3415,6 +3741,7 @@ class ChatEngine:
         *,
         profile: TierProfile | None = None,
         character: Any = None,
+        workspace_override: Any = None,
     ) -> str:
         if character is None:
             char_id = self.session_store.get_character(conv_id)
@@ -3430,32 +3757,35 @@ class ChatEngine:
             user_card = None
         if user_card is None:
             user_card = self.card_repo.get_default_user_card()
-        memory_block = await asyncio.to_thread(
-            self._memory_block, user_input, character=character
-        )
-        strategy_block = self._strategy_block()
-        experience_block = self._experience_block()
         slim = False
+        top_k = 5
+        semantic = True
+        intensity = None
+        include_strategy = True
+        include_experience = True
         if profile is not None:
             slim = profile.slim_system_prompt
-            memory_block = (
-                await asyncio.to_thread(
-                    self._memory_block,
-                    user_input,
-                    semantic_top_k=profile.recall_top_k,
-                    character=character,
-                )
-                if profile.semantic_recall else ""
-            )
+            semantic = profile.semantic_recall
+            top_k = profile.recall_top_k
             if profile.name != "medium":
-                strategy_block = (
-                    self._strategy_block(profile.injector_intensity)
-                    if profile.inject_strategy else ""
-                )
-                experience_block = (
-                    self._experience_block(profile.injector_intensity)
-                    if profile.inject_experience else ""
-                )
+                intensity = profile.injector_intensity
+                include_strategy = profile.inject_strategy
+                include_experience = profile.inject_experience
+        slots = await asyncio.to_thread(
+            self._injection_slots,
+            user_input,
+            mode=mode,
+            semantic_top_k=top_k,
+            character=character,
+            intensity=intensity,
+            include_strategy=include_strategy,
+            include_experience=include_experience,
+            recall_memory=semantic,
+            conv_id=conv_id,
+        )
+        memory_block = slots["memory"]
+        strategy_block = slots["strategy"]
+        experience_block = slots["experience"]
         prompt = build_system_prompt(
             mode=mode,
             character=character,
@@ -3463,15 +3793,26 @@ class ChatEngine:
             memory_block=memory_block,
             strategy_block=strategy_block,
             experience_block=experience_block,
-            workspace_context=self._workspace_context(conv_id),
+            workspace_context=self._workspace_context(conv_id, workspace_override),
             slim=slim,
+            time_block=self._time_block(conv_id),
         )
         if self._session_cwd_hint:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
         return prompt
 
-    def _workspace_context(self, conv_id: str) -> str:
-        workspace = self.workspace_repo.get_or_create_binding(conv_id)
+    def _turn_workspace(self, conv_id: str, override: Any = None) -> Any:
+        """The workspace this turn runs in.
+
+        A room hands each member its own staging; everything else keeps the
+        conversation's binding, which is what this resolved before.
+        """
+        if override is not None:
+            return override
+        return self.workspace_repo.get_or_create_binding(conv_id)
+
+    def _workspace_context(self, conv_id: str, workspace_override: Any = None) -> str:
+        workspace = self._turn_workspace(conv_id, workspace_override)
         root = Path(workspace.root_path).resolve(strict=False)
         full_root = root == Path(root.anchor) if root.anchor else False
         default_output = str(Path.home() / "FSAR-workspace")
@@ -3501,24 +3842,146 @@ class ChatEngine:
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."
         )
 
-    def _memory_block(self, query: str, *, semantic_top_k: int = 5,
-                      character: Any = None) -> str:
-        try:
-            session_ids: set[str] | None = None
-            if character is not None and getattr(character, "id", None) is not None:
-                session_ids = set(
-                    self.session_store.session_ids_for_character(character.id)
-                )
-            result = self.recall.recall_for_context(
-                query, semantic_top_k=semantic_top_k, session_ids=session_ids,
+    def _build_injection_pipeline(self) -> InjectionPipeline:
+        """Pick the judge: a configured JEV endpoint, else the active model.
+
+        LlmJudge is the fallback so that character mode keeps its persona
+        filter for users who never configure JEV.
+        """
+        judge_cfg = self.config.get_judge()
+        judge: Any
+        if judge_cfg["base_url"] and judge_cfg["model"]:
+            from src.providers.judge.client import JevClient
+
+            judge = JevJudge(
+                JevClient(judge_cfg["base_url"], judge_cfg["api_key"],
+                          model=judge_cfg["model"])
             )
-            if result.is_empty:
-                return ""
-            max_chars = int(self.config.get("memory.recall_max_chars", 2000))
-            return result.to_context(max_len=max_chars)
+        else:
+            client, model, provider_id = self.client_and_model()
+            judge = LlmJudge(client, model, provider_id, cache=self._cleanse_cache)
+        return InjectionPipeline(
+            judge=judge,
+            budget_chars=self.config.inject_budget_chars,
+            candidate_cap=self.config.inject_candidate_cap,
+            score_floor=self.config.inject_score_floor,
+            max_item_chars=self.config.inject_max_item_chars,
+        )
+
+    def refresh_injection_pipeline(self) -> None:
+        """Rebuild after the judge endpoint or budget settings change.
+
+        The pipeline captures the judge client and the four numbers at build
+        time, so without this a settings change would only take effect after a
+        process restart.
+        """
+        self.injection_pipeline = self._build_injection_pipeline()
+
+    def _memory_block(self, query: str, *, semantic_top_k: int = 5,
+                      character: Any = None,
+                      conv_id: str | None = None) -> str:
+        return self._injection_slots(
+            query, semantic_top_k=semantic_top_k, character=character,
+            include_strategy=False, include_experience=False,
+            conv_id=conv_id,
+        )["memory"]
+
+    def _strategy_injector_for(self, intensity: str | None = None) -> StrategyInjector:
+        injector = self.strategy_injector
+        if intensity is not None:
+            injector = StrategyInjector(
+                decision_log=self.strategy_injector.decision_log,
+                user_model=self.strategy_injector.user_model,
+                intensity=intensity,
+                max_prefs=self.strategy_injector.max_prefs,
+                max_strategies=self.strategy_injector.max_strategies,
+                success_rate_threshold=self.strategy_injector.success_rate_threshold,
+                latency_threshold_ms=self.strategy_injector.latency_threshold_ms,
+                min_uses=self.strategy_injector.min_uses,
+            )
+        try:
+            recent = self.reflection_store.list_recent(limit=10)
+            injector.set_recent_strategies(
+                [r["suggested_strategy"] for r in recent if r.get("suggested_strategy")]
+            )
         except Exception as e:
-            logger.warning(f"Memory recall failed: {e}")
-            return ""
+            logger.debug(f"Recent strategies skipped: {e}")
+        return injector
+
+    def _injection_slots(
+        self, query: str, *, mode: str = "agent", semantic_top_k: int = 5,
+        character: Any = None, intensity: str | None = None,
+        include_strategy: bool = True, include_experience: bool = True,
+        recall_memory: bool = True, conv_id: str | None = None,
+    ) -> dict[str, str]:
+        """Build the memory/strategy/experience slots from one shared candidate pool.
+
+        `mode` — not the presence of a character card — drives the judge. Every
+        prompt build resolves a default character, so keying on that would run
+        the persona filter over agent and companion turns too.
+        """
+        is_character = mode == "character"
+        strategy_injector = (
+            self._strategy_injector_for(intensity) if include_strategy else None
+        )
+        exp_intensity = (
+            intensity if intensity is not None else self.experience_injector.intensity
+        )
+        experience_store = (
+            self.experience_injector.store
+            if include_experience and exp_intensity != "off" else None
+        )
+        try:
+            result = RecallResult()
+            if recall_memory:
+                session_ids: set[str] | None = None
+                if character is not None and getattr(character, "id", None) is not None:
+                    session_ids = set(
+                        self.session_store.session_ids_for_character(character.id)
+                    )
+                result = self.recall.recall_for_context(
+                    query, semantic_top_k=semantic_top_k, session_ids=session_ids,
+                    history_session=conv_id,
+                    history_skip=len(self._short_cache.get(conv_id, [])) if conv_id else 0,
+                )
+            return self.injection_pipeline.build_slots(
+                query, result,
+                mode=mode,
+                context=(
+                    _character_summary(character)
+                    if is_character and character is not None else ""
+                ),
+                experience_store=experience_store,
+                strategy_injector=strategy_injector,
+                fail_closed=is_character,
+                experience_header=EXPERIENCE_INDEX_HEADER,
+                experience_rule=SKILL_LOADING_RULE,
+                extra_experience_blocks=self._memory_chunks_blocks(
+                    experience_store, exp_intensity
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"Memory injection failed: {e}")
+            return {
+                "memory": "",
+                "strategy": self._strategy_block(intensity) if include_strategy else "",
+                "experience": (
+                    self._experience_block(intensity) if include_experience else ""
+                ),
+            }
+
+    def _memory_chunks_blocks(self, experience_store, exp_intensity: str) -> list[str]:
+        """The ## Memory chunk block, which medium/high used to append verbatim."""
+        if experience_store is None or exp_intensity not in ("medium", "high"):
+            return []
+        try:
+            block = experience_store.render_memory_chunks_block(
+                limit=self.experience_injector.max_chunks
+            )
+        except Exception as e:
+            logger.debug(f"Memory chunks block skipped: {e}")
+            return []
+        return [block] if block else []
 
     def _strategy_block(self, intensity: str | None = None) -> str:
         try:

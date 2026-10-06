@@ -1,0 +1,1005 @@
+# SPDX-License-Identifier: MIT
+"""Group chat orchestration: election, chained turns, cancellation."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from src.core.prompts import build_character_prompt
+from src.memory.session_store import MessageRow
+from src.utils.logger import logger
+
+if TYPE_CHECKING:
+    from src.memory.rooms import RoomStore
+    from src.server.chat_engine import ChatEngine
+
+
+UNKNOWN_SPEAKER = "Unknown"
+
+# A chain has no round cap of its own: it runs until the group settles or the
+# user stops it, so a room can hold an open-ended debate. Set rooms.max_rounds
+# to a positive number when a particular room wants a bound.
+UNLIMITED_ROUNDS = 0
+EAGER_THRESHOLD = 5
+SPEAKERS_PER_ROUND = 2
+MENTIONED_EAGERNESS = 10
+ELECT_HISTORY_LINES = 20
+GROUP_SHORT_CACHE_LIMIT = 10
+
+# The tier a room's own characters run at. Pinned rather than configurable: a
+# room is unattended, and two rooms working the same goal on different tiers is
+# a difference nobody asked for. Not exposed in the GUI.
+#
+# Subagents are part of the profile and stay on: with two speakers a round can
+# put four LLM loops in one engine, which the maintainer accepted knowingly.
+GROUP_AGENT_TIER = "xhigh"
+
+ELECT_PROMPT = """Your name is {name}.
+{description}
+{personality}
+{room_scene}
+What has just been said in the group chat:
+{history}
+Decide how much you want to speak next, in character.
+Return ONLY this JSON, nothing else:
+{{"eagerness": <integer 0-10>, "reason": "<one short sentence>"}}
+0-2: you have nothing to add. 3-5: you could say something. 6-10: you want to speak now."""
+
+_EAGERNESS_RE = re.compile(r'\{[^{}]*"eagerness"[^{}]*\}', re.DOTALL)
+
+TURN_INSTRUCTION = (
+    "{speaker} has just spoken in the group chat:\n"
+    "{text}\n\n"
+    "It is your turn. Say only your own line, in character, with no name "
+    "prefix — and only if you actually have something to add. That remark was "
+    "not necessarily aimed at you."
+)
+
+
+def work_instruction(item: Any) -> str:
+    text = str(getattr(item, "text", "") or "").strip()
+    evidence = str(getattr(item, "evidence", "") or "").strip()
+    parts = [
+        "You are working on one plan item from your room's plan board.",
+        f"Plan item: {text or '(untitled)'}",
+    ]
+    if evidence:
+        parts.append(f"Whatever is already known about it: {evidence}")
+    parts.append(
+        "Work in your own staging copy. When you are done, record the outcome "
+        "with plan_write: keep every item on the board and set yours to done "
+        "with a short evidence note. If you cannot finish it, set it to blocked "
+        "and say why."
+    )
+    return "\n".join(parts)
+
+
+_TOOL_CALL_RE = re.compile(
+    r"<tool_call>.*?</tool_call>", re.DOTALL | re.IGNORECASE,
+)
+_TOOL_CALL_UNCLOSED_RE = re.compile(
+    r"<tool_call>.*\Z", re.DOTALL | re.IGNORECASE,
+)
+_FUNCTION_CALL_RE = re.compile(
+    r"<function_call>.*?</function_call>", re.DOTALL | re.IGNORECASE,
+)
+
+# DeepSeek serialises its native tool calls wrapped in this delimiter (two
+# full-width vertical bars around DSML) and with no angle-bracket open tag, so
+# the patterns above miss them entirely.
+_DSML_MARKER = "｜｜DSML｜｜"
+
+
+def strip_tool_call_markup(text: str) -> str:
+    """Remove tool-call markup the model wrote into its visible reply.
+
+    A group turn offers no tools and the prompt no longer advertises any, but
+    the syntax is in the model's training data, so "do not emit this" is only a
+    probability. Strip it, and let a reply that was nothing but a tool call fall
+    through to the blank-reply path so no bubble is created."""
+    cleaned = _TOOL_CALL_RE.sub("", text)
+    cleaned = _FUNCTION_CALL_RE.sub("", cleaned)
+    cleaned = _TOOL_CALL_UNCLOSED_RE.sub("", cleaned)
+    if _DSML_MARKER in cleaned:
+        cleaned = "\n".join(
+            line for line in cleaned.splitlines() if _DSML_MARKER not in line
+        )
+    return cleaned.strip()
+
+
+def turn_instruction(text: str, speaker: str = "") -> str:
+    """Wrap the trigger as a direct instruction to this speaker.
+
+    A bare transcript line reads as more script for the model to continue,
+    which makes it write the other characters' lines too. The wording stays
+    neutral about the addressee: "reply now" let whoever was picked to speak
+    assume the preceding remark had been aimed at them, so a character who was
+    only a bystander would answer as the injured party."""
+    if not speaker:
+        return text
+    return TURN_INSTRUCTION.format(speaker=speaker, text=text)
+
+
+def strip_speaker_marker(text: str, own_name: str) -> str:
+    """Drop a leading "[OwnName]:" the model copied from the transcript.
+
+    The marker is an input convention, but models sometimes continue it instead
+    of just answering, and the copy then compounds over rounds. Prompt wording
+    only makes this less likely, never impossible, so clean it deterministically.
+
+    Only the speaker's *own* name is stripped, so stage directions such as
+    "[笑]：" in other brackets survive untouched."""
+    name = (own_name or "").strip()
+    if not name:
+        return text
+    pattern = re.compile(r"^\s*\[\s*" + re.escape(name) + r"\s*\]\s*[:：]\s*")
+    cleaned = text
+    while True:
+        stripped = pattern.sub("", cleaned, count=1)
+        if stripped == cleaned:
+            return cleaned.lstrip()
+        cleaned = stripped
+
+
+def format_group_history(
+    messages: list[MessageRow],
+    *,
+    names_by_id: dict[int, str],
+    user_name: str,
+    agent_names: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
+    """Prefix every message with its speaker.
+
+    Every character message shares role="assistant", so without a prefix the
+    model cannot tell who said what. Agent members are not character cards, so
+    they are named by ref instead of by card id."""
+    out: list[dict[str, str]] = []
+    for row in messages:
+        if row.role == "user":
+            speaker = user_name or "user"
+        elif getattr(row, "speaker_kind", None) == "agent":
+            speaker = (agent_names or {}).get(
+                getattr(row, "speaker_ref", None) or "", UNKNOWN_SPEAKER,
+            )
+        else:
+            speaker = names_by_id.get(row.character_card_id or -1, UNKNOWN_SPEAKER)
+        out.append({
+            "role": row.role,
+            "content": f"[{speaker}]: {row.content}",
+        })
+    return out
+
+
+def parse_eagerness(raw: str) -> tuple[int, str]:
+    """Extract (eagerness, reason) from an election reply.
+
+    Locates the JSON object by regex so markdown fences and surrounding prose
+    are tolerated. Any failure yields (0, "") — a character that cannot answer
+    simply stays silent this round."""
+    if not raw:
+        return 0, ""
+    match = _EAGERNESS_RE.search(raw)
+    if match is None:
+        return 0, ""
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return 0, ""
+    try:
+        score = int(data.get("eagerness", 0))
+    except (TypeError, ValueError):
+        return 0, ""
+    reason = str(data.get("reason", "") or "").strip()[:200]
+    return max(0, min(10, score)), reason
+
+
+@dataclass
+class ElectResult:
+    character_id: int
+    character_name: str
+    eagerness: int
+    reason: str
+
+
+def _one_completion(client: Any, provider_id: str, model: str, prompt: str,
+                    system: str | None = None) -> str:
+    from src.utils.llm_factory import chat_completion
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    result = chat_completion(
+        client,
+        provider_id=provider_id,
+        model=model,
+        messages=messages,
+        max_tokens=100000,
+        stream=False,
+    )
+    try:
+        return result.choices[0].message.content or ""
+    except (AttributeError, IndexError):
+        return ""
+
+
+async def run_batch_completions(
+    client: Any, *, provider_id: str, model: str, prompts: list[str],
+    systems: list[str] | None = None,
+) -> list[str]:
+    """Run independent non-streaming completions concurrently.
+
+    Returns one string per prompt; a failed call yields "" so the remaining
+    members are unaffected."""
+
+    async def one(prompt: str, system: str | None) -> str:
+        try:
+            return await asyncio.to_thread(
+                _one_completion, client, provider_id, model, prompt, system,
+            )
+        except Exception:
+            return ""
+
+    pairs = list(zip(prompts, systems or [None] * len(prompts)))
+    return list(await asyncio.gather(*(one(p, s) for p, s in pairs)))
+
+
+class _DeltaRelay:
+    """Translates chat.* stream events into group.* and never lets a dead
+    socket abort the turn."""
+
+    def __init__(self, inner: Any, room_id: int) -> None:
+        self._inner = inner
+        self._room_id = room_id
+
+    async def send_json(self, payload: dict) -> None:
+        kind = payload.get("type")
+        if kind == "chat.delta":
+            out = {
+                "type": "group.speaker.delta",
+                "room_id": self._room_id,
+                "message_id": payload["message_id"],
+                "content": payload["content"],
+            }
+        elif kind == "chat.thinking":
+            out = {
+                "type": "group.speaker.thinking",
+                "room_id": self._room_id,
+                "message_id": payload["message_id"],
+                "content": payload["content"],
+            }
+        else:
+            return
+        try:
+            await self._inner.send_json(out)
+        except Exception:
+            pass
+
+
+class GroupEngine:
+    """Group chat orchestration. Reuses ChatEngine subsystems and owns nothing
+    beyond per-room cancellation."""
+
+    def __init__(
+        self, chat: "ChatEngine", rooms: "RoomStore",
+        agent_members: Any = None, plans: Any = None,
+    ) -> None:
+        self.chat = chat
+        self.rooms = rooms
+        self.agent_members = agent_members
+        self.plans = plans
+        self._cancelled: set[int] = set()
+
+    def _plan_sink_for(self, room: Any) -> Any:
+        """The board this room's turn writes to, or None.
+
+        Per turn, never parked on the engine: a room runs its characters
+        concurrently in one engine, so a shared slot would be cleared by
+        whichever turn finished first.
+        """
+        if self.plans is None or not getattr(room, "agent_mode", False):
+            return None
+        from src.server.plan_sink import RoomPlanSink
+
+        owners = [
+            (str(cid), getattr(character, "name", "") or "")
+            for cid in self.rooms.members(room.id)
+            if (character := self.chat.card_repo.get_character(cid)) is not None
+        ]
+        return RoomPlanSink(
+            self.rooms, self.plans, room.id, owners=owners,
+        )
+
+    async def _safe_send(self, ws: Any, payload: dict[str, Any]) -> None:
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+    def cancel(self, room_id: int) -> None:
+        self._cancelled.add(room_id)
+
+    def is_cancelled(self, room_id: int) -> bool:
+        return room_id in self._cancelled
+
+    def clear_cancel(self, room_id: int) -> None:
+        self._cancelled.discard(room_id)
+
+    def _bound_short_cache(self, conv_id: str) -> None:
+        """_save_assistant -> _ensure_short hydrates the room's whole history
+        into the shared short cache and holds an LRU slot for it, but a group
+        turn builds its history from the room and never reads that cache, so a
+        long-lived room would grow the deque forever."""
+        queue = self.chat._short_cache.get(conv_id)
+        if queue is not None and len(queue) > GROUP_SHORT_CACHE_LIMIT:
+            del queue[: len(queue) - GROUP_SHORT_CACHE_LIMIT]
+
+    async def speak(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        user_card: Any,
+        history: list[dict[str, str]],
+        user_input: str,
+        should_stop: Any,
+        trigger_speaker: str = "",
+        message_id: str | None = None,
+        replace_row_id: int | None = None,
+    ) -> tuple[str, str]:
+        """One character's turn: in-character prompt, one streaming call.
+
+        Returns (message_id, text). Memory cleansing is deliberately skipped —
+        it costs an extra model call per speaker per round.
+
+        With replace_row_id the turn rewrites that row in place instead of
+        appending, so a regenerate neither duplicates the bubble nor moves it
+        to the end of the room."""
+        chat = self.chat
+        conv_id = room.session_id
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", None)
+        await self._safe_send(ws, {
+            "type": "group.speaker.start",
+            "room_id": room.id,
+            "message_id": message_id,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+
+        memory_block = await asyncio.to_thread(
+            chat._memory_block, user_input, character=character,
+            conv_id=room.session_id,
+        )
+        system_prompt = build_character_prompt(
+            character=character,
+            user_card=user_card,
+            memory_block=memory_block,
+            room_scene=getattr(room, "scenario_prompt", ""),
+            tools_enabled=False,
+            group_mode=True,
+            time_block=chat._time_block(room.session_id, group_mode=True),
+        )
+        client, model, provider_id = chat.client_and_model()
+        _, max_output = chat._model_limits()
+        messages: list[Any] = [{"role": "system", "content": system_prompt}]
+        messages.extend(history)
+        if user_input:
+            messages.append({
+                "role": "user",
+                "content": turn_instruction(user_input, trigger_speaker),
+            })
+
+        text = await chat._stream_one_reply(
+            _DeltaRelay(ws, room.id),
+            message_id=message_id,
+            conv_id=conv_id,
+            client=client,
+            model=model,
+            provider_id=provider_id,
+            provider_family=chat._active_provider_family(),
+            messages=messages,
+            max_output=max_output,
+            model_effort=chat._model_thinking_effort(),
+            should_stop=should_stop,
+            character=character,
+            char_name=char_name,
+        )
+        text = strip_tool_call_markup(strip_speaker_marker(text, char_name or ""))
+        await self._context_snapshot(ws, room, messages)
+        if not text.strip():
+            # The call produced nothing, or only a speaker marker. Saving a
+            # blank row would leave an empty bubble in the room and feed the
+            # character's memory an empty turn. On a regenerate this also leaves
+            # the original reply intact, which is the right trade.
+            await self._safe_send(ws, {
+                "type": "group.speaker.done",
+                "room_id": room.id,
+                "message_id": message_id,
+                "failed": True,
+                "content": "",
+            })
+            return message_id, ""
+        row_id = replace_row_id
+        if replace_row_id is not None:
+            if chat.session_store.update_message(
+                replace_row_id, text, character_card_id=char_id,
+            ):
+                chat._msg_ids[message_id] = replace_row_id
+            else:
+                row_id = None
+        if row_id is None:
+            chat._save_assistant(
+                message_id, conv_id, text, character_id=char_id,
+            )
+            row_id = chat._msg_ids.get(message_id)
+        self._bound_short_cache(conv_id)
+        emotion_state = None
+        try:
+            emotion_state = chat._post_turn_emotion_pass(conv_id, char_id=char_id)
+        except Exception:
+            emotion_state = None
+        try:
+            await chat._maybe_queue_tts(
+                ws,
+                message_id=message_id,
+                text=text,
+                conversation_id=conv_id,
+                character_id=char_id,
+            )
+        except Exception:
+            pass
+        await self._safe_send(ws, {
+            "type": "group.speaker.done",
+            "room_id": room.id,
+            "message_id": message_id,
+            "row_id": row_id,
+            # Authoritative text: the streamed deltas were emitted before the
+            # marker was stripped, and a failed call appends its own suffix.
+            "content": text,
+            "emotion_state": emotion_state,
+        })
+        return message_id, text
+
+    async def _run_character_turn(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        history: list[dict[str, str]],
+        user_input: str,
+        should_stop: Any,
+        trigger_speaker: str = "",
+        message_id: str | None = None,
+        workspace_override: Any = None,
+    ) -> tuple[str, str, bool]:
+        """One character's turn through the agent loop.
+
+        The loop owns persistence, so nothing is written here. Everything that
+        scopes it is the room's: the room's history, the room's cancel, the
+        tier a room is fixed at — and, for a work turn, the member's staging.
+        Returns (message_id, text, failed), the text empty when it failed.
+        """
+        chat = self.chat
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        client, model, provider_id = chat.client_and_model()
+        result = await chat._run_agent(
+            ws,
+            message_id,
+            client,
+            model,
+            room.session_id,
+            turn_instruction(user_input, trigger_speaker) if user_input else "",
+            character=character,
+            char_name=char_name,
+            provider_id=provider_id,
+            should_stop=should_stop,
+            tier_override=GROUP_AGENT_TIER,
+            history=history,
+            save_character_id=char_id,
+            workspace_override=workspace_override,
+            plan_sink=self._plan_sink_for(room),
+        )
+        text = strip_tool_call_markup(
+            strip_speaker_marker(result.conclusion, char_name)
+        )
+        self._bound_short_cache(room.session_id)
+        failed = result.outcome != "success" or not text.strip()
+        return message_id, ("" if failed else text), failed
+
+    async def speak_agent(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        user_card: Any,
+        history: list[dict[str, str]],
+        user_input: str,
+        should_stop: Any,
+        trigger_speaker: str = "",
+        message_id: str | None = None,
+        workspace_override: Any = None,
+    ) -> tuple[str, str]:
+        """One character's turn through the agent loop instead of a reply."""
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        message_id = message_id or f"group_{uuid.uuid4().hex[:12]}"
+        await self._safe_send(ws, {
+            "type": "group.speaker.start",
+            "room_id": room.id,
+            "message_id": message_id,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+        message_id, text, failed = await self._run_character_turn(
+            ws, room=room, character=character, history=history,
+            user_input=user_input, should_stop=should_stop,
+            trigger_speaker=trigger_speaker, message_id=message_id,
+            workspace_override=workspace_override,
+        )
+        if failed:
+            await self._safe_send(ws, {
+                "type": "group.speaker.done",
+                "room_id": room.id,
+                "message_id": message_id,
+                "failed": True,
+                "content": "",
+            })
+            return message_id, ""
+        await self._safe_send(ws, {
+            "type": "group.speaker.done",
+            "room_id": room.id,
+            "message_id": message_id,
+            "row_id": self.chat._msg_ids.get(message_id),
+            # Authoritative text: the deltas were emitted before the marker was
+            # stripped, and a failed loop reports its own conclusion.
+            "content": text,
+            "failed": False,
+        })
+        return message_id, text
+
+    async def speak_work(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        character: Any,
+        history: list[dict[str, str]],
+        item: Any,
+        should_stop: Any,
+        workspace_override: Any = None,
+    ) -> tuple[str, str]:
+        """One plan item, run by the member who owns it.
+
+        Wrapped in the same speaker events as any other turn: the member's
+        report is a line in the room, and the transcript listens for that pair.
+        `room.work.*` rides alongside so the board knows who is on what.
+        """
+        char_id = getattr(character, "id", None)
+        char_name = getattr(character, "name", "") or ""
+        item_key = str(getattr(item, "item_key", ""))
+        message_id = f"work_{uuid.uuid4().hex[:12]}"
+        await self._safe_send(ws, {
+            "type": "room.work.started",
+            "room_id": room.id,
+            "message_id": message_id,
+            "item_key": item_key,
+            "character_id": char_id,
+            "character_name": char_name,
+        })
+        message_id, text = await self.speak_agent(
+            ws, room=room, character=character, user_card=None,
+            history=history, user_input=work_instruction(item),
+            should_stop=should_stop, message_id=message_id,
+            workspace_override=workspace_override,
+        )
+        await self._safe_send(ws, {
+            "type": "room.work.finished",
+            "room_id": room.id,
+            "message_id": message_id,
+            "item_key": item_key,
+            "character_id": char_id,
+            "failed": not text.strip(),
+            "content": text,
+        })
+        return message_id, text
+
+    async def _context_snapshot(self, ws: Any, room: Any, messages: list[Any]) -> None:
+        """Report the room's context size for its own gauge.
+
+        Reuses ChatEngine's accounting but emits group.context, so a room never
+        writes over the single-chat token readout."""
+        try:
+            self.chat._track_context(room.session_id, messages)
+            used = getattr(self.chat, "_conv_context_tokens", {}).get(
+                room.session_id, 0,
+            )
+            window = self.chat._model_limits()[0]
+        except Exception:
+            return
+        await self._safe_send(ws, {
+            "type": "group.context",
+            "room_id": room.id,
+            "used_tokens": used,
+            "window_tokens": window,
+        })
+
+    def _elect_prompt(
+        self, character: Any, *, room_scene: str, history_text: str,
+    ) -> str:
+        scene = (room_scene or "").strip()
+        return ELECT_PROMPT.format(
+            name=getattr(character, "name", "") or "Unknown",
+            description=getattr(character, "description", "") or "",
+            personality=getattr(character, "personality", "") or "",
+            room_scene=f"Scene: {scene}" if scene else "",
+            history=history_text or "(nothing yet)",
+        )
+
+    async def elect(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        candidates: list[Any],
+        history_block: list[dict[str, str]],
+        mentioned: list[int],
+        chain_id: str,
+        round_no: int,
+    ) -> list[ElectResult]:
+        """Run one election round. All candidates are queried concurrently."""
+        if not candidates:
+            return []
+        history_text = "\n".join(
+            m["content"] for m in history_block[-ELECT_HISTORY_LINES:]
+        )
+        prompts = [
+            self._elect_prompt(
+                c,
+                room_scene=getattr(room, "scenario_prompt", ""),
+                history_text=history_text,
+            )
+            for c in candidates
+        ]
+        await self._safe_send(ws, {
+            "type": "group.elect.started",
+            "room_id": room.id,
+            "chain_id": chain_id,
+            "round": round_no,
+            "candidates": [getattr(c, "id", None) for c in candidates],
+        })
+        client, model, provider_id = self.chat.client_and_model()
+        raws = await run_batch_completions(
+            client, provider_id=provider_id, model=model, prompts=prompts,
+        )
+        results: list[ElectResult] = []
+        for character, raw in zip(candidates, raws):
+            score, reason = parse_eagerness(raw)
+            char_id = getattr(character, "id", None)
+            char_name = getattr(character, "name", "") or ""
+            if char_id in mentioned:
+                score, reason = MENTIONED_EAGERNESS, "mentioned"
+            results.append(ElectResult(
+                character_id=char_id,
+                character_name=char_name,
+                eagerness=score,
+                reason=reason,
+            ))
+            await self._safe_send(ws, {
+                "type": "group.elect.candidate",
+                "room_id": room.id,
+                "chain_id": chain_id,
+                "round": round_no,
+                "character_id": char_id,
+                "character_name": char_name,
+                "eagerness": score,
+                "reason": reason,
+            })
+        results.sort(key=lambda r: r.eagerness, reverse=True)
+        return results
+
+    def _speaker_names(
+        self, room: Any,
+    ) -> tuple[dict[int, str], str, dict[str, str]]:
+        chat = self.chat
+        names: dict[int, str] = {}
+        for cid in self.rooms.members(room.id):
+            character = chat.card_repo.get_character(cid)
+            if character is not None:
+                names[cid] = getattr(character, "name", "") or ""
+        agent_names: dict[str, str] = {}
+        if self.agent_members is not None:
+            agent_names = {
+                m.ref: m.display_name for m in self.agent_members.members(room.id)
+            }
+        user_card_id = getattr(room, "user_card_id", None)
+        card = (
+            chat.card_repo.get_user_card(user_card_id) if user_card_id else None
+        ) or chat.card_repo.get_default_user_card()
+        return names, getattr(card, "name", "") or "user", agent_names
+
+    def _history_block(self, room: Any) -> list[dict[str, str]]:
+        names, user_name, agent_names = self._speaker_names(room)
+        rows = self.chat.session_store.get_session_messages(room.session_id)
+        return format_group_history(
+            rows, names_by_id=names, user_name=user_name, agent_names=agent_names,
+        )
+
+    def _trigger_for(
+        self, room: Any, first_input: str | None,
+    ) -> tuple[list[dict[str, str]], str, str]:
+        """History for the next speaker, the text that triggered them, and who
+        said it ("" when the trigger is the user's opening line).
+
+        The trigger is returned raw and kept out of history: it goes back as an
+        explicit instruction, not as another transcript line, otherwise the
+        model reads the transcript as a script and writes other people's
+        lines too."""
+        chat = self.chat
+        rows = chat.session_store.get_session_messages(room.session_id)
+        names, user_name, agent_names = self._speaker_names(room)
+        if first_input is not None:
+            speaker = ""
+            if rows:
+                last = rows[-1]
+                if last.role == "user":
+                    rows = rows[:-1]
+                elif getattr(last, "speaker_kind", None) == "agent":
+                    # A member's line is stored as role="assistant", so the
+                    # test above does not see it. Left in, it reaches the
+                    # speaker twice — once as a transcript line and once as the
+                    # trigger — and reported itself as a verbatim echo.
+                    rows = rows[:-1]
+                    speaker = agent_names.get(
+                        getattr(last, "speaker_ref", None) or "",
+                        UNKNOWN_SPEAKER,
+                    )
+            history = format_group_history(
+                rows, names_by_id=names, user_name=user_name,
+                agent_names=agent_names,
+            )
+            return history, first_input, speaker
+        if not rows:
+            return [], "", ""
+        last = rows[-1]
+        if last.role == "user":
+            speaker = user_name
+        elif getattr(last, "speaker_kind", None) == "agent":
+            speaker = agent_names.get(
+                getattr(last, "speaker_ref", None) or "", UNKNOWN_SPEAKER,
+            )
+        else:
+            speaker = names.get(last.character_card_id or -1, UNKNOWN_SPEAKER)
+        history = format_group_history(
+            rows[:-1], names_by_id=names, user_name=user_name,
+            agent_names=agent_names,
+        )
+        return history, last.content, speaker
+
+    def _triggers_for_round(
+        self, room: Any, first_input: str | None, speakers: list[Any],
+    ) -> list[tuple[list[dict[str, str]], str, str]]:
+        """One trigger per speaker, all computed before any of them starts.
+
+        Every call sees the same snapshot because nothing is written until the
+        round's turns begin, so the single-speaker rule is reused verbatim —
+        and the second speaker cannot inherit the first one's line as its
+        trigger.
+        """
+        return [self._trigger_for(room, first_input) for _ in speakers]
+
+    async def run_chain(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        user_input: str,
+        mentioned: list[int],
+        user_card: Any,
+        max_rounds_override: int | None = None,
+    ) -> str:
+        """Chain rounds until nobody is eager enough or a hard cap is hit."""
+        chat = self.chat
+        chain_id = f"chain_{uuid.uuid4().hex[:12]}"
+        members = [
+            chat.card_repo.get_character(cid)
+            for cid in self.rooms.members(room.id)
+        ]
+        members = [c for c in members if c is not None]
+        self.clear_cancel(room.id)
+        if not members:
+            await self._safe_send(ws, {
+                "type": "group.error",
+                "room_id": room.id,
+                "code": "no_members",
+                "message": "This room has no characters.",
+            })
+            return "settled"
+
+        last_speaker: int | None = None
+        first_speaker = True
+        reason = "settled"
+        max_rounds = max(0, int(getattr(room, "max_rounds", 0) or 0))
+        if max_rounds_override is not None:
+            # Caller-imposed cap only; room.max_rounds keeps its own meaning
+            # (0 = unlimited) so companion rooms behave exactly as before.
+            max_rounds = max(0, int(max_rounds_override))
+        round_no = 0
+
+        try:
+            while True:
+                # Checked once per round so Stop stays responsive on a long
+                # chain, not just between speakers.
+                if self.is_cancelled(room.id):
+                    reason = "cancelled"
+                    break
+                round_no += 1
+                if max_rounds and round_no > max_rounds:
+                    reason = "max_rounds"
+                    break
+                results = await self.elect(
+                    ws,
+                    room=room,
+                    candidates=members,
+                    history_block=self._history_block(room),
+                    mentioned=mentioned if round_no == 1 else [],
+                    chain_id=chain_id,
+                    round_no=round_no,
+                )
+                eager = [r for r in results if r.eagerness >= EAGER_THRESHOLD]
+                if not eager:
+                    reason = "settled"
+                    break
+                chosen = [
+                    r for r in eager if r.character_id != last_speaker
+                ][:SPEAKERS_PER_ROUND]
+                if not chosen:
+                    reason = "settled"
+                    break
+                await self._safe_send(ws, {
+                    "type": "group.elect.decided",
+                    "room_id": room.id,
+                    "chain_id": chain_id,
+                    "round": round_no,
+                    "speakers": [r.character_id for r in chosen],
+                })
+                turns: list[tuple[Any, Any]] = []
+                for result in chosen:
+                    character = next(
+                        (c for c in members if c.id == result.character_id), None,
+                    )
+                    if character is not None:
+                        turns.append((result, character))
+                if not turns:
+                    reason = "settled"
+                    break
+                if getattr(room, "agent_mode", False):
+                    # The round's triggers are computed together, before any of
+                    # its turns starts: computed one at a time they would depend
+                    # on which turn wrote first. `gather` does not tear the
+                    # turns down either — each carries the room's stop predicate
+                    # and converges on its own.
+                    plans = self._triggers_for_round(
+                        room, user_input if first_speaker else None, turns,
+                    )
+                    first_speaker = False
+                    await asyncio.gather(*[
+                        self.speak_agent(
+                            ws,
+                            room=room,
+                            character=character,
+                            user_card=user_card,
+                            history=history,
+                            user_input=trigger,
+                            should_stop=lambda: self.is_cancelled(room.id),
+                            trigger_speaker=trigger_speaker,
+                        )
+                        for (_result, character), (
+                            history, trigger, trigger_speaker,
+                        ) in zip(turns, plans)
+                    ])
+                else:
+                    for result, character in turns:
+                        if self.is_cancelled(room.id):
+                            reason = "cancelled"
+                            break
+                        # Read between speakers, not once for the round: the
+                        # next speaker is answering whatever the last one just
+                        # said, which is where this rhythm comes from.
+                        history, trigger, trigger_speaker = self._trigger_for(
+                            room, user_input if first_speaker else None,
+                        )
+                        first_speaker = False
+                        await self.speak(
+                            ws,
+                            room=room,
+                            character=character,
+                            user_card=user_card,
+                            history=history,
+                            user_input=trigger,
+                            should_stop=lambda: self.is_cancelled(room.id),
+                            trigger_speaker=trigger_speaker,
+                        )
+                    if reason == "cancelled":
+                        break
+                last_speaker = turns[-1][0].character_id
+        except asyncio.CancelledError:
+            reason = "cancelled"
+            raise
+        except Exception as e:
+            logger.warning(f"group chain failed: {e}")
+            reason = "error"
+        finally:
+            # Must always fire: the client gates its composer on chainRunning,
+            # which only this event clears.
+            await self._safe_send(ws, {
+                "type": "group.chain.finished",
+                "room_id": room.id,
+                "chain_id": chain_id,
+                "reason": reason,
+            })
+        return reason
+
+    async def regenerate(
+        self,
+        ws: Any,
+        *,
+        room: Any,
+        message_row_id: int,
+        user_card: Any,
+    ) -> tuple[str, str] | None:
+        """Re-run one character's turn in place.
+
+        No election and no chaining: this is the user asking a specific speaker
+        to say it again, not a new round."""
+        chat = self.chat
+        rows = chat.session_store.get_session_messages(room.session_id)
+        index = next(
+            (i for i, r in enumerate(rows) if r.id == message_row_id), None,
+        )
+        if index is None:
+            return None
+        target = rows[index]
+        if target.role != "assistant" or not target.character_card_id:
+            return None
+        character = chat.card_repo.get_character(target.character_card_id)
+        if character is None:
+            return None
+
+        prior = rows[:index]
+        names, user_name, agent_names = self._speaker_names(room)
+        history = format_group_history(
+            prior[:-1], names_by_id=names, user_name=user_name,
+            agent_names=agent_names,
+        )
+        trigger = prior[-1].content if prior else ""
+        trigger_speaker = ""
+        if prior:
+            trigger_speaker = (
+                user_name if prior[-1].role == "user"
+                else names.get(prior[-1].character_card_id or -1, UNKNOWN_SPEAKER)
+            )
+
+        self.clear_cancel(room.id)
+        return await self.speak(
+            ws,
+            room=room,
+            character=character,
+            user_card=user_card,
+            history=history,
+            user_input=trigger,
+            should_stop=lambda: self.is_cancelled(room.id),
+            trigger_speaker=trigger_speaker,
+            message_id=str(message_row_id),
+            replace_row_id=message_row_id,
+        )

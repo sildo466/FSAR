@@ -30,4 +30,19 @@ describe("i18nSetup", () => {
     expect(i18n.t("memory.msgsCount", { count: 3 })).toBe("3 msgs");
     expect(i18n.t("rateStars.rated", { score: 4 })).toBe("rated 4/5");
   });
+
+  it("leaves no placeholder braces in the group strings", async () => {
+    // The delimiters are single braces, so a string written with {{n}} renders
+    // its own placeholder literally — which is what shipped.
+    const i18n = await initI18n("en");
+    for (const lang of ["en", "de", "fr", "ja", "zh-Hans", "zh-Hant"]) {
+      await i18n.changeLanguage(lang);
+      const token = i18n.t("group.tokenOnceWarning", { ref: "Claude" });
+      const steps = i18n.t("group.earlierToolSteps", { n: 3 });
+      expect(token, lang).toContain("Claude");
+      expect(token, lang).not.toMatch(/[{}]/);
+      expect(steps, lang).toContain("3");
+      expect(steps, lang).not.toMatch(/[{}]/);
+    }
+  });
 });

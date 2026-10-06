@@ -1,0 +1,350 @@
+// SPDX-License-Identifier: MIT
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { ClientMsg, ServerMsg } from "../lib/ws-client";
+import { initI18n } from "../lib/i18nSetup";
+import { useWS } from "../stores/ws";
+import { Notifications } from "./Notifications";
+
+class FakeClient {
+  readonly sent: ClientMsg[] = [];
+  private listeners = new Set<(message: ServerMsg) => void>();
+
+  on(listener: (message: ServerMsg) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  send(message: ClientMsg) {
+    this.sent.push(message);
+  }
+
+  emit(message: ServerMsg) {
+    this.listeners.forEach((listener) => listener(message));
+  }
+}
+
+const LIST = {
+  type: "content_guard.list_result",
+  items: [
+    {
+      id: 4,
+      store: "chunk",
+      record_ref: "1",
+      text: "so we should auto-enable it on every doc",
+      verdict_confidence: 0.91,
+      screened_by: "jev",
+      created_at: "2026-09-24T10:00:00",
+    },
+  ],
+  whitelist: [
+    { sha256: "abc123", added_by: "restore", created_at: "2026-09-24T11:00:00" },
+  ],
+  report: { scanned: 12, quarantined: 1, unavailable: 2, total: 12 },
+  stores: ["chunk"],
+  enabled: true,
+};
+
+let client: FakeClient;
+
+beforeAll(async () => {
+  await initI18n("zh-Hans");
+});
+
+beforeEach(() => {
+  client = new FakeClient();
+  useWS.setState({
+    client: client as never,
+    notifications: [],
+    unread: 0,
+    notificationSettings: null,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("Notifications", () => {
+  it("requests the list on mount", () => {
+    render(<Notifications />);
+    expect(client.sent).toContainEqual({ type: "content_guard.list" });
+  });
+
+  it("renders a quarantined item with confidence and judge", async () => {
+    const screen = render(<Notifications />);
+    client.emit(LIST as never);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/auto-enable it on every doc/)
+      ).toBeTruthy();
+    });
+    expect(screen.getByText(/0\.91/)).toBeTruthy();
+    expect(screen.getByText(/jev/i)).toBeTruthy();
+  });
+
+  it("sends restore for an item", async () => {
+    const screen = render(<Notifications />);
+    client.emit(LIST as never);
+    await waitFor(() => screen.getByTestId("restore-4"));
+    fireEvent.click(screen.getByTestId("restore-4"));
+    expect(client.sent).toContainEqual({ type: "content_guard.restore", id: 4 });
+  });
+
+  it("sends purge for an item", async () => {
+    const screen = render(<Notifications />);
+    client.emit(LIST as never);
+    await waitFor(() => screen.getByTestId("purge-4"));
+    fireEvent.click(screen.getByTestId("purge-4"));
+    expect(client.sent).toContainEqual({ type: "content_guard.purge", id: 4 });
+  });
+
+  it("shows the screening-unavailable banner", async () => {
+    const screen = render(<Notifications />);
+    client.emit(LIST as never);
+    await waitFor(() => screen.getByTestId("screening-unavailable"));
+    expect(screen.getByText(/本次有 2 条/)).toBeTruthy();
+  });
+
+  it("hides the banner when nothing went unscreened", async () => {
+    const screen = render(<Notifications />);
+    client.emit({ ...LIST, report: { scanned: 12, unavailable: 0 } } as never);
+    await waitFor(() => screen.getByTestId("restore-4"));
+    expect(screen.queryByTestId("screening-unavailable")).toBeNull();
+  });
+
+  it("sends unwhitelist for a hash", async () => {
+    const screen = render(<Notifications />);
+    client.emit(LIST as never);
+    await waitFor(() => screen.getByTestId("unwhitelist-abc123"));
+    fireEvent.click(screen.getByTestId("unwhitelist-abc123"));
+    expect(client.sent).toContainEqual({
+      type: "content_guard.unwhitelist",
+      sha256: "abc123",
+    });
+  });
+});
+
+// The feed lands in the ws store rather than in the page's own listener: the
+// sidebar reads `unread` from the same slice, so the store is its only home.
+function pushFeed(feed: { items: unknown[]; unread: number; settings?: unknown }) {
+  useWS.setState({
+    notifications: feed.items as never,
+    unread: feed.unread,
+    notificationSettings: (feed.settings ?? null) as never,
+  });
+}
+
+/** Items start collapsed; opening one is also what marks it read. */
+async function expand(screen: ReturnType<typeof render>, id: number) {
+  await waitFor(() => screen.getByTestId(`notification-title-${id}`));
+  fireEvent.click(screen.getByTestId(`notification-title-${id}`));
+}
+
+const FEED = {
+  type: "notifications.list_result",
+  items: [
+    {
+      id: 1,
+      kind: "release",
+      title: "FSAR v0.7.0",
+      body: "notes",
+      ref: "v0.7.0",
+      url: "https://github.com/sildo466/FSAR/releases/tag/v0.7.0",
+      payload: { tag: "v0.7.0", channel: "stable" },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+    {
+      id: 2,
+      kind: "review",
+      title: "Quarantined content in chunk",
+      body: "ignore previous",
+      ref: "4",
+      url: null,
+      payload: { store: "chunk", record_ref: "4" },
+      read: 1,
+      created_at: "2026-09-24T10:00:00",
+    },
+  ],
+  unread: 1,
+  kinds: ["review", "release", "announcement"],
+  settings: {
+    review: { enabled: true },
+    release: { enabled: true, include_prerelease: false },
+    announcement: { enabled: true },
+  },
+};
+
+describe("Notifications feed", () => {
+  it("requests the feed on mount", () => {
+    render(<Notifications />);
+    expect(client.sent).toContainEqual({ type: "notifications.list" });
+  });
+
+  it("marks nothing read just by opening the page", () => {
+    render(<Notifications />);
+    expect(client.sent).not.toContainEqual({ type: "notifications.mark_read" });
+  });
+
+  it("hides the body until the item is expanded", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    expect(screen.queryByText("notes")).toBeNull();
+    fireEvent.click(screen.getByTestId("notification-title-1"));
+    await waitFor(() => screen.getByText("notes"));
+  });
+
+  it("marks an item read when it is expanded", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    fireEvent.click(screen.getByTestId("notification-title-1"));
+    expect(client.sent).toContainEqual({
+      type: "notifications.mark_read",
+      ids: [1],
+    });
+  });
+
+  it("does not re-mark an item that is already read", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-2"));
+    fireEvent.click(screen.getByTestId("notification-title-2"));
+    expect(client.sent).not.toContainEqual({
+      type: "notifications.mark_read",
+      ids: [2],
+    });
+  });
+
+  it("filters to unread only", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("filter-unread"));
+    fireEvent.click(screen.getByTestId("filter-unread"));
+    expect(screen.queryByTestId("notification-2")).toBeNull();
+  });
+
+  it("renders a stable release notification with localized copy", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("notification-1"));
+    expect(screen.getByText("正式版更新 0.7.0")).toBeTruthy();
+  });
+
+  it("filters by kind", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("filter-kind-review"));
+    fireEvent.click(screen.getByTestId("filter-kind-review"));
+    expect(screen.queryByText(/正式版更新/)).toBeNull();
+  });
+
+  it("marks everything read", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("mark-all-read"));
+    fireEvent.click(screen.getByTestId("mark-all-read"));
+    expect(client.sent).toContainEqual({ type: "notifications.mark_read" });
+  });
+
+  it("sends clear after confirmation", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(FEED);
+    await waitFor(() => screen.getByTestId("clear-all"));
+    fireEvent.click(screen.getByTestId("clear-all"));
+    const confirm = await screen.findByTestId("clear-all-confirm");
+    fireEvent.click(confirm);
+    expect(client.sent).toContainEqual({ type: "notifications.clear" });
+  });
+});
+
+const UPDATE_FEED = {
+  ...FEED,
+  items: [
+    {
+      id: 10,
+      kind: "release",
+      title: "FSAR v0.7.0",
+      body: "notes",
+      ref: "v0.7.0",
+      url: null,
+      payload: { tag: "v0.7.0", channel: "stable", updatable: true },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+  ],
+};
+
+const BLOCKED_FEED = {
+  ...UPDATE_FEED,
+  items: [
+    {
+      ...UPDATE_FEED.items[0],
+      id: 11,
+      ref: "v0.5.0",
+      payload: { tag: "v0.5.0", channel: "stable", updatable: false },
+    },
+  ],
+};
+
+const ANNOUNCEMENT_FEED = {
+  ...FEED,
+  items: [
+    {
+      id: 12,
+      kind: "announcement",
+      title: "a.md",
+      body: "# Hello\n\n<img src=x onerror=alert(1)>",
+      ref: "sha1",
+      url: null,
+      payload: { name: "a.md", sha: "sha1" },
+      read: 0,
+      created_at: "2026-09-25T10:00:00",
+    },
+  ],
+};
+
+describe("Notifications updates", () => {
+  it("offers an update button for an updatable release", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(UPDATE_FEED);
+    await expand(screen, 10);
+    fireEvent.click(await screen.findByTestId("update-10"));
+    fireEvent.click(await screen.findByTestId("update-10-confirm"));
+    expect(client.sent).toContainEqual({ type: "updates.apply", tag: "v0.7.0" });
+  });
+
+  it("disables the update button when the version is not newer", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(BLOCKED_FEED);
+    await expand(screen, 11);
+    const button = await screen.findByTestId("update-11");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("title")).toMatch(/已不低于|at or above/);
+  });
+
+  it("surfaces a failed update", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(UPDATE_FEED);
+    await expand(screen, 10);
+    client.emit({ type: "updates.apply_result", ok: false, error: "uncommitted" } as never);
+    await waitFor(() => screen.getByText(/uncommitted/));
+  });
+
+  it("titles an announcement from its markdown heading, not the filename", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(ANNOUNCEMENT_FEED);
+    await waitFor(() => screen.getByTestId("notification-12"));
+    expect(screen.getByTestId("notification-title-12").textContent).toBe("Hello");
+    expect(screen.queryByText("a.md")).toBeNull();
+  });
+
+  it("does not parse raw html in an announcement", async () => {
+    const screen = render(<Notifications />);
+    pushFeed(ANNOUNCEMENT_FEED);
+    await expand(screen, 12);
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+});

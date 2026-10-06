@@ -54,6 +54,11 @@ FSAR 是一個**屬於使用者**的本地優先 AI 夥伴——不屬於任何�
 - 「入戲」聊天模式——助手完全進入所選角色卡設定(可以拒絕、拖延、討價還價),透過 router 元工具按意圖解鎖工作階段內可用的能力
 - 將新 skill 持久化為 SQLite experience 記錄(P6)——本次工作階段安裝的 MCP 即為下次工作階段的回憶
 - 透過 Telegram、Feishu 或 WeChat 社交橋接進行對話
+- 與多個角色共處一個房間——他們自己選出下一個發言的人,`@` 點名某位角色就把發言權交給它
+- 把房間當作專案來推進——一塊計畫板,每個成員在各自那份倉庫副本裡走一個回合,補丁由你手動落地或駁回,快照由你發布
+- 篩查已存記憶中的提示詞注入,把被標記的隔離起來;通知中心同時也承載新版本發布與官方公告
+- 記住日期與你的生日,讓角色不再把上個月當作今天
+- 無頭執行單一回合——`fsar run`,或用 `fsar room say` / `fsar room read` 打到房間的 API
 
 ## 快速入門
 
@@ -144,6 +149,10 @@ FSAR 與通用 AI 聊天應用程式有何不同。
 
 每個工作階段執行的是你撰寫的角色卡:名稱、性格、情境、選用的情緒狀態。再搭配一張描述你自己的使用者卡,LLM 收到的是範圍明確的 persona,而不是會離題的「helpful AI assistant」。換卡即換角,無需更動程式碼。
 
+### 房間,不只是一對一
+
+除了單聊,FSAR 還有房間。**群聊房間**同時容納多個角色與你,角色們自己選出下一個發言的人。**專案房間**更進一步:它維護一塊計畫板,把每一項交給負責它的成員,在那位成員獨享的專案副本裡跑這一回合,再把結果作為補丁帶回來,由你決定落地還是駁回。沒有你點頭,什麼都不會跑。
+
 ### 跨工作階段記住你
 
 經過幾次對話後,FSAR 會建構出穩定的畫像:明確偏好(「使用 VSCode」)、推論行為(「經常晚上寫程式」)、重複模式(「通常用 file_ops 整理下載」)。下次工作階段開啟時,這些上下文已在系統提示中。你再也不必重新自我介紹。
@@ -174,7 +183,7 @@ computer-use 層級(`cua`)允許模型在桌面上進行截圖、點擊、輸入
 
 ### 體積小
 
-FSAR 很輕——一個 Python 服務加一個精簡的 Tauri 前端。原始碼僅約 6~7 MB,安裝前端依賴後約 200 MB(不含 Python 依賴)。沒有重型執行環境、不依賴雲端,一般配置的機器也能順跑。
+FSAR 很輕——一個 Python 服務加一個瀏覽器前端。原始碼僅約 6~7 MB,安裝前端依賴後約 200 MB(不含 Python 依賴)。沒有重型執行環境、不依賴雲端,一般配置的機器也能順跑。
 
 ## 教學
 
@@ -187,6 +196,8 @@ src/
   server/         FastAPI WebSocket 傳輸層
   core/           Agent 迴圈、prompts、injectors
   memory/         短期、長期、語意、使用者模型、experience
+  notifications/  審核 / 發布 / 公告流
+  updates/        版本檢查、公告、git 更新流程
   tools/builtin/  約 25 個內建工具
   security/       風險引擎、permissions、稽核
   sandbox/        Hardline 守衛、workspace gate
@@ -195,7 +206,7 @@ src/
   providers/      LLM / TTS / ASR 配接器
   cli/            終端機 TUI(Textual)+ 斜線指令
   utils/          日誌、組態、migrations
-frontend/         Tauri 2 / React UI
+frontend/         React UI(Vite)
 data/             SQLite + ChromaDB + logs + cache
 config/           隨附的 yaml 預設值
 ```
@@ -207,7 +218,7 @@ config/           隨附的 yaml 預設值
 - `config/fsar.yaml.template` — 隨附預設值,唯讀參考
 - `~/.fsar/config/fsar.yaml` — 你的副本,可透過 UI 或手動編輯
 
-首次啟動時若你的副本不存在,會複製範本。區段:`llm` / `tts` / `asr` / `memory` / `security` / `social` / `mcp` / `reflection` / `permissions` / `user` / `style`。完整結構請見 [`config/fsar.yaml.template`](config/fsar.yaml.template)。
+首次啟動時若你的副本不存在,會複製範本。區段:`llm` / `tts` / `asr` / `memory` / `security` / `notifications` / `github` / `social` / `mcp` / `reflection` / `permissions` / `user` / `time` / `lan` / `style`。完整結構請見 [`config/fsar.yaml.template`](config/fsar.yaml.template)。
 
 ### 資料佈局
 
@@ -218,7 +229,7 @@ FSAR 對你的所有記憶都儲存在 `~/.fsar/` 之下:
 ~/.fsar/data/
   memory.db           對話、決策、使用者模型、experience
   chroma/             語意嵌入向量
-  llm_cache.db        L1/L2 回應快取
+  llm_cache.db        供應商 prompt 快取記錄
   tts_cache.db        TTS 音訊快取
   logs/               循環日誌
 ```
@@ -227,7 +238,7 @@ FSAR 對你的所有記憶都儲存在 `~/.fsar/` 之下:
 
 ### 建置與測試
 
-Python 後端與 Tauri 前端是分開的產物;沒有單一的「build」步驟。
+Python 後端與前端是分開的產物;沒有單一的「build」步驟。
 
 ```bash
 # 後端

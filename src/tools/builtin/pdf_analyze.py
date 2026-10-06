@@ -96,7 +96,7 @@ class PdfAnalyzeTool(Tool):
                     {"role": "system", "content": "You are analyzing a PDF document. Answer based on the provided text."},
                     {"role": "user", "content": f"{prompt}\n\n--- PDF Content ---\n{text}"},
                 ],
-                max_tokens=4096,
+                max_tokens=100000,
             )
 
             result = resp.choices[0].message.content or "(no response)"

@@ -2,9 +2,9 @@
 
 > 语言：中文 | [English](frontend.en.md) · 返回 [模块索引](README.md)
 
-Vite + React 应用（包名 `fsar-gui`），Tauri 桌面壳在 `frontend/src-tauri`。
+Vite + React 应用（包名 `fsar-gui`），由 Python 后端在浏览器中于 `127.0.0.1:8765` 提供。仓库内有一个 Tauri 壳（`frontend/src-tauri`），但不构建也不使用。
 
-- **`pages/`** — 顶级页面：Chat、Live、Cards、Memory、Reflection、Insights、Library、Integration、Scheduler、Settings、SettingsWorkspace、Usage、Onboarding。
+- **`pages/`** — 顶级页面：Chat、Group、GroupRoom、Live、Cards、Memory、Reflection、Insights、Library、Integration、Notifications、Scheduler、Settings、SettingsWorkspace、Usage、Onboarding。
 - **`clients/` 与 `lib/ws-client.ts`** — JSON WS 协议客户端（后者是 `src/server/events.py` 的类型化镜像）。
 - **`components/`** — 按特性分组：`chat/`（MessageList、RiskConfirm、AgentActivity、HistoryPanel、MicButton、SlashPopover、TierSwitcher 等）、`live/`（Live Companion 语音对话：`AvatarRenderer`/`VrmAvatar`/`Live2DAvatar`/`GeometricAvatar` 渲染器、`useLiveVoice` 编排、`SubtitleOverlay`、`MicToggle`、`ModelPicker`）、`onboarding/`（`WizardShell` 向导：语言 → 提供商 → ASR → TTS → 嵌入 → 角色卡 → 用户卡）、`settings/`（MCP / 权限 / 嵌入 / 样式 / 高级 / 提供商弹窗）、`workspace/`（沙盒逃逸弹窗、安全面板）、`shell/`（侧栏 / 顶栏）。
 - **`stores/`** — 状态存储（ws、chat-ui、cards、sessions、onboarding、workspace、locale、social 等），附带 Vitest 测试。

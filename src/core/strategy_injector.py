@@ -58,6 +58,33 @@ class StrategyInjector:
         self.success_rate_threshold = success_rate_threshold
         self.latency_threshold_ms = latency_threshold_ms
         self.min_uses = min_uses
+        self._recent_strategies: list[str] = []
+
+    def set_recent_strategies(self, strategies: Iterable[str]) -> None:
+        self._recent_strategies = [str(s) for s in strategies]
+
+    def item_lines(self) -> list[str]:
+        """Judgeable item lines only — the subset eligible for injection packing.
+
+        Tool stats are deliberately excluded: they are operational warnings
+        derived from SQL aggregates, not memories, so build_block() keeps
+        injecting them unconditionally instead of letting them compete for the
+        context budget against query-relevant recall.
+        """
+        if self.intensity == INTENSITY_OFF:
+            return []
+        lines: list[str] = list(self._preference_lines())
+        if self.intensity == INTENSITY_HIGH:
+            for s in self._recent_strategies[: self.max_strategies]:
+                s = s.strip()
+                if s:
+                    lines.append(f"- {s}")
+        return lines
+
+    def tool_stat_lines(self) -> list[str]:
+        if self.intensity in (INTENSITY_MEDIUM, INTENSITY_HIGH):
+            return self._tool_stat_lines()
+        return []
 
     def set_intensity(self, intensity: str) -> None:
         if intensity not in (INTENSITY_OFF, INTENSITY_LOW,
@@ -67,6 +94,7 @@ class StrategyInjector:
 
     def build_block(self, *, recent_strategies: Iterable[str] = ()) -> str:
         """Return the markdown block to inject. Empty string if off / no data."""
+        self.set_recent_strategies(recent_strategies)
         if self.intensity == INTENSITY_OFF:
             return ""
 
@@ -82,7 +110,7 @@ class StrategyInjector:
 
         # 3) Task-reflection suggested_strategy (only high)
         if self.intensity == INTENSITY_HIGH:
-            strat = list(recent_strategies)[:self.max_strategies]
+            strat = self._recent_strategies[:self.max_strategies]
             if strat:
                 lines.append("\nLearned task strategies:")
                 for s in strat:

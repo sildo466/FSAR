@@ -22,6 +22,7 @@ class SessionRow:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     message_count: int = 0
+    kind: str = "chat"
 
     def to_dict(self) -> dict:
         return {
@@ -31,6 +32,7 @@ class SessionRow:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "message_count": self.message_count,
+            "kind": self.kind,
         }
 
 
@@ -40,12 +42,18 @@ class MessageRow:
     session_id: str
     role: str
     content: str
+    character_card_id: int | None = None
     timestamp: datetime = field(default_factory=datetime.now)
     summary: str = ""
     tags: str = ""
+    speaker_kind: str | None = None
+    speaker_ref: str | None = None
+    # JSON: the tool calls this turn made. Names and arguments only — a tool's
+    # output is whatever it read, and that does not belong in a transcript.
+    tool_steps: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id": self.id,
             "session_id": self.session_id,
             "role": self.role,
@@ -54,6 +62,9 @@ class MessageRow:
             "tags": self.tags,
             "timestamp": self.timestamp.isoformat(),
         }
+        if self.character_card_id is not None:
+            data["character_id"] = self.character_card_id
+        return data
 
 
 class SessionStore:
@@ -97,6 +108,10 @@ class SessionStore:
             self._migrate_character_binding(conn)
             self._migrate_context_tokens(conn)
             self._migrate_unlocked_tools(conn)
+            self._migrate_message_attribution(conn)
+            self._migrate_member_speaker(conn)
+            self._migrate_tool_steps(conn)
+            self._migrate_session_kind(conn)
             social_migration = importlib.import_module(
                 "data.migrations.2026_07_17_pl2_7_social"
             )
@@ -116,6 +131,73 @@ class SessionStore:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
         if "unlocked_tools" not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN unlocked_tools TEXT")
+
+    def _migrate_session_kind(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add kind so group rooms stay out of the chat history."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "kind" not in cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'"
+            )
+        conn.commit()
+
+    def _migrate_message_attribution(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: add character_card_id to conversations (per-message speaker)."""
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "conversations" not in tables:
+            return
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+        if "character_card_id" not in cols:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN character_card_id INTEGER"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_character "
+            "ON conversations(character_card_id)"
+        )
+        conn.commit()
+
+    def _migrate_member_speaker(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: let a row name a speaker that is not a character card.
+
+        Agent room members have no character_cards row, so character_card_id
+        cannot carry them. Existing rows keep character_card_id and leave both
+        new columns NULL — readers must accept either shape.
+        """
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "conversations" not in tables:
+            return
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+        if "speaker_kind" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN speaker_kind TEXT")
+        if "speaker_ref" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN speaker_ref TEXT")
+        conn.commit()
+
+    def _migrate_tool_steps(self, conn: sqlite3.Connection) -> None:
+        """Idempotent: let an assistant row carry the tool calls it made.
+
+        The GUI showed a turn's steps only while it was live; a reload dropped
+        them, because nothing stored them. Existing rows leave the column NULL
+        and read back as no steps.
+        """
+        cols = [
+            r[1]
+            for r in conn.execute("PRAGMA table_info(conversations)").fetchall()
+        ]
+        if cols and "tool_steps" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN tool_steps TEXT")
+        conn.commit()
 
     def get_unlocked_tools(self, session_id: str) -> set[str]:
         """Session-permanent character-mode unlocks. Empty set when none stored."""
@@ -192,13 +274,43 @@ class SessionStore:
         return int(r[0] or 0) if r else 0
 
     def session_ids_for_character(self, character_id: int) -> list[str]:
-        """All conversation ids bound to the given character card."""
+        """Conversations the character is bound to or has spoken in.
+
+        Two sources, unioned: the legacy single-character binding on the session
+        row, plus per-message speaker attribution (group rooms). The binding
+        branch is kept verbatim so existing chats keep their exact memory scope
+        with no backfill migration."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id FROM sessions WHERE character_card_id = ?",
-                (character_id,),
-            ).fetchall()
-        return [r[0] for r in rows]
+            ids = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM sessions WHERE character_card_id = ?",
+                    (character_id,),
+                ).fetchall()
+            }
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "conversations" in tables:
+                cols = [
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(conversations)"
+                    ).fetchall()
+                ]
+                if "character_card_id" in cols:
+                    ids.update(
+                        r[0]
+                        for r in conn.execute(
+                            "SELECT DISTINCT session_fk FROM conversations "
+                            "WHERE character_card_id = ? AND session_fk IS NOT NULL",
+                            (character_id,),
+                        ).fetchall()
+                    )
+        return sorted(ids)
 
     def _migrate_conversations(self, conn: sqlite3.Connection) -> None:
         """Idempotent: add session_fk column + backfill from session_id.
@@ -248,18 +360,21 @@ class SessionStore:
 
     # ---------- sessions CRUD ----------
 
-    def create(self) -> SessionRow:
+    def create(self, kind: str = "chat") -> SessionRow:
         now = datetime.now()
         row = SessionRow(
             id=uuid.uuid4().hex,
             created_at=now,
             updated_at=now,
+            kind=kind,
         )
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, pinned, created_at, updated_at, message_count) "
-                "VALUES (?, ?, 0, ?, ?, 0)",
-                (row.id, row.title, row.created_at.isoformat(), row.updated_at.isoformat()),
+                "INSERT INTO sessions "
+                "(id, title, pinned, created_at, updated_at, message_count, kind) "
+                "VALUES (?, ?, 0, ?, ?, 0, ?)",
+                (row.id, row.title, row.created_at.isoformat(),
+                 row.updated_at.isoformat(), kind),
             )
             conn.commit()
         return row
@@ -267,19 +382,38 @@ class SessionStore:
     def get(self, conversation_id: str) -> SessionRow | None:
         with self._connect() as conn:
             r = conn.execute(
-                "SELECT id, title, pinned, created_at, updated_at, message_count "
+                "SELECT id, title, pinned, created_at, updated_at, message_count, kind "
                 "FROM sessions WHERE id = ?",
                 (conversation_id,),
             ).fetchone()
         return self._row_to_session(r) if r else None
 
-    def list(self, limit: int = 50) -> list[SessionRow]:
+    def get_kind(self, session_id: str) -> str:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, title, pinned, created_at, updated_at, message_count "
-                "FROM sessions ORDER BY pinned DESC, updated_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            r = conn.execute(
+                "SELECT kind FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        return str(r[0] or "chat") if r else "chat"
+
+    def list(self, limit: int = 50, kind: str | None = "chat") -> list[SessionRow]:
+        """List sessions. Defaults to chat so group rooms stay out of the
+        single-chat history panel; pass kind=None for everything."""
+        with self._connect() as conn:
+            if kind is None:
+                rows = conn.execute(
+                    "SELECT id, title, pinned, created_at, updated_at, "
+                    "message_count, kind "
+                    "FROM sessions ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, title, pinned, created_at, updated_at, "
+                    "message_count, kind "
+                    "FROM sessions WHERE kind = ? "
+                    "ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                    (kind, limit),
+                ).fetchall()
         return [self._row_to_session(r) for r in rows]
 
     def rename(self, conversation_id: str, title: str) -> bool:
@@ -333,7 +467,8 @@ class SessionStore:
 
     def append_message(
         self, conversation_id: str, role: str, content: str,
-        summary: str = "", tags: str = "",
+        summary: str = "", tags: str = "", character_card_id: int | None = None,
+        speaker_kind: str | None = None, speaker_ref: str | None = None,
     ) -> int | None:
         """Insert into conversations table with session_fk set; returns row id."""
         if self.get(conversation_id) is None:
@@ -343,10 +478,12 @@ class SessionStore:
             self._ensure_conversations(conn)
             cur = conn.execute(
                 "INSERT INTO conversations "
-                "(session_id, session_fk, role, content, summary, tags, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(session_id, session_fk, role, content, summary, tags, timestamp, "
+                "character_card_id, speaker_kind, speaker_ref) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (conversation_id, conversation_id, role, content, summary, tags,
-                 datetime.now().isoformat()),
+                 datetime.now().isoformat(), character_card_id, speaker_kind,
+                 speaker_ref),
             )
             conn.commit()
             self.touch(conversation_id)
@@ -378,12 +515,47 @@ class SessionStore:
             conn.commit()
         return deleted
 
+    def update_message(
+        self, message_id: int, content: str, character_card_id: int | None = None,
+    ) -> bool:
+        """Rewrite one message in place, keeping its row id and position.
+
+        Regenerating must not append a second copy at the end of the room. The
+        steps go with the reply they belonged to: the replacement has not made
+        any yet."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE conversations SET content = ?, character_card_id = ?, "
+                "tool_steps = '' WHERE id = ?",
+                (content, character_card_id, message_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def set_message_tool_steps(
+        self, message_id: int, steps: list[dict],
+    ) -> bool:
+        """Attach the tool calls one assistant turn made.
+
+        Names, arguments and call ids only: whatever the tool returned is what
+        it read, and that is not transcript material.
+        """
+        payload = json.dumps(steps, ensure_ascii=False) if steps else ""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE conversations SET tool_steps = ? WHERE id = ?",
+                (payload, int(message_id)),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def get_recent_messages(
         self, conversation_id: str, limit: int = 10,
     ) -> list[MessageRow]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                 "FROM conversations WHERE session_fk = ? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (conversation_id, limit),
@@ -396,14 +568,16 @@ class SessionStore:
         with self._connect() as conn:
             if limit:
                 rows = conn.execute(
-                    "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                    "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                     "FROM conversations WHERE session_fk = ? "
                     "ORDER BY timestamp ASC LIMIT ?",
                     (conversation_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, session_fk, role, content, summary, tags, timestamp "
+                    "SELECT id, session_fk, role, content, character_card_id, "
+                "timestamp, summary, tags, speaker_kind, speaker_ref, tool_steps "
                     "FROM conversations WHERE session_fk = ? ORDER BY timestamp ASC",
                     (conversation_id,),
                 ).fetchall()
@@ -420,6 +594,7 @@ class SessionStore:
             created_at=datetime.fromisoformat(r[3]),
             updated_at=datetime.fromisoformat(r[4]),
             message_count=int(r[5] or 0),
+            kind=str(r[6] or "chat"),
         )
 
     @staticmethod
@@ -429,7 +604,11 @@ class SessionStore:
             session_id=r[1],
             role=r[2],
             content=r[3],
-            summary=r[4] or "",
-            tags=r[5] or "",
-            timestamp=datetime.fromisoformat(r[6]),
+            character_card_id=r[4],
+            timestamp=datetime.fromisoformat(r[5]),
+            summary=r[6] or "",
+            tags=r[7] or "",
+            speaker_kind=r[8],
+            speaker_ref=r[9],
+            tool_steps=r[10] or "",
         )

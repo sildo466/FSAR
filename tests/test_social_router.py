@@ -173,7 +173,8 @@ async def test_handle_user_agent_message_drives_engine_agent_loop(monkeypatch):
 
         async def _run_agent(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(conclusion="final answer")
+            # Mirrors AgentLoopResult: headless callers report the outcome too.
+            return SimpleNamespace(conclusion="final answer", outcome="success")
 
     engine = _Engine()
     monkeypatch.setattr(ce, "get_default_chat_engine", lambda: engine)

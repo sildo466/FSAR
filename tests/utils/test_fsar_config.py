@@ -81,3 +81,27 @@ def test_get_llm_config_expands_env_var_in_api_key(tmp_path: Path, monkeypatch):
     )
     cfg = FsarConfig(tmp_path / "fsar.yaml")
     assert cfg.get_llm_config("p1")["api_key"] == "sk-from-env"
+
+
+TEMPLATE = Path(__file__).resolve().parents[2] / "config" / "fsar.yaml.template"
+
+
+def test_template_declares_notification_defaults(tmp_path: Path):
+    cfg_path = tmp_path / "fsar.yaml"
+    cfg_path.write_text(TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+    cfg = FsarConfig(cfg_path)
+    assert cfg.get("notifications.review.enabled") is True
+    assert cfg.get("notifications.release.enabled") is True
+    assert cfg.get("notifications.announcement.enabled") is True
+    assert cfg.get("notifications.release.include_prerelease") is False
+
+
+def test_absent_notification_section_needs_explicit_defaults(tmp_path: Path):
+    """Existing installs never receive the template section, so callers must
+    pass the default themselves rather than relying on the config file."""
+    p = tmp_path / "fsar.yaml"
+    p.write_text("memory:\n  sqlite_path: data/x.db\n", encoding="utf-8")
+    cfg = FsarConfig(p)
+    assert cfg.get("notifications.release.enabled") is None
+    assert cfg.get("notifications.release.enabled", True) is True
+    assert cfg.get("notifications.release.include_prerelease", False) is False

@@ -144,6 +144,33 @@ security:
 
 Prevents secrets and other sensitive content from being written into long-term memory.
 
+### security.content_screening — prompt-injection screening
+
+```yaml
+  content_screening:
+    enabled: true                 # on by default: active on a fresh deployment
+    threshold: 0.62               # confidence at or above this quarantines the item
+    scan_on_startup: true         # scan existing content in the background at startup
+```
+
+A model decides "normal roleplay / user statement" versus "an instruction aimed at the model". This catches payloads that are only harmful by context and that a keyword regex cannot see. If `llm.judge` is configured it uses JEV, otherwise the active LLM.
+
+- **On write**: every memory write (facts, experience, preferences, patterns, task reflections) is screened on a background thread. Conversation is not blocked.
+- **At startup** depends on whether JEV is configured. With `llm.judge` set, every launch re-checks everything — JEV calls are cheap. Without JEV, only items newer than the last scan are checked, and a full pass would otherwise spend your own API budget on every launch. On first run the existing backlog is adopted without being scanned.
+- **On a hit**: the item moves from its store into quarantine and appears on the GUI **Notifications** page, where it can be **restored** or **permanently deleted**. Restored content is allowlisted by hash and skipped from then on.
+- **Character cards** are never deleted — only their text fields are blanked, because sessions still reference the card id.
+- **When screening is unavailable** (no model configured, timeout, call failure) nothing is quarantined; the Notifications page instead reports how many items went unscreened this run.
+
+### security.visitor_screening — screening what an outside member says
+
+```yaml
+  visitor_screening:
+    enabled: false                # off by default — see below
+    threshold: 0.7                # confidence at or above this bans the credential
+```
+
+Reads every line an outside room member sends, and bans that member's credential when the line tries to steer the model, attacks someone, floods, or reaches for this machine. It is off by default because it can take a credential away on a model's say-so — that is a decision, not a default.
+
 ### security.file_read_blacklist — file-read blacklist
 
 ```yaml
@@ -164,16 +191,52 @@ Prevents secrets and other sensitive content from being written into long-term m
 
 ---
 
+## notifications — the notification feed
+
+```yaml
+notifications:
+  review:
+    enabled: true                 # quarantine notices
+  release:
+    enabled: true                 # newer GitHub releases
+    include_prerelease: false     # widen a stable build to pre-releases
+  announcement:
+    enabled: true                 # official announcements from the repo
+```
+
+Each kind can be switched off independently; the feed's category filter mirrors these three. `release.include_prerelease` is what turns a stable build into one that also hears about betas.
+
+## github — API token
+
+```yaml
+github:
+  token: ""                       # optional; raises the Releases API rate limit
+```
+
+The update check and announcement pull work without a token, at GitHub's anonymous rate limit. Set one if you check often or hit the limit.
+
+---
+
 ## llm — LLM providers
 
 ```yaml
 llm:
   active: ""          # name of the active provider
   providers: []       # list of providers, each with name/provider/base_url/api_key/model, etc.
+  vision_model:       # optional dedicated model for image_analyze / computer use
+    base_url: ""      # empty = use the active chat model
+    api_key: ""
+    model: ""
+  judge:              # optional per-candidate relevance judge for memory injection
+    base_url: ""      # empty = disable, and injection falls back to priority order
+    api_key: ""
+    model: ""
 ```
 
 - Supports OpenAI, Anthropic, Google, DeepSeek, and any OpenAI-compatible endpoint; local models via Ollama / LM Studio.
 - A provider row may set `format: responses` to route calls through the OpenAI Responses API (`/v1/responses`) instead of chat completions. Setting an openai preset's family to "OpenAI Responses" in the GUI writes this automatically.
+- `vision_model` is only used when set; otherwise image analysis goes through the active chat model.
+- `judge` must speak JEV's protocol — it returns typed judgments rather than text, so an ordinary OpenAI-compatible model cannot be dropped in. `base_url` and `api_key` accept `${ENV_VAR}`. Configure it from the *Models* tab in Settings.
 
 ## tts — text-to-speech
 
@@ -227,7 +290,10 @@ memory:
   short_term_window: 50          # recent messages kept in short-term memory
   reflection_interval_hours: 12  # minimum interval for idle-batch reflection (hours)
   reflection_intensity: medium   # reflection intensity (several grades; default medium)
-  recall_max_chars: 2000         # max characters of recall injected into the prompt
+  inject_budget_chars: 2400      # shared character budget for all injected candidates
+  inject_candidate_cap: 40       # how many candidates the judge may score
+  inject_score_floor: 0.35       # relevance below this is dropped
+  inject_max_item_chars: 600     # per-item cap
   enable_rating_prompt: true     # prompt the user to rate replies
   embedder:                      # semantic embeddings (for semantic memory/recall)
     provider: ""
@@ -237,18 +303,15 @@ memory:
     timeout: 60
 ```
 
-## llm_cache — LLM response cache
+Recall is packed by relevance into one shared budget rather than truncated by position, so nothing is cut mid-sentence. The budget sits near the old truncation limit on purpose: the judge only earns its keep when the candidate pool exceeds it. Editable in Settings → Advanced. (This replaced `recall_max_chars`, which was tuned for positional truncation.)
 
-A two-tier cache (L1 in-memory + L2 persistent) that reduces duplicate calls and speeds up responses.
+## llm_cache — provider prompt-cache bookkeeping
+
+There is **no local response cache**. The disk-level L1/L2 cache was removed; what remains is bookkeeping for the *provider's own* server-side prompt cache (Anthropic `cache_control`, Gemini `cachedContents`), whose markers are still applied where the provider supports them.
 
 ```yaml
 llm_cache:
-  enabled: true
-  l1_max_entries: 256       # L1 (memory) max entries
-  l1_ttl_seconds: 300       # L1 time-to-live
-  l2_ttl_seconds: 86400     # L2 (persistent) time-to-live
-  retention: short          # retention policy
-  skip_vision: true         # skip requests containing images (do not cache)
+  retention: short          # retention policy for the bookkeeping
   use_responses_api: false  # legacy override; prefer per-provider format="responses" in llm.providers[]
 ```
 
@@ -306,6 +369,8 @@ The three reflection modes can coexist: `per_task`, `on_failure`, and `idle_batc
 ```yaml
 user:
   display_name: ""        # user display name
+  birthday: null          # MM-DD; the characters mark the day
+  birthday_letter_shown: null   # last year the letter was written
 
 style:
   theme: system           # theme: system / light / dark
@@ -315,6 +380,30 @@ style:
   locale: en              # UI language (en / zh-Hans / zh-Hant / ja / de / fr)
   per_page_overrides: {}  # per-page style overrides
 ```
+
+`birthday` is also asked for by the onboarding wizard. Setting it is what makes the characters mark the day.
+
+## time — time awareness
+
+```yaml
+time:
+  enabled: true           # inject the real date and the away-time into prompts
+  gap_floor_minutes: 120  # below this, no "you were away for…" line is added
+```
+
+With this on, prompts carry today's date, how long you were away, and the age of recalled memories, so a character stops treating last month as today.
+
+## lan — the LAN room listener
+
+```yaml
+lan:
+  enabled: false          # master switch: off means no socket is opened at all
+  bind_host: "0.0.0.0"    # 0.0.0.0 follows the machine onto whatever network it joins
+  port: 8766
+  cert_dir: ""            # empty = ~/.fsar/security/lan
+```
+
+This is the **master** switch for outside room members; a room must also set its own `lan_enabled`. `0.0.0.0` is the point — it follows your machine onto whatever network it joins — but it also means a café wifi can reach the port, so leave it off there. Each outside member gets its own credential (expiry, first-use address binding, rate budgets); see [`SECURITY.md`](../SECURITY.md).
 
 ## plugins / external_skills — extensions
 

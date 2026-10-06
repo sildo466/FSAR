@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import mimetypes
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +17,32 @@ from fastapi.staticfiles import StaticFiles
 
 from src.utils.fsar_config import get_default_config
 from src.utils.fsar_home import get_fsar_home
+from src.memory.agent_members import AgentMemberStore
+from src.memory.auth_audit import AuthAuditStore
+from src.memory.db import enable_wal
+from src.memory.idempotency import IdempotencyStore
+from src.memory.lan_blocklist import LanBlocklist
+from src.memory.member_tokens import MemberTokenStore
+from src.memory.patches import PatchStore
+from src.memory.publishes import PublishStore
+from src.memory.room_plan import RoomPlanStore
+from src.memory.rooms import RoomStore
+from src.security.rate_budget import RateBudget
+from src.server import room_ingress
+from src.server.group_engine import GroupEngine
+from src.server.lan_supervisor import LanSupervisor
+from src.server.room_runner import RoomRunner
+from src.server.room_wiring import dispatch_item
+from src.server.room_app import RoomDeps
 from src.utils.logger import logger
+from src.utils.version import app_version
 from src.server.handlers import chat as chat_handler
 from src.server.handlers import asr as asr_handler
 from src.server.handlers import embedding as embedding_handler
 from src.server.handlers import card as card_handler
 from src.server.handlers import conversation as conversation_handler
+from src.server.handlers import group as group_handler
+from src.server.handlers import lan as lan_handler
 from src.server.handlers import insights as insights_handler
 from src.server.handlers import integration as integration_handler
 from src.server.handlers import library as library_handler
@@ -32,6 +53,8 @@ from src.server.handlers import provider as provider_handler
 from src.server.handlers import reflection as reflection_handler
 from src.server.handlers import risk as risk_handler
 from src.server.handlers import settings as settings_handler
+from src.server.handlers import screening as screening_handler
+from src.server.handlers import notifications as notifications_handler
 from src.server.handlers import skin as skin_handler
 from src.server.handlers import tts as tts_handler
 from src.server.handlers import skill_install as skill_install_handler
@@ -81,12 +104,234 @@ _ctx: dict[str, Any] = {
 }
 chat_handler.set_engine(_engine)
 conversation_handler.set_engine(_engine)
+# The room API listens on its own event loop in a second thread and writes to
+# this same file on every request. Without WAL its reads queue behind whatever
+# the GUI thread is committing, and a stalled loop is a refused connection.
+enable_wal(_config.memory_sqlite_path)
+_group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
+_agent_members = AgentMemberStore(_config.memory_sqlite_path)
+_member_tokens = MemberTokenStore(_config.memory_sqlite_path)
+_room_plans = RoomPlanStore(_config.memory_sqlite_path)
+_room_publishes = PublishStore(_config.memory_sqlite_path)
+_room_patches = PatchStore(_config.memory_sqlite_path)
+_group_engine = GroupEngine(_engine, _group_rooms, _agent_members, _room_plans)
+group_handler.set_engine(
+    _group_engine, _group_rooms, _agent_members, _member_tokens,
+)
+group_handler.set_room_plan_engine(_group_rooms, _room_plans)
+room_ingress.configure(_member_tokens, _group_rooms)
+app.include_router(room_ingress.router)
+
+
+async def _push_room_event(payload: dict[str, Any]) -> None:
+    """The scheduler has no socket; GUI clients get its events by broadcast."""
+    from src.server.handlers.chat import _broadcast
+
+    await _broadcast(payload)
+
+
+def _room_project_root(room: Any) -> str | None:
+    workspace_id = getattr(room, "workspace_id", None)
+    if not workspace_id:
+        return None
+    workspace = _engine.workspace_repo.get(int(workspace_id))
+    return workspace.root_path if workspace else None
+
+
+group_handler.set_room_publish(_room_publishes, _room_project_root)
+group_handler.set_room_patch(_room_patches, _engine.workspace_repo)
+
+
+_room_runner = RoomRunner(
+    _group_rooms,
+    _room_plans,
+    dispatch_item(
+        group_engine=_group_engine,
+        rooms=_group_rooms,
+        plans=_room_plans,
+        workspaces=_engine.workspace_repo,
+        project_root_for=_room_project_root,
+        emit=_push_room_event,
+        cancel=_group_engine.is_cancelled,
+        ws=group_handler._BroadcastSocket(),
+    ),
+    _push_room_event,
+)
+group_handler.set_room_runner(_room_runner)
+
+_auth_audit = AuthAuditStore(_config.memory_sqlite_path)
+_lan_blocklist = LanBlocklist(_config.memory_sqlite_path)
+_lan_idempotency = IdempotencyStore(_config.memory_sqlite_path)
+_lan_budget = RateBudget()
+
+
+def _lan_notify(title: str, body: str, ref: str) -> None:
+    """Raises the address-change alert in the owner's notifications.
+
+    kind="review" is reused on purpose: KINDS is a whitelist and the
+    notifications page filters on a hardcoded list, so a new kind would mean
+    touching both plus six locale files for no gain. This lands in "needs your
+    attention", which is exactly what it is."""
+    from src.notifications.store import NotificationStore
+
+    try:
+        NotificationStore(_config.memory_sqlite_path).add(
+            kind="review", title=title, body=body, ref=ref,
+        )
+    except Exception as e:
+        logger.warning(f"lan alert failed: {e}")
+
+
+# The loop the GUI's websockets live on. A notification is written from
+# wherever its producer runs — the network listener's thread, a background
+# scan — so the feed push has to be scheduled onto that loop rather than
+# awaited from the writer.
+_gui_loop: asyncio.AbstractEventLoop | None = None
+
+
+def notify_feed_changed() -> None:
+    """Tell every open GUI that the notification feed has something new.
+
+    Registered with the notification store, which calls this from whichever
+    thread inserted the row. Safe from any thread, and a no-op before startup
+    or after shutdown.
+    """
+    loop = _gui_loop
+    if loop is None or loop.is_closed():
+        return
+    from src.server.handlers.chat import _broadcast
+
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _broadcast({"type": "notifications.changed"}), loop,
+        )
+    except Exception:
+        # Best effort: a badge that lags is not worth failing a write for.
+        pass
+
+
+def _lan_deps() -> RoomDeps:
+    """Rebuilt per listener start so the app gets the live stores."""
+    from src.security.visitor_screen import VisitorScreener
+
+    return RoomDeps(
+        tokens=_member_tokens,
+        blocklist=_lan_blocklist,
+        audit=_auth_audit,
+        rooms=_group_rooms,
+        members=_agent_members,
+        budget=_lan_budget,
+        idempotency=_lan_idempotency,
+        cards=_engine.card_repo,
+        notify=_lan_notify,
+        visitor_screen=VisitorScreener(_config),
+        plans=_room_plans,
+        publishes=_room_publishes,
+        patches=_room_patches,
+    )
+
+
+_lan = LanSupervisor(
+    config=_config, rooms=_group_rooms, deps_factory=_lan_deps,
+)
+group_handler.set_lan_supervisor(_lan)
+settings_handler.set_lan_supervisor(_lan)
+lan_handler.set_engine(_lan, _lan_blocklist, _auth_audit, _member_tokens)
+
+LAN_TICK_SECONDS = 30
+_lan_tick_task: Any = None
+_room_tick_task: Any = None
+
+
+async def _lan_tick() -> None:
+    """Corrects drift. sync() is idempotent, so a redundant call is free, and
+    a missed trigger would otherwise look like "nothing happened"."""
+    while True:
+        await asyncio.sleep(LAN_TICK_SECONDS)
+        try:
+            await asyncio.to_thread(_lan.sync)
+        except Exception as e:
+            logger.warning(f"lan tick failed: {e}")
+
+
+ROOM_TICK_SECONDS = 5
+
+
+async def _room_tick() -> None:
+    """The scheduler's heartbeat.
+
+    Handing work out is event-driven, but an event cannot describe "nothing
+    happened" — a lease that ran out, a member that went quiet. Only rooms
+    still in planning or working are touched.
+    """
+    while True:
+        await asyncio.sleep(ROOM_TICK_SECONDS)
+        try:
+            rooms = await asyncio.to_thread(_group_rooms.list)
+            for room in rooms:
+                if str(room.phase) not in {"planning", "working"}:
+                    continue
+                await _room_runner.tick(room)
+        except Exception as e:
+            logger.warning(f"room tick failed: {e}")
 
 _feishu_adapter: Any = None
 _wechat_adapter: Any = None
 _social_router: Any = None
 _social_adapters: list[Any] = []
 _social_lock = asyncio.Lock()
+
+
+def _get_content_guard():
+    from src.security.content_guard import get_guard
+
+    return get_guard()
+
+
+def start_content_scan():
+    """Kick off the startup content scan without blocking startup.
+
+    With JEV configured the pass is full: it costs nothing per call, so every
+    launch re-checks everything. Without JEV, a full pass would spend the user's
+    own LLM budget on every launch, so only items newer than the stored
+    watermark are checked.
+    """
+    if not _config.get("security.content_screening.scan_on_startup", True):
+        return None
+    guard = _get_content_guard()
+    judge = _config.get_judge() or {}
+    mode = "full" if (judge.get("base_url") and judge.get("api_key")) else "incremental"
+
+    async def _run() -> None:
+        try:
+            await asyncio.to_thread(guard.scan_all, mode=mode)
+        except Exception as exc:
+            logger.warning(f"startup content scan failed: {exc}")
+
+    return asyncio.create_task(_run())
+
+
+def start_update_checks():
+    """Look for new releases and announcements without blocking startup.
+
+    Every failure path is swallowed: an unreachable network or an expired token
+    must never stop the app from starting.
+    """
+    config = _config
+
+    async def _run() -> None:
+        try:
+            from src.notifications.store import NotificationStore
+            from src.server.handlers.notifications import run_update_checks
+
+            path = config.get("memory.sqlite_path") or (
+                get_fsar_home() / "data" / "memory.db"
+            )
+            await run_update_checks(config, NotificationStore(Path(path)))
+        except Exception as exc:
+            logger.warning(f"update check failed: {exc}")
+
+    return asyncio.create_task(_run())
 
 
 def set_feishu_adapter(adapter: Any) -> None:
@@ -125,6 +370,8 @@ async def _reload_social() -> None:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    global _gui_loop
+    _gui_loop = asyncio.get_running_loop()
     load_security_keys()
     _ws_auth.rotate()
     from src.server.chat_engine import set_default_chat_engine
@@ -139,6 +386,8 @@ async def _startup() -> None:
         loop = asyncio.get_event_loop()
         loop.create_task(_chat_broadcast({"type": event_type, **payload}))
     _engine.card_repo.set_change_listener(_listener)
+    from src.notifications.store import on_feed_changed
+    on_feed_changed(notify_feed_changed)
     seeded = _engine.card_repo.seed_builtins_if_empty()
     if seeded:
         logger.info(f"seeded {seeded} built-in card(s) from data/cards")
@@ -146,13 +395,26 @@ async def _startup() -> None:
     if renamed:
         logger.info(f"renamed {renamed} built-in card(s) with language suffix")
     await _reload_social()
+    start_content_scan()
+    start_update_checks()
+    _lan.sync()
+    global _lan_tick_task, _room_tick_task
+    _lan_tick_task = asyncio.create_task(_lan_tick())
+    _room_tick_task = asyncio.create_task(_room_tick())
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    global _social_router, _social_adapters
+    global _social_router, _social_adapters, _lan_tick_task, _room_tick_task
     from src.server.chat_engine import set_default_chat_engine
     set_default_chat_engine(None)
+    if _lan_tick_task is not None:
+        _lan_tick_task.cancel()
+        _lan_tick_task = None
+    if _room_tick_task is not None:
+        _room_tick_task.cancel()
+        _room_tick_task = None
+    _lan.stop()
     if _social_router is not None:
         from src.social.manager import stop_social
 
@@ -515,6 +777,103 @@ async def ws_scheduler(websocket: WebSocket) -> None:
         pass
 
 
+def _birthday_now() -> datetime:
+    """Indirection so tests can pin the date."""
+    return datetime.now()
+
+
+def _installation_date(config: Any) -> date | None:
+    """When this install was set up, or None when there is no record at all.
+
+    Only used to refuse congratulations for a birthday that predates the user's
+    arrival; an unknown answer means "no evidence", so nothing late is paid."""
+    from src.core.time_context import parse_timestamp
+
+    for key in ("onboarding.completed_at", "onboarding.started_at"):
+        parsed = parse_timestamp(config.get(key, None))
+        if parsed is not None:
+            return parsed.date()
+    return None
+
+
+def _birthday_connect_payload(config: Any) -> dict[str, Any]:
+    """Decide and act on the birthday, without any model call.
+
+    Runs on the connect path, so everything here is fast: copying one small
+    directory, a config patch, one notification insert. The letters are started
+    separately as a background task.
+    """
+    from src.core.birthday import SKIN_ID, birthday_actions, birthday_latest, letter_for
+    from src.server.birthday_runner import (
+        letters_year,
+        unlock_skin,
+        write_header_notification,
+    )
+    from src.server.handlers.notifications import notification_store
+
+    empty = {"letter": None, "skin_id": None, "letters": False}
+    try:
+        now = _birthday_now()
+        birthday_raw = config.get("user.birthday", None)
+        latest = birthday_latest(now, birthday_raw)
+        if latest is None:
+            return empty
+        locale = str(config.get("style.locale", "en") or "en")
+        store = notification_store(config)
+        actions = birthday_actions(
+            now,
+            birthday_raw,
+            skin_present=(Path(config.get("data.skins_dir", "data/skins"))
+                          / SKIN_ID).exists(),
+            letter_shown_on=config.get("user.birthday_letter_shown", None),
+            letters_year=letters_year(store),
+            arrived_on=_installation_date(config),
+        )
+        if not (actions.unlock_skin or actions.apply_skin
+                or actions.show_letter or actions.write_letters):
+            return empty
+
+        payload = dict(empty)
+        if actions.unlock_skin:
+            unlock_skin(config)
+        if actions.apply_skin:
+            config.patch("style.skin_id", SKIN_ID)
+            payload["skin_id"] = SKIN_ID
+        if actions.write_letters:
+            write_header_notification(store, latest.year, locale)
+        if actions.show_letter:
+            config.patch("user.birthday_letter_shown", now.date().isoformat())
+            payload["letter"] = letter_for(locale)
+        # Signalled separately from the other two: the letters are still due
+        # when the skin was already unlocked and the day itself has passed.
+        payload["letters"] = actions.write_letters
+        config.save()
+        return payload
+    except Exception as e:
+        logger.warning(f"birthday hook failed: {e}")
+        return empty
+
+
+async def _run_birthday_letters(config: Any, ws: WebSocket) -> None:
+    """Background half of the birthday hook: the letters are model calls."""
+    from src.core.birthday import birthday_latest
+    from src.server.birthday_runner import write_character_letters
+    from src.server.handlers.notifications import notification_store
+
+    try:
+        latest = birthday_latest(_birthday_now(), config.get("user.birthday", None))
+        if latest is None:
+            return
+        await write_character_letters(
+            ws=ws, config=config, engine=_engine,
+            store=notification_store(config),
+            locale=str(config.get("style.locale", "en") or "en"),
+            year=latest.year,
+        )
+    except Exception as e:
+        logger.warning(f"birthday letters failed: {e}")
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     client_id = ws.client.host if ws.client else "unknown"
@@ -548,6 +907,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
         return
     await ws.accept(subprotocol="fsar-v1")
     chat_handler.register_socket(ws)
+    birthday = _birthday_connect_payload(_config)
+    if birthday["letters"]:
+        asyncio.create_task(_run_birthday_letters(_config, ws))
     onboarding_state = await onboarding_handler.onboarding_get_state(_config)
     from src.memory.integrations import list_integrations
     from src.providers.pricing import estimate_calls
@@ -571,6 +933,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         "type": "snapshot",
         "config": _config._settings,
         "skin_id": _config.get("style.skin_id", "default"),
+        "version": app_version(),
         "chat_models": model_items + integration_items,
         "selected_chat_model": _config.chat_default_model,
         "onboarding": {
@@ -579,6 +942,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             "completed_steps": onboarding_state["completed_steps"],
             "current_step": onboarding_state["current_step"],
         },
+        "birthday": birthday,
         **sandbox_handler.snapshot(_ctx, _engine.active_conversation_id()),
     })
     conversation_handler.prune_empty_sessions(
@@ -607,6 +971,10 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await risk_handler.dispatch(_bridge, ws, msg):
         return
     if await conversation_handler.dispatch(ws, msg):
+        return
+    if await group_handler.dispatch(ws, msg):
+        return
+    if await lan_handler.dispatch(ws, msg):
         return
     if await card_handler.dispatch(ws, msg, _ctx):
         return
@@ -638,6 +1006,10 @@ async def _dispatch(msg: dict[str, Any], ws: WebSocket) -> None:
     if await tools_handler.dispatch(ws, msg, _ctx):
         return
     if await usage_handler.dispatch(ws, msg, _ctx):
+        return
+    if await screening_handler.dispatch(ws, msg, _ctx):
+        return
+    if await notifications_handler.dispatch(ws, msg, _config):
         return
     if await chat_handler.dispatch(ws, msg):
         return

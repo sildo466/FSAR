@@ -195,7 +195,24 @@ class ReflectionStore:
                 ref.error_count, now,
             ))
             conn.commit()
-            return cur.lastrowid
+            row_id = int(cur.lastrowid)
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="reflection",
+            record_ref=str(row_id),
+            text=ref.suggested_strategy,
+            kind="reflection",
+        )
+        return row_id
+
+    def delete_reflection(self, reflection_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM task_reflections WHERE id = ?", (reflection_id,)
+            )
+            conn.commit()
+            return cur.rowcount > 0
 
     def list_recent(self, limit: int = 20,
                     session_id: str | None = None) -> list[dict]:
@@ -437,7 +454,7 @@ class IdleReflector:
                     {"role": "system", "content": "You are a data analyst. Output JSON only."},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=2000,
+                max_tokens=100000,
                 temperature=0.3,
             )
             text = (resp.choices[0].message.content or "").strip()

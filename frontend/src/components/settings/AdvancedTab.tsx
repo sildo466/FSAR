@@ -4,6 +4,7 @@ import { AlertTriangle, FileCode2 } from "lucide-react";
 import { fetchWSToken, useWS } from "../../stores/ws";
 import { useWizardState } from "../../stores/onboarding";
 import { useTranslation } from "react-i18next";
+import { InjectionSection } from "./InjectionSection";
 
 interface RecentDecision {
   task_id: string;
@@ -86,6 +87,8 @@ export function AdvancedTab() {
           </div>
         )}
       </div>
+
+      <InjectionSection />
 
       <div className="flex flex-col gap-2">
         <h2 className="font-display text-sm font-semibold flex items-center gap-2">

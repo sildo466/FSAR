@@ -15,3 +15,5 @@ CLI 与 GUI 共享的智能体循环构件：提示词、persona 组装、能力
 | `context_compaction.py` | 长任务的结构感知上下文压缩。 |
 | `event_bus.py` | 进程内事件总线（`EventType` 枚举），调度器经它发事件。 |
 | `formula_engine.py` | 角色卡情绪公式的安全算术求值器（仅 `+ - * /`、数字、变量、括号，带 clamp）。 |
+| `time_context.py` | 把真实世界的时间渲染成提示词上下文：日期、用户离开了多久、召回记忆的年龄。纯函数——`now` 一律外部传入，绝不读时钟。 |
+| `birthday.py` | 生日触发判定，以及应用用自己口吻写的那封信。纯函数与静态文本；实际动作由 `server/birthday_runner.py` 执行。 |

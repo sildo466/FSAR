@@ -1,0 +1,37 @@
+{
+  "id": "birthday",
+  "name": "Birthday",
+  "base": "light",
+  "palette": {
+    "bg": "#f3e9d4",
+    "surface": "#efe3cb",
+    "surface2": "#e8dabc",
+    "text": "#3b3128",
+    "textMuted": "#6b5b45",
+    "textFaint": "#94815f",
+    "border": "#d9c8a4",
+    "borderStrong": "#c2ab7f",
+    "glass": "#f7efdd",
+    "glassStrong": "#fbf6ea",
+    "glassBorder": "#e2d3b3",
+    "glowSoft": "#d9a06a",
+    "glowFaint": "#e6c9a2",
+    "success": "#4e7a45",
+    "warning": "#b07d24",
+    "danger": "#a4462f",
+    "accent": "#b5804a"
+  },
+  "background": {
+    "chatOverlay": 0.12
+  },
+  "elements": {
+    "input": { "bg": "#fbf6ea", "border": "#d9c8a4", "text": "#3b3128" },
+    "button": { "bg": "#b5804a", "text": "#fbf6ea", "hover": "#a06f3d" },
+    "switch": { "on": "#b5804a", "off": "#d9c8a4", "thumb": "#fbf6ea" },
+    "chip": { "bg": "#f3e9d4", "border": "#d9c8a4" },
+    "card": { "bg": "#fbf6ea", "border": "#e2d3b3" }
+  },
+  "pattern": {
+    "opacity": 0.06
+  }
+}

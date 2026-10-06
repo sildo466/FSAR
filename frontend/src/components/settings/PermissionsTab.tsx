@@ -212,6 +212,8 @@ const SECURITY_TOGGLES = [
   ["security.file_read_blacklist.enabled", "blockSensitiveReads", "blockSensitiveReadsDesc", true],
   ["security.session.no_trust_mode", "disableSessionTrust", "disableSessionTrustDesc", false],
   ["security.small_agent_review.enabled", "reviewToolResults", "reviewToolResultsDesc", false],
+  ["security.content_screening.enabled", "screenStoredContent", "screenStoredContentDesc", true],
+  ["security.visitor_screening.enabled", "screenVisitors", "screenVisitorsDesc", false],
 ] as const;
 
 function SecurityControls({ config, send }: SecurityControlsProps) {

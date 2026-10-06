@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 import { create } from "zustand";
-import { WSClient, type ServerMsg } from "../lib/ws-client";
+import {
+  WSClient,
+  type AppVersion,
+  type NotificationItem,
+  type NotificationSettings,
+  type ServerMsg,
+} from "../lib/ws-client";
 import { useSkinStore } from "./skin";
 
 type Status = "connecting" | "connected" | "disconnected";
@@ -8,6 +14,11 @@ type Status = "connecting" | "connected" | "disconnected";
 interface WSStore {
   status: Status;
   config: Record<string, unknown> | null;
+  version: AppVersion | null;
+  notifications: NotificationItem[];
+  unread: number;
+  notificationSettings: NotificationSettings | null;
+  birthdayLetter: string | null;
   client: WSClient | null;
   init: () => void;
   send: (msg: Parameters<WSClient["send"]>[0]) => void;
@@ -49,6 +60,11 @@ function applyDotPatch(
 export const useWS = create<WSStore>((set, get) => ({
   status: "connecting",
   config: null,
+  version: null,
+  notifications: [],
+  unread: 0,
+  notificationSettings: null,
+  birthdayLetter: null,
   client: null,
   init: () => {
     if (get().client || initPromise) return;
@@ -63,7 +79,12 @@ export const useWS = create<WSStore>((set, get) => ({
         if (msg.onboarding) {
           nextConfig.onboarding = msg.onboarding;
         }
-        set({ config: nextConfig, status: "connected" });
+        set({
+          config: nextConfig,
+          version: msg.version ?? null,
+          status: "connected",
+          birthdayLetter: msg.birthday?.letter ?? null,
+        });
       } else if (msg.type === "onboarding.state") {
         const current = (get().config ?? {}) as Record<string, unknown>;
         set({
@@ -95,6 +116,30 @@ export const useWS = create<WSStore>((set, get) => ({
             llm: { ...llm, providers: msg.providers, active: msg.active },
           },
         });
+      } else if (msg.type === "notifications.list_result") {
+        set({
+          notifications: msg.items,
+          unread: msg.unread,
+          notificationSettings: msg.settings,
+        });
+      } else if (msg.type === "notifications.read_result") {
+        if (msg.cleared) {
+          set({ notifications: [], unread: 0 });
+        } else {
+          // Only the ids the server actually changed — expanding one item must
+          // not clear the unread marks on everything else.
+          const done = new Set(msg.ids);
+          set({
+            unread: msg.unread,
+            notifications: get().notifications.map((item) =>
+              done.has(item.id) ? { ...item, read: 1 as const } : item,
+            ),
+          });
+        }
+      } else if (msg.type === "notifications.changed") {
+        // The letters are written one at a time and the list is pull-only, so
+        // without this the user would watch an empty page.
+        get().send({ type: "notifications.list" });
       } else if (msg.type === "heartbeat") {
         set({ status: "connected" });
       } else if (msg.type === "settings.changed") {

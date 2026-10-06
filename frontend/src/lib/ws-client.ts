@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import type { ToolEvent } from "./toolEvents";
 
 export type ChatMode = "agent" | "companion" | "character";
 
@@ -54,6 +55,8 @@ export type ClientMsg =
   | { type: "llm.set_active"; provider_id: string }
   | { type: "llm.get_vision" }
   | { type: "llm.set_vision"; base_url: string; api_key: string; model: string }
+  | { type: "llm.get_judge" }
+  | { type: "llm.set_judge"; base_url: string; api_key: string; model: string }
   | { type: "integration.list" }
   | { type: "integration.save"; payload: Record<string, unknown> }
   | { type: "integration.delete"; payload: { id: number } }
@@ -67,7 +70,7 @@ export type ClientMsg =
   | { type: "onboarding.get_state" }
   | { type: "onboarding.complete_step"; step: string; data?: Record<string, unknown> }
   | { type: "onboarding.complete" }
-  | { type: "onboarding.skip_step"; step: "tts" | "asr" }
+  | { type: "onboarding.skip_step"; step: "tts" | "asr" | "birthday" }
   | { type: "onboarding.skip" }
   | { type: "embedding.upsert"; provider: "openai" | "lmstudio" | "ollama"; base_url: string; model: string; api_key?: string; timeout?: number }
   | { type: "embedding.probe"; provider?: "openai" | "lmstudio" | "ollama"; base_url?: string; model?: string; api_key?: string }
@@ -95,6 +98,50 @@ export type ClientMsg =
   | { type: "sensitive.report_missing"; path: string; context?: string }
   | { type: "sandbox_audit.list"; since?: string; conversation_id?: string; limit?: number }
   | { type: "tool.sandbox.escape_decision"; request_id: string; decision: "deny" | "allow_once" | "allow_session" | "allow_always" }
+  | { type: "group.list" }
+  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
+  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
+  | { type: "group.delete"; room_id: number }
+  | { type: "group.members.add"; room_id: number; character_ids: number[] }
+  | { type: "group.members.remove"; room_id: number; character_id: number }
+  | { type: "group.history"; room_id: number }
+  | { type: "group.send"; room_id: number; content: string; attached_files?: string[]; mentioned_character_ids?: number[] }
+  | { type: "group.cancel"; room_id: number }
+  | { type: "group.regenerate"; room_id: number; message_id: number }
+  | { type: "group.rate"; room_id: number; message_id: number; score: number; reason?: string }
+  | { type: "group.agent.add"; room_id: number; ref: string; display_name?: string }
+  | { type: "group.agent.list"; room_id: number }
+  | { type: "group.agent.mute"; room_id: number; member_ref: string; muted: boolean }
+  | { type: "group.agent.remove"; room_id: number; member_ref: string }
+  | { type: "group.agent.token.issue"; room_id: number; member_ref: string; label?: string }
+  | { type: "group.agent.token.revoke"; room_id: number; member_ref: string; token_id: number }
+  | { type: "group.agent.token.unban"; room_id: number; member_ref: string; token_id: number }
+  | { type: "group.stop_all" }
+  | { type: "room.goal.set"; room_id: number; goal: string }
+  | { type: "room.plan.list"; room_id: number }
+  | { type: "room.plan.tick"; room_id: number }
+  | { type: "room.phase.confirm_done"; room_id: number }
+  | { type: "room.plan.unbind"; room_id: number }
+  | { type: "room.publish.request"; room_id: number; allowlist: string[] }
+  | { type: "room.publish.list"; room_id: number }
+  | { type: "room.patch.list"; room_id: number }
+  | { type: "room.patch.text"; room_id: number; patch_id: number }
+  | { type: "room.patch.decide"; room_id: number; patch_id: number; approve: boolean }
+  | { type: "lan.status" }
+  | { type: "lan.blocklist" }
+  | { type: "lan.block_ip"; ip: string; reason?: string }
+  | { type: "lan.unblock_ip"; ip: string }
+  | { type: "lan.rebind_ip"; token_id: number; ip: string }
+  | { type: "auth_audit.list"; limit?: number; room_id?: number }
+  | { type: "content_guard.list" }
+  | { type: "content_guard.restore"; id: number }
+  | { type: "content_guard.purge"; id: number }
+  | { type: "content_guard.unwhitelist"; sha256: string }
+  | { type: "notifications.list" }
+  | { type: "notifications.mark_read"; ids?: number[] }
+  | { type: "notifications.clear" }
+  | { type: "updates.check" }
+  | { type: "updates.apply"; tag: string }
   | { type: "heartbeat" };
 
 export interface WorkspaceInfo {
@@ -164,6 +211,183 @@ export interface StoredMessage {
   character_name?: string;
 }
 
+export interface RoomSummary {
+  id: number;
+  name: string;
+  description: string;
+  scenario_prompt: string;
+  session_id: string;
+  user_card_id: number | null;
+  pinned: boolean;
+  /** 0 means the chain has no round cap and debates until it settles or the
+   *  user stops it. */
+  max_rounds: number;
+  created_at: string;
+  updated_at: string;
+  members: number[];
+  /** External agents are not character cards, so they cannot ride in
+   *  `members` (number[]) — they get their own array. */
+  agent_members: AgentMemberSummary[];
+  agent_mode: boolean;
+  lan_enabled: boolean;
+  /** The project a working room is bound to. Null means the board has nothing
+   *  to run against, so nothing gets dispatched. */
+  workspace_id: number | null;
+  goal: string;
+  phase: RoomPhase;
+}
+
+export type RoomPhase = "chat" | "planning" | "working" | "review" | "done";
+
+export interface PlanItem {
+  item_key: string;
+  text: string;
+  status: "todo" | "doing" | "blocked" | "done";
+  owner_kind: string | null;
+  /** A character card id, as a string. The board never carries a display name;
+   *  the page already knows this room's roster and resolves it. */
+  owner_ref: string | null;
+  evidence: string;
+  commit_ref: string | null;
+}
+
+export interface AgentMemberSummary {
+  ref: string;
+  display_name: string;
+  state: string;
+}
+
+/** One package that left the project. The ledger never carries content. */
+export interface PublishRecord {
+  id: number;
+  room_id: number;
+  member_ref: string;
+  path_count: number;
+  bytes: number;
+  digest: string;
+  created_at: string;
+}
+
+export type PatchState = "pending" | "landed" | "rejected" | "superseded";
+
+/** A piece of somebody else's work, waiting. The text is fetched separately:
+ *  a queue listing that carried every diff would be huge. */
+export interface PatchItem {
+  id: number;
+  room_id: number;
+  member_ref: string;
+  item_key: string | null;
+  digest: string;
+  size: number;
+  state: PatchState;
+  verdict_reason: string;
+  decided_by: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface AgentTokenInfo {
+  id: number;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  /** Seven days from issue by default. Null means it never expires. */
+  expires_at?: string | null;
+  /** The address the first successful connection came from, or null while the
+   *  credential has never been used. */
+  bound_ip?: string | null;
+  last_used_ip?: string | null;
+  /** Set when the visitor screen banned this credential for a line it sent.
+   *  Kept apart from a revoke, which is the owner removing it: a ban is the
+   *  owner's to lift, and a revoke is not. */
+  banned_at?: string | null;
+  /** The category the line was read as, for the owner to judge the ban by. */
+  banned_reason?: string | null;
+}
+
+export interface LanStatus {
+  /** The setting the user chose. Kept apart from `listening`: a listener that
+   *  could not start must not make the switch look unticked. */
+  enabled: boolean;
+  listening: boolean;
+  host: string;
+  port: number;
+  /** SHA-256 of the self-signed certificate, for the owner to read out loud. */
+  fingerprint: string;
+  /** How many rooms are open to the network. Zero means no socket at all. */
+  lan_rooms: number;
+  /** Why the listener is not up, when it should be. */
+  error: string;
+  addresses: string[];
+  agent_md_hint: string;
+}
+
+export interface LanBlockEntry {
+  ip: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface AuthAuditEvent {
+  seq: number;
+  created_at: string;
+  action: string;
+  result: string;
+  reason: string;
+  room_id: number | null;
+  member_ref: string | null;
+  token_id: number | null;
+  source_ip: string | null;
+  detail: string;
+}
+
+/** A member plus its token metadata. Never carries the token itself. */
+export interface AgentMemberDetail extends AgentMemberSummary {
+  tokens: AgentTokenInfo[];
+}
+
+export interface GroupMessage {
+  /** Live stream id (`group_…`) while streaming; the stringified DB row id
+   *  once loaded from history. Always a string so it can feed MessageList. */
+  id: string;
+  /** DB row id — present only on persisted messages, and required by
+   *  regenerate, which addresses rows rather than stream ids. */
+  row_id?: number;
+  role: "user" | "assistant";
+  content: string;
+  character_id?: number | null;
+  character_name?: string | null;
+  user_name?: string | null;
+  /** "agent" marks a line written by an external room member rather than by a
+   *  character card. It shares role="assistant" so it renders on the same side
+   *  as the characters, but carries no character_id. */
+  speaker_kind?: "agent" | null;
+  member_ref?: string;
+  timestamp?: string;
+  streaming?: boolean;
+  thinking?: boolean;
+  /** Tool steps this character ran during its turn, oldest first. Only a room
+   *  whose agent mode is on produces any. */
+  tools?: ToolEvent[];
+}
+
+/** A tool step as the server stores it and as history returns it: the raw
+ *  arguments, no preview string. The client renders the preview, so a reloaded
+ *  row reads exactly like the one that streamed in. No result is stored. */
+export interface StoredToolStep {
+  callId: string;
+  tool: string;
+  args?: unknown;
+}
+
+export interface ElectionCandidate {
+  character_id: number;
+  character_name: string;
+  eagerness: number;
+  reason: string;
+}
+
 export interface OnboardingStatePayload {
   required: boolean;
   completed: boolean;
@@ -171,8 +395,63 @@ export interface OnboardingStatePayload {
   current_step: string | null;
 }
 
+export interface ContentQuarantineInfo {
+  id: number;
+  store: string;
+  record_ref: string;
+  text: string;
+  verdict_confidence: number;
+  screened_by: string;
+  created_at: string;
+}
+
+export interface ContentWhitelistInfo {
+  sha256: string;
+  added_by: string;
+  created_at: string;
+}
+
+export interface ContentScanReport {
+  scanned?: number;
+  quarantined?: number;
+  /** How many items could not be judged this run (no provider, timeout). */
+  unavailable?: number;
+  total?: number;
+  /** Items that passed the watermark filter. */
+  selected?: number;
+  /** "full" with JEV configured, "incremental" without it. */
+  mode?: string;
+  enabled?: boolean;
+}
+
+export interface AppVersion {
+  tag: string;
+  base: string;
+  channel: "stable" | "beta";
+  exact: boolean;
+  source: "git" | "pyproject";
+}
+
+export interface NotificationItem {
+  id: number;
+  kind: "review" | "release" | "announcement" | "birthday";
+  title: string;
+  body: string;
+  ref: string | null;
+  url: string | null;
+  payload: Record<string, unknown> | null;
+  read: 0 | 1;
+  created_at: string;
+}
+
+export interface NotificationSettings {
+  review: { enabled: boolean };
+  release: { enabled: boolean; include_prerelease: boolean };
+  announcement: { enabled: boolean };
+}
+
 export type ServerMsg =
-  | { type: "snapshot"; config: Record<string, unknown>; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] } }
+  | { type: "snapshot"; config: Record<string, unknown>; version?: AppVersion; runtime?: Record<string, unknown>; chat_models?: Array<Record<string, unknown>>; selected_chat_model?: Record<string, unknown>; onboarding?: OnboardingStatePayload; workspace?: { current_binding: { conversation_id: string; workspace: WorkspaceInfo } | null; default_workspace_id: number | null; all_workspaces: WorkspaceInfo[] }; security?: { hardline_disabled_classes: string[]; power_user_mode: boolean; hardline_classes: HardlineClassInfo[] }; sensitive?: { classes: SensitiveClassInfo[]; custom: string[] }; birthday?: { letter: string | null; skin_id: string | null; letters: boolean } }
   | { type: "integration.list_result"; items: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> }
   | { type: "integration.saved"; id: number; integration?: Record<string, unknown> }
   | { type: "integration.deleted"; id: number }
@@ -243,6 +522,8 @@ export type ServerMsg =
   | { type: "llm.provider_changed"; provider_id: string; model: string }
   | { type: "llm.vision_config"; vision_model: { base_url: string; api_key: string; model: string } }
   | { type: "llm.vision_changed"; vision_model: { base_url: string; api_key: string; model: string } }
+  | { type: "llm.judge_config"; judge: { base_url: string; api_key: string; model: string } }
+  | { type: "llm.judge_changed"; judge: { base_url: string; api_key: string; model: string } }
   | { type: "experience.created"; experience: { id: number; name: string; category: string; description: string; body: string; trigger_patterns: string[]; pitfalls: string[]; use_count: number; state: string; pinned: boolean; created_by: string; created_at: string; updated_at: string } }
   | { type: "tools.list_result"; tools: Array<{ name: string; description: string; risk_level: string }> }
   | { type: "workspace.list_result"; workspaces: WorkspaceInfo[] }
@@ -277,6 +558,62 @@ export type ServerMsg =
   | { type: "card.user_card_renamed"; user_card_id: number; name: string }
   | { type: "card.emotion_state_updated"; character_id: number; state: Record<string, number>; source: string }
   | { type: "card.error"; code: string; message?: string }
+  | { type: "group.list.ok"; rooms: RoomSummary[] }
+  | { type: "group.created"; room: RoomSummary }
+  | { type: "group.updated"; room: RoomSummary }
+  | { type: "group.deleted"; room_id: number }
+  | {
+      type: "group.history.ok";
+      room_id: number;
+      messages: Array<Omit<GroupMessage, "tools"> & { tools?: StoredToolStep[] }>;
+    }
+  | { type: "group.elect.started"; room_id: number; chain_id: string; round: number; candidates: number[] }
+  | { type: "group.elect.candidate"; room_id: number; chain_id: string; round: number; character_id: number; character_name: string; eagerness: number; reason: string }
+  | { type: "group.elect.decided"; room_id: number; chain_id: string; round: number; speakers: number[] }
+  | { type: "group.speaker.start"; room_id: number; message_id: string; character_id?: number | null; character_name?: string | null }
+  | { type: "group.speaker.delta"; room_id: number; message_id: string; content: string }
+  | { type: "group.speaker.thinking"; room_id: number; message_id: string; content: string }
+  | { type: "group.speaker.done"; room_id: number; message_id: string; row_id?: number | null; content?: string | null; failed?: boolean; emotion_state?: Record<string, number> | null }
+  | { type: "group.chain.finished"; room_id: number; chain_id: string; reason: "settled" | "max_rounds" | "cancelled" | "error" }
+  | { type: "group.user_message"; room_id: number; message_id?: string | null; row_id?: number | null; content: string; user_name?: string | null; speaker_kind?: "agent" | null; member_ref?: string }
+  | { type: "group.context"; room_id: number; used_tokens: number; window_tokens: number }
+  | { type: "group.rate.ack"; room_id: number; message_id?: number | null; status: string; db_id?: number }
+  | { type: "group.agent.list.ok"; room_id: number; agents: AgentMemberDetail[] }
+  /** The plaintext token appears here once and is never stored anywhere. */
+  | { type: "group.agent.token.issued"; room_id: number; member_ref: string; token_id: number; token: string }
+  | { type: "group.stop_all.ack" }
+  | { type: "room.plan.updated"; room_id: number | null; items: PlanItem[] }
+  | { type: "room.phase.changed"; room_id: number; phase: RoomPhase; reason: string }
+  | { type: "room.work.started"; room_id: number; message_id: string; item_key: string; character_id: number | null; character_name: string }
+  | { type: "room.work.finished"; room_id: number; message_id: string; item_key: string; character_id: number | null; failed: boolean; content: string }
+  | { type: "room.promote.requested"; room_id: number; item_key: string; paths: string[] }
+  | { type: "room.promote.applied"; room_id: number; item_key: string; commit_ref: string; branch: string }
+  | { type: "room.promote.rejected"; room_id: number; item_key: string; reason: string }
+  | { type: "room.updated"; room_id: number; workspace_id: number | null }
+  | { type: "room.publish.updated"; room_id: number; publishes: PublishRecord[] }
+  | { type: "room.publish.ready"; room_id: number; path_count: number; bytes: number }
+  | { type: "room.patch.updated"; room_id: number; patches: PatchItem[] }
+  | { type: "room.patch.text"; room_id: number; patch_id: number; patch: string }
+  | { type: "room.patch.decided"; room_id: number; patch_id: number; state: PatchState; reason: string; commit_ref: string }
+  | { type: "lan.status.ok"; enabled: boolean; listening: boolean; host: string; port: number; fingerprint: string; lan_rooms: number; error: string; addresses: string[]; agent_md_hint: string }
+  | { type: "lan.blocklist.ok"; entries: LanBlockEntry[] }
+  | { type: "lan.error"; code: string; message: string }
+  | { type: "auth_audit.list.ok"; events: AuthAuditEvent[] }
+  | { type: "group.error"; room_id?: number | null; code: string; message: string }
+  | {
+      type: "content_guard.list_result";
+      items: ContentQuarantineInfo[];
+      whitelist: ContentWhitelistInfo[];
+      report: ContentScanReport;
+      stores: string[];
+      enabled: boolean;
+    }
+  | { type: "content_guard.action_result"; action: string; id: number | string; ok: boolean }
+  | { type: "notifications.list_result"; items: NotificationItem[]; unread: number; kinds: string[]; settings: NotificationSettings }
+  | { type: "notifications.changed" }
+  | { type: "notifications.read_result"; unread: number; ids: number[]; cleared: boolean }
+  | { type: "updates.check_result"; added: number; announcements: number; error?: string }
+  | { type: "updates.apply_result"; ok: boolean; tag?: string; branch?: string; head?: string; dropped_branch?: string | null; kept_branch?: string | null; error?: string }
   | { type: "error"; code: string; message: string; recoverable: boolean }
   | { type: "heartbeat"; ts: number };
 

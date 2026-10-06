@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 from datetime import datetime
 from typing import Any, Callable, Awaitable
 
@@ -43,7 +44,7 @@ class TitleGenerator:
     falls back to the first 24 chars of the user message."""
 
     def __init__(self, config: FsarConfig, store: SessionStore,
-                 client_factory: Callable[[], tuple[Any, str]],
+                 client_factory: Callable[[], tuple[Any, str, str]],
                  push_event: Callable[[dict], Awaitable[None]]) -> None:
         self._config = config
         self._store = store
@@ -51,36 +52,48 @@ class TitleGenerator:
         self._push_event = push_event
 
     def schedule(self, conversation_id: str, first_message: str) -> None:
-        """Fire-and-forget. No-op if no event loop is running."""
+        """Fire-and-forget, on a thread of its own.
+
+        The work has to outlive the turn that asked for it. A headless turn
+        runs under `asyncio.run`, which cancels every pending task as it
+        closes the loop, so `create_task` here would be dropped silently —
+        which is exactly how titled conversations came to be missing. The
+        thread is not a daemon, so a process that exits right after the turn
+        still finishes naming the conversation first.
+        """
         try:
-            loop = asyncio.get_running_loop()
+            loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
-            logger.debug("title gen skipped: no running event loop")
-            return
-        task = loop.create_task(self._run(conversation_id, first_message))
-        task.add_done_callback(self._on_done)
+            loop = None
+        threading.Thread(
+            target=self._run,
+            args=(conversation_id, first_message, loop),
+            daemon=False,
+        ).start()
 
-    def _on_done(self, task: asyncio.Task) -> None:
+    def _run(self, conversation_id: str, first_message: str,
+             loop: asyncio.AbstractEventLoop | None) -> None:
         try:
-            task.result()
-        except Exception as e:
-            logger.warning(f"title gen task ended: {e}")
-
-    async def _run(self, conversation_id: str, first_message: str) -> None:
-        title = await self._generate(first_message)
-        if not title:
-            title = self._truncate(first_message)
-        try:
+            title = self._generate(first_message) or self._truncate(first_message)
             self._store.rename(conversation_id, title)
-            await self._push_event({
-                "type": "conversation.title_updated",
-                "conversation_id": conversation_id,
-                "title": title,
-            })
         except Exception as e:
             logger.warning(f"title persist failed: {e}")
+            return
+        if loop is None or loop.is_closed() or not loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._push_event({
+                    "type": "conversation.title_updated",
+                    "conversation_id": conversation_id,
+                    "title": title,
+                }),
+                loop,
+            )
+        except Exception as e:
+            logger.debug(f"title event skipped: {e}")
 
-    async def _generate(self, text: str) -> str:
+    def _generate(self, text: str) -> str:
         try:
             client, model, provider_id = self._client_factory()
         except Exception as e:
@@ -89,8 +102,7 @@ class TitleGenerator:
         if client is None or not model:
             return ""
         try:
-            resp = await asyncio.to_thread(
-                chat_completion,
+            resp = chat_completion(
                 client,
                 provider_id=provider_id,
                 model=model,
@@ -98,12 +110,21 @@ class TitleGenerator:
                     {"role": "system", "content": TITLE_SYSTEM},
                     {"role": "user", "content": text[:600]},
                 ],
-                max_tokens=64,
+                max_tokens=100000,
                 temperature=0.3,
             )
             content = (resp.choices[0].message.content or "")
             content = _strip_think(content)
-            return self._clean(content)
+            cleaned = self._clean(content)
+            if not cleaned:
+                # A reasoning model spends the whole budget thinking and emits no
+                # visible text; without this line the fallback looks intentional.
+                usage = getattr(resp, "usage", None)
+                logger.warning(
+                    f"title gen produced no text (usage={usage}); "
+                    f"falling back to the truncated message"
+                )
+            return cleaned
         except Exception as e:
             logger.warning(f"title LLM call failed: {e}")
             return ""

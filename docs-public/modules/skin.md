@@ -161,6 +161,10 @@ elements 覆盖  >  palette 覆盖  >  该 base 的内置默认
 
 把它们当模板：复制一份、改 `id/name` 和几个色值，就是你的皮肤。
 
+## 生日皮肤
+
+`assets/birthday_skin/` 不在 `data/skins/` 里——它是一份礼物。生日第一次触发时，`server/birthday_runner.py` 把它复制进你的皮肤目录，目录名取自 `core/birthday.py` 的 `SKIN_ID`；此后它就是一张普通皮肤，你可以随意挑选。该目录存在与否是"已解锁"的唯一记录，所以删掉它，礼物就会重新生效。
+
 ## 已知边界
 
 - 圆角/阴影（`radius`/`shadow`）暂不随皮肤变化，由组件自身的 Tailwind 类决定——后续版本可能开放。

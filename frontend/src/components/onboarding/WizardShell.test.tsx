@@ -8,11 +8,11 @@ import { useWizardState } from '../../stores/onboarding'
 describe('WizardShell', () => {
   afterEach(cleanup)
 
-  it('renders six progress dots', () => {
+  it('renders seven progress dots', () => {
     useWizardState.setState({ current_step_index: 0, step: 'provider' })
     render(<WizardShell><div>child</div></WizardShell>)
     expect(screen.getByTestId('wizard-progress')).toBeInTheDocument()
-    expect(screen.getAllByTestId(/^wizard-dot-/)).toHaveLength(6)
+    expect(screen.getAllByTestId(/^wizard-dot-/)).toHaveLength(7)
   })
 
   it('marks active dot on current step', () => {

@@ -28,6 +28,20 @@ from src.utils.config import get_config
 from src.utils.logger import logger
 
 
+EXPERIENCE_INDEX_HEADER = (
+    "## Experiences (task matches one below → MUST call experience_view(name) first "
+    "→ FOLLOW its SKILL.md exactly)"
+)
+SKILL_LOADING_RULE = (
+    "[Skill loading rule] If the task matches one of the skills above, your FIRST "
+    "step MUST be to call experience_view(name=\"...\") to load it, then execute the "
+    "task. Do NOT skip this step; do NOT read skill-directory files via "
+    "file_ops/run_command instead of experience_view. After loading, follow the "
+    "SKILL.md exactly (copy the seed template, obey Non-Negotiables). Load only "
+    "the single matching skill."
+)
+
+
 STATE_ACTIVE = "active"
 STATE_STALE = "stale"
 STATE_ARCHIVED = "archived"
@@ -270,7 +284,13 @@ class ExperienceStore:
             row = conn.execute(
                 "SELECT id FROM experiences WHERE name = ?", (exp.name,)
             ).fetchone()
-            return int(row[0])
+            exp_id = int(row[0])
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="experience", record_ref=exp.name, text=exp.body, kind="memory_chunk"
+        )
+        return exp_id
 
     def get_by_name(self, name: str) -> Experience | None:
         with self._connect() as conn:
@@ -536,7 +556,7 @@ class ExperienceStore:
         by_cat: dict[str, list[Experience]] = {}
         for e in exps:
             by_cat.setdefault(e.category, []).append(e)
-        lines = ["## Experiences (task matches one below → MUST call experience_view(name) first → FOLLOW its SKILL.md exactly)"]
+        lines = [EXPERIENCE_INDEX_HEADER]
         for cat in sorted(by_cat):
             show_in_compact = cat in compact
             if not show_in_compact:
@@ -548,14 +568,7 @@ class ExperienceStore:
                 prefix = "    -" if show_in_compact else "    -"
                 lines.append(f"{prefix} {e.name}: {desc}")
         lines.append("")
-        lines.append(
-            "[Skill loading rule] If the task matches one of the skills above, your FIRST "
-            "step MUST be to call experience_view(name=\"...\") to load it, then execute the "
-            "task. Do NOT skip this step; do NOT read skill-directory files via "
-            "file_ops/run_command instead of experience_view. After loading, follow the "
-            "SKILL.md exactly (copy the seed template, obey Non-Negotiables). Load only "
-            "the single matching skill."
-        )
+        lines.append(SKILL_LOADING_RULE)
         return "\n".join(lines)
 
     # ---------- P5 → P6 auto-promote bridge ----------
@@ -642,7 +655,13 @@ class ExperienceStore:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (source, title, body, chunk_index, now, now))
             conn.commit()
-            return int(cur.lastrowid)
+            chunk_id = int(cur.lastrowid)
+        from src.security.content_guard import get_guard
+
+        get_guard().submit(
+            store="chunk", record_ref=str(chunk_id), text=body, kind="memory_chunk"
+        )
+        return chunk_id
 
     def list_chunks(self, *, source: str | None = None,
                     limit: int = 100) -> list[MemoryChunk]:
@@ -658,6 +677,25 @@ class ExperienceStore:
                     SELECT id, source, title, body, chunk_index, created_at, updated_at
                     FROM memory_chunks ORDER BY chunk_index, id LIMIT ?
                 """, (limit,)).fetchall()
+        return [
+            MemoryChunk(
+                id=r[0], source=r[1], title=r[2], body=r[3],
+                chunk_index=r[4], created_at=r[5], updated_at=r[6],
+            )
+            for r in rows
+        ]
+
+    def list_all_chunks(self) -> list[MemoryChunk]:
+        """Every memory chunk, unbounded.
+
+        Separate from list_chunks() because that one paginates by default and a
+        security scan must not silently truncate.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, source, title, body, chunk_index, created_at, updated_at "
+                "FROM memory_chunks ORDER BY id"
+            ).fetchall()
         return [
             MemoryChunk(
                 id=r[0], source=r[1], title=r[2], body=r[3],

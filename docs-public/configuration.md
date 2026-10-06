@@ -144,6 +144,33 @@ security:
 
 防止把密钥等敏感内容写进长期记忆。
 
+### security.content_screening — 提示注入筛查
+
+```yaml
+  content_screening:
+    enabled: true                 # 默认开启：新部署即生效
+    threshold: 0.62               # 置信度 >= 此值即判为风险
+    scan_on_startup: true         # 启动时后台巡检已存内容
+```
+
+用模型判定「这是正常的角色扮演/用户自述，还是一次针对模型的指令注入」——正则抓不到靠语境才有害的载荷。配了 `llm.judge` 就走 JEV，否则用当前激活的 LLM。
+
+- **写入时**：每次写记忆（事实、经验、偏好、行为模式、任务反思）都在后台线程筛一次，不阻塞对话。
+- **启动时**分两种情况：配了 `llm.judge` 就**每次开机全量重扫**（JEV 调用不要钱）；没配 JEV 则**只扫上次之后的新增/改动**——否则每次开机都会烧你自己的 API 额度。首次运行时存量内容只登记水位、不扫。
+- **命中后**：从原位置移入隔离区，并在 GUI 的「通知」页列出，可**恢复**或**永久删除**。恢复过的内容按哈希进白名单，之后跳过检测。
+- **角色卡**命中时只清空文本字段，不删卡片行（会话还引用着卡 id）。
+- **筛查不可用时（没配模型 / 超时 / 调用失败）不隔离任何东西**，只在通知页显示本次有多少条没筛到。
+
+### security.visitor_screening — 对外部成员发言的筛查
+
+```yaml
+  visitor_screening:
+    enabled: false                # 默认关闭——原因见下
+    threshold: 0.7                # 置信度 >= 此值即封禁该凭证
+```
+
+逐行读取房间外部成员发来的每一句话，当这句话试图操纵模型、攻击他人、刷屏，或伸手够这台机器时，封禁该成员的凭证。默认关闭，因为它可以凭模型的判断收走一份凭证——那是一个决定，不是一个默认值。
+
 ### security.file_read_blacklist — 文件读取黑名单
 
 ```yaml
@@ -164,16 +191,52 @@ security:
 
 ---
 
+## notifications — 通知流
+
+```yaml
+notifications:
+  review:
+    enabled: true                 # 隔离通知
+  release:
+    enabled: true                 # 更新的 GitHub 版本
+    include_prerelease: false     # 让稳定版也听到预发布
+  announcement:
+    enabled: true                 # 来自仓库的官方公告
+```
+
+三类通知可以各自关闭；信息流的分类筛选与之一一对应。`release.include_prerelease` 就是把稳定版变成"连 beta 也听"的那个开关。
+
+## github — API 令牌
+
+```yaml
+github:
+  token: ""                       # 可选；提高 Releases API 的速率上限
+```
+
+更新检查与公告拉取不带令牌也能工作，只是受 GitHub 匿名速率限制。检查频繁或撞到限制时再配。
+
+---
+
 ## llm — 大模型提供商
 
 ```yaml
 llm:
   active: ""          # 当前激活的提供商名
   providers: []       # 提供商列表，每一项含 name/provider/base_url/api_key/model 等
+  vision_model:       # 可选的专用视觉模型（image_analyze / Computer Use 用）
+    base_url: ""      # 留空 = 用当前激活的聊天模型
+    api_key: ""
+    model: ""
+  judge:              # 可选的逐条相关性裁判（记忆注入用）
+    base_url: ""      # 留空 = 关闭，注入回落到优先级顺序
+    api_key: ""
+    model: ""
 ```
 
 - 支持 OpenAI、Anthropic、Google、DeepSeek，以及任意 OpenAI 兼容端点；本地模型可用 Ollama / LM Studio。
 -  provider 行可写 `format: responses`，让调用走 OpenAI Responses API（`/v1/responses`）而非 chat completions。在 GUI 里把某个 openai 预设的 family 设为 "OpenAI Responses" 时会自动写入。
+- `vision_model` 只在配置后启用；否则图像分析走当前激活的聊天模型。
+- `judge` 必须说 JEV 的协议——它返回的是带类型的判定而非文本，所以普通的 OpenAI 兼容模型塞不进来。`base_url` 与 `api_key` 支持 `${ENV_VAR}`。在设置页的「模型」标签里配置。
 
 ## tts — 语音合成
 
@@ -227,7 +290,10 @@ memory:
   short_term_window: 50          # 短期记忆保留的最近消息数
   reflection_interval_hours: 12  # 空闲批量反思的最小间隔（小时）
   reflection_intensity: medium   # 反思强度（多档可调，默认 medium）
-  recall_max_chars: 2000         # 召回注入提示词的最大字符数
+  inject_budget_chars: 2400      # 所有注入候选共享的字符预算
+  inject_candidate_cap: 40       # 裁判最多评多少条候选
+  inject_score_floor: 0.35       # 相关性低于此值的丢弃
+  inject_max_item_chars: 600     # 单条上限
   enable_rating_prompt: true     # 是否提示用户为回复打分
   embedder:                      # 语义嵌入（语义记忆/召回用）
     provider: ""
@@ -237,18 +303,15 @@ memory:
     timeout: 60
 ```
 
-## llm_cache — LLM 响应缓存
+召回按相关性打包进一份共享预算，而不是按位置截断，所以不会被从句子中间切断。预算刻意接近旧的截断上限：只有候选池超过它时，裁判才值得存在。可在「设置 → 高级」中编辑。（它取代了 `recall_max_chars`，后者是为按位置截断调的。）
 
-两级缓存（L1 内存 + L2 持久化），减少重复调用、加速响应。
+## llm_cache — 提供商 prompt 缓存记账
+
+**本地没有响应缓存。** 磁盘级 L1/L2 缓存已被移除；剩下的只是对**提供商自己**服务端 prompt 缓存的记账（Anthropic `cache_control`、Gemini `cachedContents`），其标记在提供商支持时仍然会照常应用。
 
 ```yaml
 llm_cache:
-  enabled: true
-  l1_max_entries: 256       # L1（内存）最大条目
-  l1_ttl_seconds: 300       # L1 生存时间
-  l2_ttl_seconds: 86400     # L2（持久化）生存时间
-  retention: short          # 保留策略
-  skip_vision: true         # 跳过带图像的请求（不缓存）
+  retention: short          # 记账的保留策略
   use_responses_api: false  # 遗留开关；更推荐在 llm.providers[] 里按提供商设 format="responses"
 ```
 
@@ -306,6 +369,8 @@ reflection:
 ```yaml
 user:
   display_name: ""        # 用户显示名
+  birthday: null          # MM-DD；角色会记住这一天
+  birthday_letter_shown: null   # 最近一次写信的年份
 
 style:
   theme: system           # 主题：system / light / dark
@@ -315,6 +380,30 @@ style:
   locale: en              # 界面语言（en / zh-Hans / zh-Hant / ja / de / fr）
   per_page_overrides: {}  # 按页面的样式覆盖
 ```
+
+`birthday` 也会由 onboarding 向导询问。填了它，角色才会为这一天做点什么。
+
+## time — 时间感知
+
+```yaml
+time:
+  enabled: true           # 把真实日期与离开时长注入提示词
+  gap_floor_minutes: 120  # 低于这个时长，就不加"你离开了…"那一句
+```
+
+开启后，提示词里带上今天的日期、你离开了多久，以及召回记忆的年龄，于是角色不再把上个月当成今天。
+
+## lan — 局域网房间监听
+
+```yaml
+lan:
+  enabled: false          # 总开关：关掉就完全不开 socket
+  bind_host: "0.0.0.0"    # 0.0.0.0 会跟着这台机器加入任何网络
+  port: 8766
+  cert_dir: ""            # 留空 = ~/.fsar/security/lan
+```
+
+这是外部房间成员的**总**开关；房间自己还要设 `lan_enabled`。`0.0.0.0` 正是它的用途——跟着机器走到它加入的任何网络——但这也就意味着咖啡馆的 wifi 能碰到这个端口，所以在那种地方请关掉。每个外部成员都有自己的凭证（有效期、首次使用的地址绑定、速率预算）；详见 [`SECURITY.md`](../SECURITY.md)。
 
 ## plugins / external_skills — 扩展
 

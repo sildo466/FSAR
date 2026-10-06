@@ -24,13 +24,18 @@
 - 把新技能作为 SQLite 经验行持久化（一次安装，多次召回）
 - 通过 Telegram、飞书、微信收发消息
 - 与屏幕虚拟形象语音对话（Live Companion）：选角色 + 模型后开聊，FSAR 语音回复时形象口型与表情同步——支持 VRM 与 Live2D 模型（模型需自带）
+- 与多个角色共处一个房间，角色们自己选出下一个发言的人，用 `@` 点名即可把发言权交给某位
+- 把房间当作项目推进：一块计划板，每个成员在各自那份仓库副本里走一个回合，补丁由你手动落地或驳回，快照按白名单发布
+- 筛查已存记忆中的提示词注入，把被标记的隔离起来；通知中心同时也承载新版本发布与官方公告
+- 感知日期、你离开了多久，以及你的生日
+- 不开界面跑单个回合（`fsar run`、`fsar room say` / `fsar room read`）
 
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
 | 后端 | Python 3.12+，FastAPI + WebSocket |
-| 前端 | Tauri 2 + React + TypeScript（Vite） |
+| 前端 | React + TypeScript（Vite），由后端在浏览器中提供 |
 | 存储 | SQLite（`memory.db` 等）+ ChromaDB（语义向量） |
 | 模型 | OpenAI / Anthropic / Google / DeepSeek / 任意 OpenAI 兼容端点 / Ollama / LM Studio |
 | CLI 入口 | `fsar`（Textual 全屏 TUI）；`python main.py`（遗留简易 REPL） |
@@ -39,13 +44,13 @@
 
 ```
                  ┌───────────────────────────────────────────┐
-                 │  前端 (Tauri 2 / React)  frontend/dist      │
-                 │  聊天 / 卡片 / 记忆 / 反思 / 设置 / 向导      │
+                 │  前端 (React)  frontend/dist                │
+                 │  聊天 / 房间 / 卡片 / 记忆 / 通知 / 设置      │
                  └───────────────┬───────────────────────────┘
                                  │ WebSocket (JSON) + HTTP  /ws
                  ┌───────────────▼───────────────────────────┐
                  │  src/server   FastAPI 应用 + ChatEngine     │
-                 │  handlers/ (~23 个消息路由)  RiskBridge      │
+                 │  handlers/ (~27 个消息路由)  RiskBridge      │
                  └───────────────┬───────────────────────────┘
                                  │
         ┌───────────────┬────────┴────────┬────────────────┐
@@ -63,7 +68,9 @@
                     src/skills  技能审阅门禁 + 子进程执行
                     src/mcp     外部 MCP 服务器
                     src/providers  LLM / TTS / ASR 适配器
-                    src/utils   配置 / LLM 缓存 / 日志 / 迁移
+                    src/notifications  审核 / 发布 / 公告流
+                    src/updates  版本检查 / 公告 / git 更新流程
+                    src/utils   配置 / prompt 缓存记账 / 日志 / 迁移
 ```
 
 ## 一条消息的端到端流程
@@ -73,7 +80,7 @@
 1. **接入** — 前端经 `/ws` 发来 JSON 消息，`ws_server._dispatch` 依次尝试各 handler；`chat.send` 落入 `handlers/chat.py`，派生任务调用 `ChatEngine.handle_send`。
 2. **准备** — 确保会话与工作区绑定，解析角色卡，发出 `chat.thinking`。根据内容分流：`/` 前缀走斜杠命令；选择"集成"模型走多模型集成图；`companion` 模式走单轮陪伴；否则进入智能体循环。
 3. **组装提示词** — 取智能体档位（`agent.tier`），用 `AGENT_SYSTEM_PROMPT` + 角色/用户卡 persona + `## Learned Strategies` + `## Experiences` 组装系统提示词，装入短期记忆并按上下文窗口裁剪。
-4. **智能体循环** — 最多迭代 `max_tool_turns` 轮：按需压缩上下文，经两级缓存调用 LLM；若响应含工具调用则执行（可并行），高阶档位还会做对抗式校验与微反思，直到模型给出无需工具的最终答复。
+4. **智能体循环** — 最多迭代 `max_tool_turns` 轮：按需压缩上下文，调用 LLM（供应商支持时走服务端 prompt 缓存）；若响应含工具调用则执行（可并行），高阶档位还会做对抗式校验与微反思，直到模型给出无需工具的最终答复。
 5. **每次工具调用的安全关卡**（顺序执行，任一拒绝即停止）：
    - **MCP 门禁** — 带 `server_name` 的工具须通过服务器审阅/验证；
    - **沙盒门禁** — `WorkspaceGate` 校验路径/命令；越界触发"沙盒逃逸确认"，等待用户 `deny / allow_once / allow_session / allow_always`；
@@ -91,7 +98,7 @@
 ~/.fsar/data/
   memory.db            对话、决策、用户画像、经验
   chroma/              语义嵌入
-  llm_cache.db         L1/L2 响应缓存
+  llm_cache.db        供应商 prompt 缓存记账
   tts_cache.db         TTS 音频缓存
   scheduler.db         定时任务
   logs/                滚动日志 + audit.log（审计）

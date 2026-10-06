@@ -47,6 +47,12 @@ class AgentRunState:
     character: Any = None
     unlocked_tools: set[str] = field(default_factory=set)
     character_mode: bool = False
+    workspace_override: Any = None
+    plan_sink: Any = None
+    # The tool calls this run made, as {callId, tool, args}. Collected so the
+    # turn's steps can be stored with its message and survive a reload — names
+    # and arguments only, never what a tool returned.
+    tool_steps: list[dict] = field(default_factory=list)
 
     async def reserve_agent(
         self,

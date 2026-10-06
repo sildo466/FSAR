@@ -33,7 +33,7 @@ pip install -r requirements.txt
 
 > 虚拟环境**可选创建**——也可以直接把依赖装进系统 Python。
 
-> 后端（Python）与前端（Tauri/React）是两个独立产物，**没有单一的 "build" 步骤**。
+> 后端（Python）与前端（React）是两个独立产物，**没有单一的 "build" 步骤**。
 
 ## 3. 启动
 
@@ -79,7 +79,7 @@ fsar                # 或 python -m src.cli.tui;需 pip install -e .
 
 ## 4. 前端开发
 
-前端是 **Tauri 2 + React + TypeScript**，位于 `frontend/`。
+前端是 **React + TypeScript（Vite）**，位于 `frontend/`；构建产物由后端在浏览器中于 `127.0.0.1:8765` 提供。
 
 ```bash
 cd frontend
@@ -88,7 +88,7 @@ npm run build        # 产物供后端静态托管
 ```
 
 - `frontend/src/` — React 界面：`components/chat`（聊天）、`components/onboarding`（首次使用向导）、`clients/`（WebSocket 与 HTTP 客户端）。
-- `frontend/src-tauri/` — Tauri 桌面壳（Rust）；纯 Web 使用可不构建它。
+- `frontend/src-tauri/` — 仓库里的一个 Tauri 壳（Rust），但不构建也不使用；界面在浏览器中运行。
 - 组件测试用 Vitest/Testing Library（`*.test.tsx`）。
 
 只有修改 TS/React 代码时才需要重新构建前端。
@@ -154,7 +154,7 @@ tests/
 ~/.fsar/data/
   memory.db            对话、决策、用户画像、经验
   chroma/              语义嵌入
-  llm_cache.db         L1/L2 响应缓存
+  llm_cache.db        供应商 prompt 缓存记账
   tts_cache.db         TTS 音频缓存
   logs/                滚动日志 + audit.log（审计）
 ```

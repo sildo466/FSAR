@@ -56,6 +56,11 @@ Le nom est aussi le contrat de conception : **F**aithful · **S**afe · **A**dap
 - Mode de chat « In Character » — l'assistant incarne pleinement la carte de personnage choisie (il peut refuser, hésiter, marchander), avec une découverte d'outils fondée sur l'intention via un méta-outil routeur qui débloque les capacités adaptées pour la session
 - Persister les nouveaux skills en lignes d'expérience SQLite (P6) — l'installation MCP d'une session devient le rappel de la suivante
 - Dialoguer via Telegram, Feishu ou WeChat grâce au pont social
+- Partager une salle avec plusieurs personnages — ce sont eux qui choisissent qui parle ensuite, et les nommer avec `@` leur donne la parole
+- Mener une salle comme un projet — un tableau de plan, un tour par membre dans sa propre copie du dépôt, des patchs que vous appliquez ou refusez à la main, et des instantanés que vous publiez
+- Filtrer les souvenirs stockés contre l'injection de prompt et mettre en quarantaine ce qui est signalé — dans un centre de notifications qui porte aussi les nouvelles versions et les annonces officielles
+- Connaître la date et votre anniversaire, pour qu'un personnage cesse de prendre le mois dernier pour aujourd'hui
+- Exécuter un tour unique sans interface — `fsar run`, ou `fsar room say` / `fsar room read` contre l'API d'une salle
 
 ## Démarrage rapide
 
@@ -146,6 +151,10 @@ Vos conversations, vos souvenirs et votre historique de décisions vivent entiè
 
 Chaque session exécute une carte de personnage que vous avez écrite : nom, personnalité, scénario, état émotionnel optionnel. Combinée à une carte d'utilisateur qui vous décrit, le LLM reçoit une persona au périmètre bien défini — pas un « assistant IA serviable » qui dérive. Changez la carte, changez le personnage ; aucune modification de code.
 
+### Des salles, pas seulement du tête-à-tête
+
+Au-delà du chat individuel, FSAR a des salles. Une **salle de groupe** réunit plusieurs personnages et vous à la fois, et les personnages choisissent entre eux qui parle ensuite. Une **salle de projet** va plus loin : elle tient un tableau de plan, remet chaque élément au membre qui le possède, exécute ce tour dans une copie du projet où ce membre travaille seul, et rapporte le résultat sous forme de patch que vous appliquez ou refusez. Rien ne s'exécute sans vous.
+
 ### Il se souvient de vous d'une session à l'autre
 
 Après quelques conversations, FSAR construit un profil stable : préférences explicites (« utilise VSCode »), comportements inférés (« code souvent le soir »), schémas récurrents (« range généralement les téléchargements via file_ops »). La session suivante démarre avec ce contexte déjà dans le prompt système. Vous n'avez plus jamais à vous re-expliquer.
@@ -176,7 +185,7 @@ Un niveau Computer Use (`cua`) permet au modèle de capturer, cliquer, taper et 
 
 ### Empreinte légère
 
-FSAR est compact et léger — un service Python unique plus un frontend Tauri minimal. Le code source fait ~6–7 MB, et environ 200 MB une fois les dépendances du frontend installées (dépendances Python exclues). Pas de runtime lourd ni de dépendance au cloud ; il tourne sans peine sur du matériel modeste.
+FSAR est compact et léger — un service Python unique plus un frontend navigateur. Le code source fait ~6–7 MB, et environ 200 MB une fois les dépendances du frontend installées (dépendances Python exclues). Pas de runtime lourd ni de dépendance au cloud ; il tourne sans peine sur du matériel modeste.
 
 ## Tutoriel
 
@@ -189,6 +198,8 @@ src/
   server/         Transport WebSocket FastAPI
   core/           Boucle agent, prompts, injecteurs
   memory/         court terme, long terme, sémantique, modèle utilisateur, expérience
+  notifications/  flux revue / version / annonce
+  updates/        vérification des versions, annonces, flux de mise à jour git
   tools/builtin/  ~25 outils intégrés
   security/       Moteur de risque, permissions, audit
   sandbox/        Garde-fou hardline, porte workspace
@@ -197,7 +208,7 @@ src/
   providers/      Adaptateurs LLM / TTS / ASR
   cli/            TUI terminal (Textual) + commandes slash
   utils/          Logger, configuration, migrations
-frontend/         UI Tauri 2 / React
+frontend/         UI React (Vite)
 data/             SQLite + ChromaDB + logs + cache
 config/           valeurs par défaut yaml fournies
 ```
@@ -209,7 +220,7 @@ config/           valeurs par défaut yaml fournies
 - `config/fsar.yaml.template` — valeurs par défaut fournies, lecture seule
 - `~/.fsar/config/fsar.yaml` — votre copie, modifiée via l'UI ou à la main
 
-Au premier lancement, le modèle est copié si votre copie manque. Sections : `llm` / `tts` / `asr` / `memory` / `security` / `social` / `mcp` / `reflection` / `permissions` / `user` / `style`. Schéma complet : [`config/fsar.yaml.template`](config/fsar.yaml.template).
+Au premier lancement, le modèle est copié si votre copie manque. Sections : `llm` / `tts` / `asr` / `memory` / `security` / `notifications` / `github` / `social` / `mcp` / `reflection` / `permissions` / `user` / `time` / `lan` / `style`. Schéma complet : [`config/fsar.yaml.template`](config/fsar.yaml.template).
 
 ### Disposition des données
 
@@ -220,7 +231,7 @@ Tout ce que FSAR retient de vous vit sous `~/.fsar/` :
 ~/.fsar/data/
   memory.db           conversations, décisions, modèle utilisateur, expérience
   chroma/             plongements sémantiques
-  llm_cache.db        cache L1/L2 des réponses
+  llm_cache.db        comptabilité du prompt cache du fournisseur
   tts_cache.db        cache audio TTS
   logs/               journaux rotatifs
 ```
@@ -229,7 +240,7 @@ Supprimez `~/.fsar/` pour remettre FSAR à un état propre.
 
 ### Build et tests
 
-Le backend Python et le frontend Tauri sont des artefacts séparés ; il n'y a pas d'étape unique de « build ».
+Le backend Python et le frontend sont des artefacts séparés ; il n'y a pas d'étape unique de « build ».
 
 ```bash
 # Backend

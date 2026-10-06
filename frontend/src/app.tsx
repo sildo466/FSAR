@@ -5,11 +5,15 @@ import { useWS } from "./stores/ws";
 import { useCardsStore } from "./stores/cards";
 import { useSessions } from "./stores/sessions";
 import { useTokenMeter } from "./stores/token-meter";
+import { useGroup } from "./stores/group";
 import { Sidebar } from "./components/shell/Sidebar";
 import { Topbar } from "./components/shell/Topbar";
 import { Chat } from "./pages/Chat";
+import { Group } from "./pages/Group";
+import { GroupRoom } from "./pages/GroupRoom";
 import { Reflection } from "./pages/Reflection";
 import { Memory } from "./pages/Memory";
+import { Notifications } from "./pages/Notifications";
 import { Library } from "./pages/Library";
 import { Insights } from "./pages/Insights";
 import { Cards } from "./pages/Cards";
@@ -21,6 +25,7 @@ import { IntergrationPage } from "./pages/IntergrationPage";
 import { Scheduler } from "./pages/Scheduler";
 import { Live } from "./pages/Live";
 import { EscapeModal } from "./components/workspace/EscapeModal";
+import { BirthdayLetter } from "./components/birthday/BirthdayLetter";
 import { useWorkspace } from "./stores/workspace";
 import { useThemeApplication, useMotionApplication, useFontScaleApplication } from "./lib/theme";
 import { useSkinApplication } from "./lib/skin";
@@ -45,8 +50,11 @@ function AppShell() {
           <Routes>
             <Route path="/" element={<Chat />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/group" element={<Group />} />
+            <Route path="/group/:roomId" element={<GroupRoom />} />
             <Route path="/reflection" element={<Reflection />} />
             <Route path="/memory" element={<Memory />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/library" element={<Library />} />
             <Route path="/cards" element={<Cards />} />
             <Route path="/insights" element={<Insights />} />
@@ -75,6 +83,7 @@ export function App() {
   const initWorkspace = useWorkspace((s) => s.init);
   const initSessions = useSessions((s) => s.init);
   const initTokenMeter = useTokenMeter((s) => s.init);
+  const initGroup = useGroup((s) => s.init);
   useEffect(() => {
     if (!client) return;
     const detach = initCards(client);
@@ -99,6 +108,14 @@ export function App() {
     return () => detach();
   }, [client, initTokenMeter]);
 
+  // Rooms must stay subscribed for the whole connection too: group.updated
+  // arriving on another route would otherwise be dropped.
+  useEffect(() => {
+    if (!client) return;
+    const detach = initGroup(client);
+    return () => detach();
+  }, [client, initGroup]);
+
   useThemeApplication();
   useMotionApplication();
   useFontScaleApplication();
@@ -117,6 +134,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AppShell />
+      <BirthdayLetter />
       {required && <Onboarding />}
       {escapeRequest && client && (
         <EscapeModal request={escapeRequest} onDecision={(decision) => {

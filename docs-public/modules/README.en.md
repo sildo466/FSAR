@@ -23,10 +23,12 @@ FSAR's backend lives under `src/`, the frontend under `frontend/`. This director
 | [mcp](mcp.en.md) | Model Context Protocol client |
 | [utils](utils.en.md) | cross-cutting infrastructure |
 | [scheduler](scheduler.en.md) | scheduled tasks |
+| [updates](updates.en.md) | release checks, announcements, and the gated git update flow |
+| [notifications](notifications.en.md) | the review / release / announcement feed |
 
 ## Frontend and data directories
 
-- [frontend](frontend.en.md) — the Vite + React frontend app (Tauri desktop shell)
+- [frontend](frontend.en.md) — the Vite + React frontend app, served in the browser by the backend (a Tauri shell exists in the tree but is not built or used)
 - [skin](skin.en.md) — the skin system: a hand-written `skin.json` recolors the site, adds a wallpaper, and customizes individual components
 - [layout](layout.en.md) — shipped contents of `data/` and `config/`, plus the runtime databases
 

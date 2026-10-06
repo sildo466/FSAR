@@ -19,14 +19,16 @@ def set_engine(engine: ChatEngine) -> None:
 
 
 def prune_empty_sessions(store, active_id: str | None) -> None:
-    """Drop untitled sessions with zero messages (e.g. slash-only chats)."""
+    """Drop zero-message sessions the user never really used.
+
+    A title is not evidence of use: when a turn is cancelled — a denied
+    high-risk tool call, for instance — nothing is persisted, but the title
+    generator has already named the session from the user's input. Those
+    shells carry no content, so they are swept too. Pinned sessions and the
+    active conversation are always spared.
+    """
     for row in store.list(limit=500):
-        if (
-            row.message_count == 0
-            and not row.title.strip()
-            and not row.pinned
-            and row.id != active_id
-        ):
+        if row.message_count == 0 and not row.pinned and row.id != active_id:
             store.delete(row.id)
 
 
