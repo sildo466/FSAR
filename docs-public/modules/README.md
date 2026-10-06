@@ -23,10 +23,12 @@ FSAR 后端代码位于 `src/`，前端位于 `frontend/`。本目录按模块�
 | [mcp](mcp.md) | Model Context Protocol 客户端 |
 | [utils](utils.md) | 横切基础设施 |
 | [scheduler](scheduler.md) | 定时任务 |
+| [updates](updates.md) | 版本检查、公告与受限 git 更新流程 |
+| [notifications](notifications.md) | 审核 / 发布 / 公告通知流 |
 
 ## 前端与数据目录
 
-- [frontend](frontend.md) — Vite + React 前端应用（Tauri 桌面壳）
+- [frontend](frontend.md) — Vite + React 前端应用，由后端在浏览器中提供（仓库内有一个 Tauri 壳，但不构建也不使用）
 - [skin](skin.md) — 皮肤系统：手写 `skin.json`，整站换色 + 壁纸 + 逐元素自定义
 - [layout](layout.md) — `data/` 与 `config/` 的随库内容与运行时数据库
 

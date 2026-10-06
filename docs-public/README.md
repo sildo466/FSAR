@@ -11,7 +11,7 @@
 | 文档 | 内容 |
 |---|---|
 | [项目总览](overview.md) | FSAR 是什么、四大支柱、能力清单、技术栈、架构鸟瞰、一条消息的端到端流程、数据布局 |
-| [模块介绍](modules/README.md) | 后端 `src/` 各模块（server / core / memory / tools / security / sandbox / skills / social / providers / mcp / utils / scheduler）、前端 `frontend/`、以及 `data/` 与 `config/` 的职责与关键文件 |
+| [模块介绍](modules/README.md) | 后端 `src/` 各模块（server / core / memory / tools / security / sandbox / skills / social / providers / mcp / utils / scheduler / updates / notifications）、前端 `frontend/`、以及 `data/` 与 `config/` 的职责与关键文件 |
 | [配置详解](configuration.md) | `fsar.yaml` 每一段的含义、默认值与取值范围（含完整的安全子项） |
 | [编译 · 测试 · 开发教程](development.md) | 环境准备、安装、启动、前端开发、测试与 CI、代码规范、数据目录、提交协作 |
 

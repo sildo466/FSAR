@@ -161,6 +161,10 @@ elements override  >  palette override  >  built-in default for this base
 
 Treat them as templates: copy one, change `id`/`name` and a few values, and it's your skin.
 
+## The birthday skin
+
+`assets/birthday_skin/` is not part of `data/skins/` — it is a gift. The first time a birthday triggers, `server/birthday_runner.py` copies it into your skin directory under `SKIN_ID` (from `core/birthday.py`), and from then on it is an ordinary skin you can pick. The folder's presence is the only record of "already unlocked", so deleting it re-arms the gift.
+
 ## Known boundaries
 
 - Corner radii / shadows (`radius`/`shadow`) are not skin-driven yet — components keep their own Tailwind classes. A later release may open them.

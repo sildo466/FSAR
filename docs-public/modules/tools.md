@@ -9,3 +9,5 @@
 | `registry.py` | `Tool` 抽象基类与 `ToolRegistry`（注册/发现/生成 schema/执行）。 |
 | `__init__.py` | `create_default_registry(config)` 注册全部内置工具（规范入口）。 |
 | `builtin/` | `run_command`（shell/PowerShell，带超时）、`file_ops`（读/写/列/移/删）、`edit`（精确替换）、`process`（后台进程）、`web_tools`（搜索/抓取）、`app_control`（启动应用）、`image_analyze` / `pdf_analyze`、`experience_tools` + `experience_import`、`update_emotion`、`skill_tool` / `skill_folder`、`cu_tools`（Computer Use：截图/点击/双击/滚动/输入/按键，封装 cua 库）。 |
+
+有一个工具刻意不在这个注册表里：`plan_write`，房间计划板的写入器。它的 schema 在 `server/chat_engine.py`，且只提供给"有板可写"的回合——落入 `server/plan_sink.py`。

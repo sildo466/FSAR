@@ -10,5 +10,6 @@
 - `presets/` — `llm-providers.json` / `asr-providers.json` / `tts-providers.json`（onboarding 向导的可选项）。
 - `cards/` — 角色卡 `FSAR-en/zh`、`coding-coach-en/zh`、`research-analyst-en/zh`、`default-user.json`、`_meta.json`。
 - `emotion_default.json` — 默认情绪 schema 与公式。
+- `skins/` — 随库皮肤预设（`warm`、`night`、`minimal`），各是一份手写 `skin.json`。
 - `migrations/` — 带日期的 Python 迁移。
-- 运行时产物：`memory.db`、`scheduler.db`、`llm_cache.db`、`tts_cache.db`、`chroma/`、`avatars/`、`logs/` 等。
+- 运行时产物：`memory.db`、`scheduler.db`、`llm_cache.db`、`tts_cache.db`、`chroma/`、`avatars/`、`logs/` 等。`memory.db` 以 WAL 模式运行，所以你还会在它旁边看到 `memory.db-wal` 与 `memory.db-shm`——它们是数据库的一部分，FSAR 运行时别动它们。

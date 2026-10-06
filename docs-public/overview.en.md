@@ -24,13 +24,18 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
 - Persist new skills as SQLite experience rows (install once, recall many times)
 - Talk through Telegram, Feishu (Lark), and WeChat
 - Hold a spoken conversation with an on-screen avatar (Live Companion): pick a character + model, talk, and FSAR replies aloud with lip-synced, expression-driven VRM or Live2D models (bring your own model files)
+- Share one room with several characters and you — the characters elect among themselves who speaks next, and naming one with `@` hands them the floor
+- Work a room as a project: a plan board, one turn per member in that member's own copy of your repo, patches you land or refuse by hand, and snapshots you publish by allowlist
+- Screen stored memories for prompt injection and quarantine what is flagged, in a notification center that also carries new releases and official announcements
+- Know the date, how long you have been away, and your birthday
+- Run a single turn without the UI (`fsar run`, `fsar room say` / `fsar room read`)
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12+, FastAPI + WebSocket |
-| Frontend | Tauri 2 + React + TypeScript (Vite) |
+| Frontend | React + TypeScript (Vite), served in the browser by the backend |
 | Storage | SQLite (`memory.db` etc.) + ChromaDB (semantic vectors) |
 | Models | OpenAI / Anthropic / Google / DeepSeek / any OpenAI-compatible endpoint / Ollama / LM Studio |
 | CLI entry | `fsar` (full-screen Textual TUI); `python main.py` (legacy simple REPL) |
@@ -39,13 +44,13 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
 
 ```
                  ┌───────────────────────────────────────────┐
-                 │  Frontend (Tauri 2 / React)  frontend/dist  │
-                 │  Chat / Cards / Memory / Reflection / ...   │
+                 │  Frontend (React)  frontend/dist            │
+                 │  Chat / Rooms / Cards / Memory / ...        │
                  └───────────────┬───────────────────────────┘
                                  │ WebSocket (JSON) + HTTP  /ws
                  ┌───────────────▼───────────────────────────┐
                  │  src/server   FastAPI app + ChatEngine      │
-                 │  handlers/ (~23 routers)   RiskBridge       │
+                 │  handlers/ (~27 routers)   RiskBridge       │
                  └───────────────┬───────────────────────────┘
                                  │
         ┌───────────────┬────────┴────────┬────────────────┐
@@ -65,7 +70,9 @@ The name is the design contract: **F**aithful · **S**afe · **A**daptive · **R
                     src/skills  skill review gate + subprocess execution
                     src/mcp     external MCP servers
                     src/providers  LLM / TTS / ASR adapters
-                    src/utils   config / LLM cache / logging / migrations
+                    src/notifications  review / release / announcement feed
+                    src/updates  release checks / announcements / git update flow
+                    src/utils   config / prompt-cache bookkeeping / logging / migrations
 ```
 
 ## A message, end to end
@@ -75,7 +82,7 @@ Taking a chat message from the GUI as an example (details in `src/server/chat_en
 1. **Ingress** — The frontend sends a JSON message over `/ws`; `ws_server._dispatch` tries each handler in turn. `chat.send` lands in `handlers/chat.py`, which spawns a task calling `ChatEngine.handle_send`.
 2. **Preparation** — Ensures the conversation and its workspace binding, resolves the character card, and emits `chat.thinking`. Then it branches: `/`-prefixed text → slash command; an "integration" model selection → a multi-model integration graph; `companion` mode → a one-shot companion turn; otherwise → the agent loop.
 3. **Prompt assembly** — Loads the agent tier (`agent.tier`), builds the system prompt from `AGENT_SYSTEM_PROMPT` + the character/user persona + `## Learned Strategies` + `## Experiences`, hydrates short-term memory, and fits it to the model's context window.
-4. **Agent loop** — Iterates up to `max_tool_turns` turns: compacts context as needed, calls the LLM through the two-tier cache, and — when the response contains tool calls — executes them (in parallel where allowed). Higher tiers add adversarial verification and micro-reflection, until the model produces a final answer with no tool calls.
+4. **Agent loop** — Iterates up to `max_tool_turns` turns: compacts context as needed, calls the LLM (with provider-side prompt caching where the endpoint supports it), and — when the response contains tool calls — executes them (in parallel where allowed). Higher tiers add adversarial verification and micro-reflection, until the model produces a final answer with no tool calls.
 5. **The security gauntlet per tool call** (run in order; any deny stops the action):
    - **MCP gate** — tools carrying a `server_name` must pass server review/verification;
    - **Sandbox gate** — `WorkspaceGate` validates paths/commands; leaving the workspace triggers a "sandbox escape" confirmation awaiting `deny / allow_once / allow_session / allow_always`;
@@ -93,7 +100,7 @@ Everything about you lives under `~/.fsar/`:
 ~/.fsar/data/
   memory.db            conversations, decisions, user model, experience
   chroma/              semantic embeddings
-  llm_cache.db         L1/L2 response cache
+  llm_cache.db         provider prompt-cache bookkeeping
   tts_cache.db         TTS audio cache
   scheduler.db         scheduled tasks
   logs/                rotating logs + audit.log

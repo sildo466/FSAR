@@ -61,8 +61,10 @@ Please redact any real API keys or credentials from your proof of concept.
 ### Scope
 
 In scope: anything in this repository — the Python backend (`src/`), the
-frontend (`frontend/`), shipped presets/config, and the built-in tools, MCP
-integration, skill runtime, and social adapters. Out of scope: attacks that
+frontend (`frontend/`), shipped presets/config, the built-in tools, MCP
+integration, skill runtime, social adapters, the content-screening and
+quarantine path, and the LAN room surface (its credentials, rate budgets,
+address blocklist, TLS and listener). Out of scope: attacks that
 require the user to have already granted the OS-level Computer Use
 (Accessibility) permission and then confirmed every prompt, social engineering
 of the user, and vulnerabilities in upstream dependencies (report those to the
@@ -74,6 +76,10 @@ Every tool invocation passes through these layers **before** it executes. They
 are ordered from the unconditional floor upward; a deny at any layer stops the
 action. The design principle throughout is **fail closed**: on error or timeout
 the action is denied, never allowed.
+
+Layers 1–8 guard what a turn *does*. Layers 9 and 10 guard the two boundaries
+either side of the model: what is allowed back *into* its context, and what
+arrives *over the network*.
 
 ### 1. Hardline guard — the unconditional floor
 `src/sandbox/hardline.py`
@@ -176,6 +182,64 @@ Every tool decision is appended as one JSON line to `~/.fsar/data/logs/audit.log
 — tool, args, risk, verdict, user response, outcome, duration. The audit writer
 never raises, so an audit failure cannot disrupt (or be used to disrupt) the
 guarded path.
+
+### 9. Content screening and quarantine
+`src/security/content_screen.py`, `src/security/content_guard.py`
+
+Everything FSAR persists — facts, experience, preferences, patterns, task
+reflections — is screened for prompt injection before it can be recalled into a
+later prompt. A model judges "normal roleplay / user statement" against "an
+instruction aimed at the model", which is exactly the payload a keyword filter
+cannot see. Screening runs on a background thread, so conversation is never
+blocked.
+
+A hit is **quarantined**: the item leaves its store and appears on the
+Notifications page, where it can be restored (which allowlists its hash, so it
+is skipped from then on) or purged (which hides the row without destroying the
+record). A flagged character card keeps its row and loses only its text fields,
+because existing sessions still reference the card id.
+
+Screening is fail-closed in the direction that matters: **it never quarantines
+when it cannot run** (no judge configured, a timeout, a failed call). The
+Notifications page instead reports how many items went unscreened this run.
+
+### 10. The LAN room surface
+`src/security/member_auth.py`, `src/security/rate_budget.py`,
+`src/security/lan_tls.py`, `src/security/visitor_screen.py`,
+`src/memory/{member_tokens,agent_members,lan_blocklist,auth_audit,idempotency}.py`,
+`src/server/room_app.py`
+
+A room can be opened to outside agents, which makes it the one part of FSAR that
+faces the network. It is off by default at **two** levels — the process-wide
+`lan.enabled` master switch and the per-room flag — and when it is on it is
+guarded as its own surface:
+
+- **One authorization decision** — every request resolves through `member_auth`,
+  so a single place decides whether a credential may be used.
+- **Credentials** — per member, hashed at rest, with an expiry and a first-use
+  source binding (trust-on-first-use), so a token copied to another host stops
+  working.
+- **Rate budgets** — token buckets with a bounded key table, so the surface
+  cannot be flooded or used to exhaust memory.
+- **Abuse screen** — `visitor_screen` reads every line an outside member sends
+  and bans that member's credential on an attempt to steer the model, attack
+  someone, flood, or reach for this machine. It is **off by default**: it can
+  take a credential away on a model's say-so, which is the owner's decision to
+  make, not a default.
+- **Address blocklist** — a global list of addresses that may not reach the
+  listener at all, consulted before anything else.
+- **Identity audit** — an append-only record of credential use (`auth_audit`).
+- **TLS** — self-signed material with host SANs, generated locally; the listener
+  does not serve plaintext.
+- **Idempotency** — POSTs are de-duplicated, so a replayed request does not run
+  twice.
+- **One document, nothing else** — the listener serves exactly one page
+  describing what a member can reach; nothing else is registered on it.
+
+The boundary is stated in that document and in the listener's own answers: a
+member's turn runs **on the user's machine**, in a copy of the project, under the
+user's own filesystem permissions. There is no container, WSL or SSH between it
+and the rest of the disk.
 
 ## Guidance for contributors working on security code
 

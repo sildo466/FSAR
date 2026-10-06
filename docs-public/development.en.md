@@ -33,7 +33,7 @@ pip install -r requirements.txt
 
 > Creating a virtual environment is optional — you may install the dependencies directly into your system Python.
 
-> The backend (Python) and the frontend (Tauri/React) are two separate artifacts — **there is no single "build" step**.
+> The backend (Python) and the frontend (React) are two separate artifacts — **there is no single "build" step**.
 
 ## 3. Launch
 
@@ -79,7 +79,7 @@ Open **System Settings → Privacy & Security → Accessibility** and grant acce
 
 ## 4. Frontend development
 
-The frontend is **Tauri 2 + React + TypeScript**, under `frontend/`.
+The frontend is **React + TypeScript (Vite)**, under `frontend/`; the built output is served in the browser by the backend at `127.0.0.1:8765`.
 
 ```bash
 cd frontend
@@ -88,7 +88,7 @@ npm run build        # output is served statically by the backend
 ```
 
 - `frontend/src/` — the React UI: `components/chat` (chat), `components/onboarding` (first-run wizard), `clients/` (WebSocket and HTTP clients).
-- `frontend/src-tauri/` — the Tauri desktop shell (Rust); not required for pure web use.
+- `frontend/src-tauri/` — a Tauri shell (Rust) that is present in the tree but is not built or used; the UI runs in the browser.
 - Component tests use Vitest/Testing Library (`*.test.tsx`).
 
 You only need to rebuild the frontend when changing TS/React code.
@@ -154,7 +154,7 @@ Everything about the user lives under `~/.fsar/`:
 ~/.fsar/data/
   memory.db            conversations, decisions, user model, experience
   chroma/              semantic embeddings
-  llm_cache.db         L1/L2 response cache
+  llm_cache.db         provider prompt-cache bookkeeping
   tts_cache.db         TTS audio cache
   scheduler.db         scheduled tasks
   logs/                rotating logs + audit.log

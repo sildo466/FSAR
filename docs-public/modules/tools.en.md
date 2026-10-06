@@ -9,3 +9,5 @@ A registry of LLM-callable tools expressed in OpenAI function-calling format.
 | `registry.py` | The `Tool` abstract base and `ToolRegistry` (register/discover/emit schema/execute). |
 | `__init__.py` | `create_default_registry(config)` registers all built-ins (canonical entry). |
 | `builtin/` | `run_command` (shell/PowerShell, with timeout), `file_ops` (read/write/list/move/delete), `edit` (precise replacement), `process` (background processes), `web_tools` (search/fetch), `app_control` (launch apps), `image_analyze` / `pdf_analyze`, `experience_tools` + `experience_import`, `update_emotion`, `skill_tool` / `skill_folder`, `cu_tools` (Computer Use: screenshot/click/double-click/scroll/type/keypress, wrapping the cua library). |
+
+One tool is deliberately not in this registry: `plan_write`, the room plan board's writer. Its schema lives in `server/chat_engine.py`, and it is offered only to a turn that has a board to write to — the sink is `server/plan_sink.py`.

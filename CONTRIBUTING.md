@@ -22,7 +22,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-The backend and the Tauri/React frontend are separate artifacts; there is no
+The backend and the React frontend are separate artifacts; there is no
 single build step.
 
 ```bash
@@ -51,6 +51,8 @@ src/
   server/           FastAPI + WebSocket transport, chat engine, HTTP handlers
   core/             Agent loop, prompts, strategy / experience injectors
   memory/           short-term, long-term, semantic, user model, experience store
+  notifications/    review / release / announcement feed
+  updates/          release checks, announcements, git update flow
   tools/builtin/    built-in tools (shell, file ops, web, image, computer use)
   security/         risk engine, permissions, confirmation, audit, WS auth
   sandbox/          hardline guard, workspace gate, sensitive-path protection
@@ -58,8 +60,8 @@ src/
   social/           Telegram / Feishu / WeChat adapters
   providers/        LLM / TTS / ASR adapters
   mcp/              MCP server management
-  utils/            config, logger, migrations, LLM cache
-frontend/           Tauri 2 / React UI
+  utils/            config, logger, migrations, version
+frontend/           React UI (Vite)
 tests/              pytest suite (see below)
 config/             shipped yaml defaults (fsar.yaml.template)
 data/               vendored presets / character cards (runtime data lives in ~/.fsar/)
