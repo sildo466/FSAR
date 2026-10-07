@@ -117,6 +117,7 @@ def test_title_reaches_the_store(monkeypatch, tmp_path):
     monkeypatch.setattr(tg_mod, "chat_completion", _slow_title)
     monkeypatch.setattr(ce, "chat_completion", lambda *a, **k: _resp(content="hello!"))
     monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
+    monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "model-x", "prov"))
 
     with TestClient(ws_mod.app).websocket_connect("/ws") as ws:
         _send(ws, "hi there", "agent")
