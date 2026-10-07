@@ -77,7 +77,7 @@ def test_main_requires_task() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fresh_conversation_starts_and_binds_a_session(tmp_path, monkeypatch) -> None:
+async def test_fresh_conversation_starts_and_binds_a_session(tmp_path) -> None:
     """Regression: `fsar run` without --conversation-id read `.session_id` off a
     SessionRow, which only carries `.id`, so the turn died before it began."""
     from src.core.agent_runtime import AgentLoopResult
@@ -90,8 +90,10 @@ async def test_fresh_conversation_starts_and_binds_a_session(tmp_path, monkeypat
     config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
     config.save()
     engine = ChatEngine(config, RiskBridge())
+    # Wire the singleton the way ws_server does, rather than stubbing the
+    # lookup — stubbing it is what let the AttributeError ship.
+    chat_engine.set_default_chat_engine(engine)
     engine.client_and_model = lambda: (object(), "fake-model", "fake-provider")
-    monkeypatch.setattr(chat_engine, "get_default_chat_engine", lambda: engine)
 
     seen: dict[str, str] = {}
 
@@ -101,9 +103,12 @@ async def test_fresh_conversation_starts_and_binds_a_session(tmp_path, monkeypat
 
     engine._run_agent = fake_run_agent
 
-    conv_id, conclusion, outcome = await chat_engine.handle_user_agent_message_result(
-        None, "say hello",
-    )
+    try:
+        conv_id, conclusion, outcome = await chat_engine.handle_user_agent_message_result(
+            None, "say hello",
+        )
+    finally:
+        chat_engine.set_default_chat_engine(None)
 
     assert conv_id
     assert conclusion == "read the room"
@@ -111,3 +116,36 @@ async def test_fresh_conversation_starts_and_binds_a_session(tmp_path, monkeypat
     assert seen["conv_id"] == conv_id
     assert engine.session_store.get(conv_id) is not None
     assert engine.workspace_repo.get_binding(conv_id) is not None
+
+
+def test_headless_engine_reuses_the_wired_instance(tmp_path) -> None:
+    """The social bridge must land on the server's engine, not a second copy."""
+    from src.server import chat_engine
+    from src.server.chat_engine import ChatEngine
+    from src.server.risk_bridge import RiskBridge
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+    wired = ChatEngine(config, RiskBridge())
+    chat_engine.set_default_chat_engine(wired)
+    try:
+        assert chat_engine.headless_chat_engine() is wired
+    finally:
+        chat_engine.set_default_chat_engine(None)
+
+
+def test_headless_engine_stands_alone_without_a_server(tmp_path, monkeypatch) -> None:
+    """`fsar run` is its own process and never wires the singleton; it used to
+    raise before the turn started."""
+    from src.server import chat_engine
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+    monkeypatch.setattr(chat_engine, "_default_chat_engine", None)
+    monkeypatch.setattr(chat_engine, "get_default_config", lambda: config)
+
+    assert isinstance(chat_engine.headless_chat_engine(), chat_engine.ChatEngine)

@@ -174,7 +174,7 @@ async def handle_user_agent_message_result(
     Same drive as handle_user_agent_message, but also returns the outcome so a
     CLI can exit non-zero instead of printing an error string as if it were the
     answer. Passing conversation_id=None starts a fresh conversation."""
-    engine = get_default_chat_engine()
+    engine = headless_chat_engine()
     client, model, provider_id = engine.client_and_model()
     if client is None:
         raise RuntimeError("No active LLM provider is configured")
@@ -429,6 +429,19 @@ def get_default_chat_engine() -> "ChatEngine":
             "ws_server must call set_default_chat_engine(engine) at startup"
         )
     return _default_chat_engine
+
+
+def headless_chat_engine() -> "ChatEngine":
+    """The wired engine when there is one, else a standalone instance.
+
+    ``fsar run`` is a process of its own and never wires the singleton, whereas
+    the social bridge must reach the *server's* engine so shared state is the
+    same object rather than a second copy.
+    """
+
+    if _default_chat_engine is not None:
+        return _default_chat_engine
+    return ChatEngine(get_default_config(), RiskBridge())
 
 
 def _plan_updated_event(sink: Any) -> dict[str, Any]:
