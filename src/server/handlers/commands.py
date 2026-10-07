@@ -119,10 +119,10 @@ def _memory(engine, args, body) -> str:
 
 
 def _history(engine, args, body) -> str:
-    msgs = engine.short_memory.get_messages(last_n=20)
+    msgs = engine.short_context(limit=20)
     if not msgs:
         return "(empty context)"
-    return "\n".join(f"- **{m.role}**: {m.content[:200]}" for m in msgs)
+    return "\n".join(f"- **{m['role']}**: {str(m.get('content', ''))[:200]}" for m in msgs)
 
 
 def _search(engine, args, body) -> str:
@@ -139,7 +139,7 @@ def _search(engine, args, body) -> str:
 
 
 def _clear(engine, args, body) -> str:
-    engine.short_memory.clear()
+    engine.clear_short_context()
     return "Context cleared."
 
 
@@ -251,7 +251,10 @@ def _rate(engine, args, body) -> str:
     if last is None:
         return "No reply to rate yet."
     engine.feedback.add_or_update_rating(
-        message_id=last, session_id=engine.session_id, rating=rating, reason=reason,
+        message_id=last,
+        session_id=engine.active_conversation_id() or "",
+        rating=rating,
+        reason=reason,
     )
     return f"Rated msg#{last} {rating}/5" + (f" — {reason}" if reason else "")
 
