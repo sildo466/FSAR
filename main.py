@@ -7,9 +7,7 @@ Tool System + Computer Use: LLM-driven.
 import asyncio
 import json
 import os
-import re
 import sys
-import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -24,169 +22,173 @@ if sys.platform == "win32":
 
 from openai import OpenAI
 
-from src.memory import (
-    ShortTermMemory, LongTermMemory,
-    SemanticMemory, UserModel, FeedbackStore,
-    MemoryRecall, IdleReflector,
-    TaskReflector, ReflectionStore,
-    DecisionLog,
-    set_task_context, clear_task_context,
-)
-from src.utils.llm_factory import (
-    chat_completion, make_llm_client,
-)
-from src.security import (
-    RiskEngine, ask_user, load_permissions, save_permissions,
-    make_entry, append_entry,
-)
-from src.security.confirmation import ConfirmResponse
+from src.security import RiskEngine, ask_user, load_permissions, save_permissions
 from src.security.permissions import PermissionState
-from src.mcp import MCPManager
-from src.tools import create_default_registry, ToolRegistry
-from src.core.strategy_injector import StrategyInjector
+from src.server.chat_engine import ChatEngine
+from src.server.risk_bridge import RiskBridge
+from src.tools import ToolRegistry
 from src.utils import render
 from src.utils.config import get_config
-from src.utils.fsar_home import get_fsar_home
 from src.utils.logger import logger
 
 
-from src.core.prompts import AGENT_SYSTEM_PROMPT, COMPANION_SYSTEM_PROMPT, ROUTER_PROMPT, build_system_prompt
+class _ConsoleSink:
+    """Stand-in for the websocket the engine streams to.
+
+    Mirrors the event vocabulary ``src/cli/tui.py`` consumes, rendered to
+    stdout. Only ``send_json``/``send`` are part of the contract.
+    """
+
+    def __init__(self, bridge: RiskBridge) -> None:
+        self.bridge = bridge
+        self._delta = ""
+
+    async def send(self, data) -> None:
+        """Raw-string path is unused by the engine."""
+
+    async def send_json(self, payload: dict) -> None:
+        kind = payload.get("type", "")
+
+        if kind == "chat.delta":
+            self._delta += payload.get("content") or ""
+            return
+
+        if kind == "chat.done":
+            text, self._delta = self._delta, ""
+            if text.strip():
+                render.md(text)
+            return
+
+        if kind == "chat.tool_call":
+            # The engine emits this for every tool, marking the ones that ran
+            # without approval as SAFE. Only the risky ones await the bridge.
+            if (payload.get("risk") or "SAFE") != "SAFE":
+                asyncio.create_task(self._confirm(payload))
+            return
+
+        if kind == "chat.tool_result":
+            result = str(payload.get("result") or "").replace("\n", " ").strip()
+            render.status("tool", result[:200] or "(empty)")
+            return
+
+        if kind == "agent.status":
+            line = str(payload.get("status") or "")
+            for key in ("label", "detail"):
+                value = str(payload.get(key) or "").strip()
+                if value:
+                    line += f" — {value}"
+            render.status(line)
+            return
+
+        if kind == "agent.plan.updated":
+            marks = {"pending": "[ ]", "in_progress": "[~]", "completed": "[x]"}
+            lines = ["plan:"]
+            for item in payload.get("items") or []:
+                mark = marks.get(item.get("status", "pending"), "[ ]")
+                lines.append(f"  {mark} {item.get('content', '')}")
+            render.plain("\n".join(lines))
+            return
+
+        if kind == "agent.context.compacted":
+            render.status(
+                "context compacted",
+                f"{payload.get('tokens_before', '?')} → {payload.get('tokens_after', '?')} tokens",
+            )
+            return
+
+        if kind == "conversation.created":
+            session = payload.get("session") or {}
+            sid = session.get("id") if isinstance(session, dict) else None
+            if sid:
+                render.status("session", str(sid))
+            return
+
+        if kind == "error":
+            render.error(f"{payload.get('code', 'error')}: {payload.get('message', '')}")
+            return
+
+    async def _confirm(self, payload: dict) -> None:
+        """Schedule the approval prompt off the engine's await chain.
+
+        Answering synchronously here would race the engine: it reaches
+        ``bridge.submit()`` only after ``send_json`` returns, so responding
+        early is a no-op and the call would sit out the whole timeout.
+        """
+        call_id = payload.get("call_id")
+        if not call_id:
+            return
+        result = await ask_user(
+            str(payload.get("tool") or "?"),
+            payload.get("args") or {},
+            f"risk={payload.get('risk')}",
+        )
+        self.bridge.respond(call_id, result.response)
 
 
 class FSAR:
-    """FSAR main class."""
+    """Interactive CLI front-end for the shared ChatEngine."""
 
     def __init__(self):
-        from src.memory.cards import CardRepo
         self.config = get_config()
-        self.short_memory = ShortTermMemory()
-        self.long_memory = LongTermMemory()
-        self.card_repo = CardRepo(Path(self.config.memory_sqlite_path))
-        with self.card_repo._connect() as _conn:
-            self.card_repo.ensure_tables(_conn)
-        self.card_repo.seed_builtins_if_empty()
-        self.tool_registry: ToolRegistry = create_default_registry()
-        # P4: MCP servers — manager spawns subprocesses and registers tools.
-        self.mcp = MCPManager(
-            self.tool_registry,
-            config_path=self.config.get("mcp.config_path", str(get_fsar_home() / "config" / "mcp_servers.yaml")),
-            fsar_servers=self.config.get_mcp_servers(),
-        )
-        # P2: permissions + risk engine
-        self.permissions: PermissionState = load_permissions()
-        self.risk_engine = RiskEngine(self.permissions)
-        # P3: semantic memory / user model / feedback / recall / reflection
-        self.semantic = SemanticMemory()
-        self.user_model = UserModel()
-        self.feedback = FeedbackStore()
-        self.recall = MemoryRecall(
-            long_term=self.long_memory,
-            semantic=self.semantic,
-            user_model=self.user_model,
-            feedback=self.feedback,
-        )
-        self.reflector = IdleReflector(
-            long_term=self.long_memory,
-            user_model=self.user_model,
-            feedback=self.feedback,
-            model=self.config.get_llm_config("primary").get("model", ""),
-            interval_hours=float(self.config.get("memory.reflection_interval_hours", 12)),
-        )
-        # P5.2: per-task reflector (intensity-gated)
-        self.reflection_store = ReflectionStore()
-        self.task_reflector = TaskReflector(
-            store=self.reflection_store,
-            user_model=self.user_model,
-            intensity=self.config.reflection_intensity,
-        )
-        # P5.3: decision log for tool-call tracking (strategy optimizer reads this)
-        self.decision_log = DecisionLog()
-        # P5.3: strategy injector for system-prompt augmentation
-        self.strategy_injector = StrategyInjector(
-            decision_log=self.decision_log,
-            user_model=self.user_model,
-            intensity=self.config.reflection_intensity,
-        )
-        # P6.4: experience index injector — experiences + memory chunks
-        from src.core.experience_injector import ExperienceIndexInjector
-        self.experience_injector = ExperienceIndexInjector(
-            intensity=self.config.reflection_intensity,
-        )
-        self.session_id = uuid.uuid4().hex[:8]
+        self.engine = ChatEngine(self.config, RiskBridge())
+        self.sink = _ConsoleSink(self.engine.bridge)
         self.running = False
-        self._llm_client: OpenAI | None = None
-        # Last assistant message id (used by /rate to target the right reply)
-        self._last_assistant_msg_id: int | None = None
         # Rating prompt toggle (whether to ask for a rating after each reply)
         self._rating_prompt_enabled: bool = bool(
             self.config.get("memory.enable_rating_prompt", True)
         )
-        # P8: scheduler subsystem — driven jobs / timers / recurring tasks.
-        from src.scheduler.store import JobStore
-        from src.scheduler.service import SchedulerService
-        from src.scheduler.executor import IsolatedExecutor
-        from src.scheduler.delivery import JobDelivery
-        self.scheduler_store = JobStore(db_path=str(Path(self.config.memory_sqlite_path).parent / "scheduler.db"))
-        primary_model = self.config.get_llm_config("primary").get("model", "")
-        executor = IsolatedExecutor(
-            llm_client_factory=lambda: self._get_llm(),
-            primary_model=primary_model,
-            tool_registry=self.tool_registry,
-        )
-        from src.social.manager import get_current_router
-        delivery = JobDelivery(store=self.scheduler_store, social_router=get_current_router)
-        self.scheduler = SchedulerService(
-            store=self.scheduler_store,
-            executor=executor,
-            delivery=delivery,
-        )
+        # The /command layer reads the engine's subsystems directly. These are
+        # views onto the engine's instances, never separate copies.
+        self.tool_registry: ToolRegistry = self.engine.registry
+        self.card_repo = self.engine.card_repo
+        self.mcp = self.engine.mcp
+        self.long_memory = self.engine.long_memory
+        self.semantic = self.engine.semantic
+        self.user_model = self.engine.user_model
+        self.feedback = self.engine.feedback
+        self.recall = self.engine.recall
+        self.reflection_store = self.engine.reflection_store
+        self.decision_log = self.engine.decision_log
+        self.reflector = self.engine.idle_reflector
+
+    @property
+    def session_id(self) -> str:
+        return self.engine.active_conversation_id() or ""
+
+    @property
+    def permissions(self) -> PermissionState:
+        return self.engine.permissions
+
+    @property
+    def risk_engine(self) -> RiskEngine:
+        return self.engine.risk_engine
 
     def _get_llm(self) -> OpenAI:
-        if self._llm_client is None:
-            self._llm_client = make_llm_client("primary")
-        return self._llm_client
+        return self.engine.client_and_model()[0]
 
     def start(self):
         self.running = True
         self._print_banner()
-        self._load_context()
-        self._maybe_idle_reflect()
         try:
             asyncio.run(self._main())
         except KeyboardInterrupt:
             pass
-        finally:
-            # Belt-and-suspenders: if _main() exited without closing MCP
-            # (e.g. asyncio.CancelledError), still tear it down.
-            try:
-                asyncio.run(self.mcp.stop())
-            except Exception as e:
-                logger.warning(f"MCP shutdown error: {e}")
-            try:
-                asyncio.run(self.scheduler.stop())
-            except Exception as e:
-                logger.warning(f"scheduler shutdown error (sync): {e}")
 
     async def _main(self):
-        # P4: start MCP servers + register their tools into the registry.
-        # Done inside the event loop so stdio subprocess plumbing works.
-        await self.mcp.start()
-        # If any MCP tools came up, show a quick line in the banner area.
+        # MCP servers and the scheduler come up together inside the event loop
+        # so stdio subprocess plumbing works.
+        await self.engine.start_mcp()
         if self.mcp.servers:
             n = len(self.mcp.list_visible_tools())
             print(f"  MCP: {len(self.mcp.servers)} server(s) up, {n} tools registered")
         try:
-            await self.scheduler.start()
+            await self.engine._run_idle_reflection_if_due()
             await self._run_loop()
         finally:
             try:
-                await self.mcp.stop()
+                await self.engine.stop_mcp()
             except Exception as e:
                 logger.warning(f"MCP shutdown error: {e}")
-            try:
-                await self.scheduler.stop()
-            except Exception as e:
-                logger.warning(f"scheduler shutdown error: {e}")
 
     def _print_banner(self):
         print()
@@ -216,45 +218,6 @@ class FSAR:
         print("  Type /help for commands, /exit to quit")
         print()
 
-    def _load_context(self):
-        # New sessions start with empty context. Use /resume to explicitly
-        # load prior sessions — never auto-pull from other sessions, since
-        # that would treat the previous tail as current context (e.g. three
-        # trailing "hi" messages being mistaken for the user's current input).
-        # Long-term memory injection is handled by _build_memory_context
-        # (semantic recall + profile/preferences).
-        pass
-
-    def _maybe_idle_reflect(self):
-        """Startup check: if last reflection is older than threshold and we
-        have enough data, trigger reflection.
-
-        Long idle → read all history + ratings → infer user profile/preferences.
-        """
-        if not self.reflector.should_reflect():
-            return
-        last = self.reflector.last_reflection_at()
-        if last:
-            gap = datetime.now() - last
-            print(f"  ⏰ Last reflection was {gap.days}d {gap.seconds // 3600}h ago, reflecting...")
-        else:
-            print("  ⏰ First-time reflection, analyzing history...")
-        # Inject LLM client
-        if self.reflector._llm is None:
-            try:
-                self.reflector.set_llm(self._get_llm())
-            except Exception:
-                pass
-        # Reflection runs synchronously here (may take time)
-        try:
-            report = self.reflector.reflect(force=True)
-            if report:
-                print(f"  ✓ Reflection complete: {len(report.profile)} profile entries, "
-                      f"{len(report.preferences)} preferences, "
-                      f"{len(report.patterns)} patterns")
-        except Exception as e:
-            logger.warning(f"Idle reflection failed: {e}")
-
     async def _run_loop(self):
         while self.running:
             try:
@@ -271,339 +234,8 @@ class FSAR:
             else:
                 await self._handle_message(user_input)
 
-    def _route_task(self, user_input: str) -> dict:
-        llm = self._get_llm()
-        llm_config = self.config.get_llm_config("primary")
-
-        try:
-            resp = chat_completion(
-                llm,
-                model=llm_config.get("model", "gpt-4o"),
-                messages=[
-                    {"role": "system", "content": ROUTER_PROMPT},
-                    {"role": "user", "content": user_input},
-                ],
-                max_tokens=1000,
-                temperature=0,
-            )
-            result = resp.choices[0].message.content.strip()
-            json_match = re.search(r'\{[^}]+\}', result)
-            if json_match:
-                return json.loads(json_match.group())
-            return {"type": "chat"}
-        except Exception as e:
-            logger.warning(f"Router failed: {e}")
-            return {"type": "chat"}
-
     async def _handle_message(self, user_input: str):
-        self.short_memory.add("user", user_input)
-        try:
-            self.long_memory.save_message(
-                session_id=self.session_id,
-                role="user",
-                content=user_input,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to save user message: {e}")
-        # Also write to semantic memory (non-blocking — failures don't abort)
-        try:
-            self.semantic.add(
-                user_input,
-                session_id=self.session_id,
-                role="user",
-                tags=["query"],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to add user msg to semantic: {e}")
-
-        route = self._route_task(user_input)
-        task_type = route.get("type", "chat")
-
-        if task_type == "tool":
-            await self._handle_tool_task(user_input)
-        else:
-            await self._handle_chat(user_input)
-
-    async def _handle_tool_task(self, user_input: str):
-        """Handle tasks that use the tool system with LLM function calling.
-
-        Runs an agentic loop: LLM proposes tool calls → execute them → feed
-        results back to LLM → LLM decides next step. Repeats until the LLM
-        stops calling tools (or MAX_TOOL_TURNS as a safety bound).
-        """
-        print("FSAR > Processing...\n")
-
-        llm = self._get_llm()
-        llm_config = self.config.get_llm_config("primary")
-
-        # Get available tools in OpenAI format
-        tools = self.tool_registry.get_tools_for_llm()
-
-        messages = [
-            {"role": "system", "content": build_system_prompt(
-                mode="agent",
-                character=self.card_repo.get_default_character(),
-                user_card=self.card_repo.get_default_user_card(),
-                memory_block="", strategy_block="", experience_block="",
-            )},
-        ]
-        # P3 memory injection: profile / preferences / relevant history as a system context block
-        mem_ctx = self._build_memory_context(user_input)
-        if mem_ctx:
-            messages.append({"role": "system", "content": mem_ctx})
-        # P5.3: inject learned strategies (tool_stats + reflection preferences)
-        strat_block = self._build_strategy_block()
-        if strat_block:
-            messages.append({"role": "system", "content": strat_block})
-        # P6.4: inject Experiences index + Memory chunks
-        exp_block = self._build_experience_block()
-        if exp_block:
-            messages.append({"role": "system", "content": exp_block})
-        # Carry recent conversation context (fixes amnesia bug — without short_memory
-        # the LLM can't see what was said earlier in this session)
-        for msg in self.short_memory.get_context_for_llm(last_n=20):
-            messages.append(msg)
-        messages.append({"role": "user", "content": user_input})
-
-        MAX_TOOL_TURNS = 50
-        final_text = ""
-        # P5: track decisions for this task + enable per-task reflection on exit
-        task_id = f"tool_{uuid.uuid4().hex[:12]}"
-        set_task_context(task_id=task_id, session_id=self.session_id)
-
-        try:
-            for _ in range(MAX_TOOL_TURNS):
-                resp = chat_completion(
-                    llm,
-                    model=llm_config.get("model", "gpt-4o"),
-                    messages=messages,
-                    tools=tools if tools else None,
-                    tool_choice="auto" if tools else None,
-                    max_tokens=4096,
-                )
-                message = resp.choices[0].message
-
-                # No tool calls → this is the final assistant reply
-                if not message.tool_calls:
-                    final_text = message.content or ""
-                    break
-
-                # Append the assistant message that contains the tool_calls
-                # (required so subsequent tool messages have a valid anchor)
-                messages.append(message)
-
-                # Execute each requested tool and append its result
-                for tool_call in message.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        func_args = {}
-
-                    render.status("Tool", f"{func_name}: {json.dumps(func_args, ensure_ascii=False)}")
-                    result = await self._execute_guarded(func_name, func_args)
-                    render.status_md("Result", result)
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result,
-                    })
-            else:
-                final_text = "(Reached max tool turns without a final summary.)"
-
-        except Exception as e:
-            logger.error(f"Tool task error: {e}")
-            final_text = f"Tool execution failed: {e}"
-
-        clear_task_context()
-
-        # P5.1: per-task reflection (skipped silently if intensity=off)
-        try:
-            try:
-                self.task_reflector.set_llm(self._get_llm())
-                self.task_reflector._model = self.config.get_llm_config("primary").get("model", "")  # noqa: SLF001
-            except Exception as e:
-                logger.warning(f"Cannot init LLM for task reflection: {e}")
-            decisions = self.decision_log.get_for_task(task_id)
-            history = [
-                {
-                    "step": d.step_no,
-                    "action": d.chosen_tool,
-                    "params": {"args": d.args_summary},
-                    "result": "success" if d.success else None,
-                    "error": d.error_class or None,
-                }
-                for d in decisions
-            ]
-            outcome = "success" if not any(not d.success for d in decisions) else "failure"
-            self.task_reflector.reflect(
-                task_id=task_id,
-                session_id=self.session_id,
-                task=user_input,
-                outcome=outcome,
-                history=history,
-            )
-        except Exception as e:
-            logger.debug(f"Task reflection skipped: {e}")
-
-        if not final_text:
-            final_text = "(Task ended.)"
-
-        print()
-        render.say(final_text)
-        await self._save_assistant_reply(final_text)
-
-    async def _handle_chat(self, user_input: str):
-        llm = self._get_llm()
-        llm_config = self.config.get_llm_config("primary")
-
-        # Auto-detect long-term facts the user dropped casually. Silent save.
-        try:
-            await self._maybe_extract_fact(user_input)
-        except Exception as e:
-            logger.debug(f"auto-fact extraction skipped: {e}")
-
-        context = self.short_memory.get_context_for_llm(last_n=20)
-        context.append({"role": "user", "content": user_input})
-
-        from rich.markdown import Markdown
-        main_text = ""
-        try:
-            system_prompt = build_system_prompt(
-                mode="companion",
-                character=self.card_repo.get_default_character(),
-                user_card=self.card_repo.get_default_user_card(),
-                memory_block="", strategy_block="", experience_block="",
-            )
-            mem_ctx = self._build_memory_context(user_input)
-            messages = [{"role": "system", "content": system_prompt}]
-            if mem_ctx:
-                messages.append({"role": "system", "content": mem_ctx})
-            strat_block = self._build_strategy_block()
-            if strat_block:
-                messages.append({"role": "system", "content": strat_block})
-            exp_block = self._build_experience_block()
-            if exp_block:
-                messages.append({"role": "system", "content": exp_block})
-            messages.extend(context)
-
-            # Streaming call: render <think>...</think> blocks live and collapse them,
-            # then render the body when the stream completes.
-            print()  # spacer for FSAR > prefix on next line
-            render.console.print("[bold cyan]FSAR[/bold cyan] [dim]›[/dim]")
-            stream = chat_completion(
-                llm,
-                model=llm_config.get("model", "gpt-4o"),
-                messages=messages,
-                max_tokens=65536,
-                stream=True,
-            )
-            tsp = render.ThinkingStreamPrinter()
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content or ""
-                tsp.feed(delta)
-            _, main_text = tsp.finalize()
-        except Exception as e:
-            logger.error(f"Chat error: {e}")
-            main_text = f"LLM call failed: {e}"
-
-        if main_text is None:
-            main_text = ""
-        render.console.print(Markdown(main_text, code_theme="monokai", inline_code_theme="monokai"))
-        await self._save_assistant_reply(main_text)
-
-    # ---------- P3 helpers: save / rate / recall injection ----------
-
-    async def _save_assistant_reply(self, content: str) -> None:
-        """Save assistant reply to three memory layers + ask for rating.
-
-        1. Short-term memory
-        2. Long-term memory (SQLite) — returns msg_id
-        3. Semantic memory (ChromaDB)
-        4. Asynchronously ask user for a rating (RLHF-style)
-        """
-        self.short_memory.add("assistant", content)
-        msg_id = None
-        try:
-            msg_id = self.long_memory.save_message(
-                session_id=self.session_id,
-                role="assistant",
-                content=content,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to save assistant message: {e}")
-
-        self._last_assistant_msg_id = msg_id
-
-        # Write to semantic memory (async, non-blocking)
-        try:
-            self.semantic.add(
-                content,
-                session_id=self.session_id,
-                role="assistant",
-                tags=["reply"],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to add to semantic memory: {e}")
-
-        # Prompt for rating
-        if self._rating_prompt_enabled and msg_id is not None:
-            await self._ask_for_rating(msg_id)
-
-    async def _ask_for_rating(self, msg_id: int) -> None:
-        """Ask user to rate the most recent reply (1-5), with optional reason."""
-        loop = asyncio.get_event_loop()
-        try:
-            raw = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: input("\n  ⭐ Rate this reply (1-5 + reason, Enter to skip): ").strip(),
-                ),
-                timeout=120.0,
-            )
-        except (asyncio.TimeoutError, EOFError):
-            return
-
-        if not raw:
-            return
-
-        # Parse formats like "5" / "3 too verbose" / "1 wrong info"
-        parts = raw.split(maxsplit=1)
-        try:
-            rating = int(parts[0])
-        except ValueError:
-            render.warn(f"Cannot parse rating: {raw!r} (examples: 5  or  3 too verbose)")
-            return
-        if not (1 <= rating <= 5):
-            render.warn("Rating must be 1-5")
-            return
-        reason = parts[1] if len(parts) > 1 else ""
-
-        try:
-            self.feedback.add_or_update_rating(
-                message_id=msg_id,
-                session_id=self.session_id,
-                rating=rating,
-                reason=reason,
-            )
-            # Also record high/low preference patterns from the reason text
-            if reason:
-                tag = "positive" if rating >= 4 else ("negative" if rating <= 2 else "neutral")
-                self.user_model.record_pattern(
-                    f"User {tag} feedback: {reason[:60]}",
-                    f"Rated {rating}/5, reason: {reason}",
-                )
-                # RLHF correction → memory_chunks for cross-session recall
-                try:
-                    self._save_rating_as_fact(reason, rating)
-                except Exception as e:
-                    logger.debug(f"rate-reason→memory_chunk skipped: {e}")
-            render.ok(f"Recorded rating {rating}/5{(' — ' + reason) if reason else ''}")
-        except Exception as e:
-            render.warn(f"Failed to record rating: {e}")
+        await self.engine.handle_send(self.sink, user_input, "agent")
 
     def _save_rating_as_fact(self, reason: str, rating: int) -> None:
         """Persist a 1-/2-star correction as a memory_chunk for later recall.
@@ -624,174 +256,6 @@ class FSAR:
         title = title.strip() or "correction"
         body = f"{prefix} ({rating}/5): {reason.strip()}"
         store.add_chunk(source="rlhf_correction", title=title, body=body)
-
-    def _build_memory_context(self, query: str) -> str:
-        """Recall relevant memories for the user input → format as LLM context block."""
-        try:
-            result = self.recall.recall_for_context(query, semantic_top_k=5)
-            if result.is_empty:
-                return ""
-            max_chars = int(self.config.get("memory.recall_max_chars", 2000))
-            return result.to_context(max_len=max_chars)
-        except Exception as e:
-            logger.warning(f"Memory recall failed: {e}")
-            return ""
-
-    def _build_strategy_block(self) -> str:
-        """Phase 5.3: assemble ## Learned Strategies block from recent reflections."""
-        try:
-            recent = self.reflection_store.list_recent(limit=10, session_id=self.session_id)
-            strategies = [
-                r["suggested_strategy"] for r in recent
-                if r.get("suggested_strategy")
-            ]
-            return self.strategy_injector.build_block(recent_strategies=strategies)
-        except Exception as e:
-            logger.debug(f"Strategy block build skipped: {e}")
-            return ""
-
-    def _build_experience_block(self) -> str:
-        """Phase 6.4: assemble ## Experiences + ## Memory blocks for LLM context."""
-        try:
-            return self.experience_injector.build_block()
-        except Exception as e:
-            logger.debug(f"Experience block build skipped: {e}")
-            return ""
-
-    async def _maybe_extract_fact(self, user_input: str) -> None:
-        """Cheap LLM pre-check: did the user just share a fact worth remembering?
-
-        If yes, silently call remember_fact so it persists across sessions.
-        Heuristic gate first (length + has CJK / English letter) to skip the
-        LLM call on greetings and short commands.
-        """
-        text = (user_input or "").strip()
-        if len(text) < 4:
-            return
-        has_cjk = any("一" <= c <= "鿿" for c in text)
-        has_letter = any(c.isalpha() for c in text)
-        if not (has_cjk or has_letter):
-            return
-        # Cheap prompt: classify + extract in one shot.
-        prompt = (
-            "Decide if the user's message contains a persistent personal fact "
-            "worth saving across sessions (pet names, family, work, projects, "
-            "long-term commitments, recurring preferences). One-off tasks, "
-            "questions, and casual chatter are NOT facts.\n\n"
-            "Return STRICT JSON only — no prose, no markdown fences:\n"
-            '{"is_fact": true|false, "title": "<=30 char label, same language as user>", '
-            '"fact": "<single full sentence restating the fact>"}\n'
-        )
-        try:
-            llm = self._get_llm()
-            model = self.config.get_llm_config("primary").get("model", "")
-            resp = chat_completion(
-                llm,
-                model=model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": f"User message: {text}\n\nJSON:"},
-                ],
-                max_tokens=150,
-                temperature=0,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            logger.debug(f"fact extraction LLM failed: {e}")
-            return
-        import json as _json
-        import re as _re
-        m = _re.search(r"\{[\s\S]*\}", raw)
-        if not m:
-            return
-        try:
-            data = _json.loads(m.group())
-        except _json.JSONDecodeError:
-            return
-        if not isinstance(data, dict) or not data.get("is_fact"):
-            return
-        fact = str(data.get("fact") or "").strip()
-        title = str(data.get("title") or "").strip()[:30]
-        if not fact:
-            return
-        rf = self.tool_registry.get("remember_fact")
-        if rf:
-            result = await rf.execute(text=fact, title=title)
-            logger.info(f"auto-saved fact: {result}")
-
-    async def _execute_guarded(self, name: str, args: dict) -> str:
-        """Gated tool execution.
-
-        1. Look up the tool
-        2. RiskEngine evaluates a verdict
-        3. DENY → return immediately + write audit log
-        4. CONFIRM → ask_user, execute based on reply
-        5. PROCEED → execute directly
-
-        An audit log entry is written for every outcome.
-        """
-        tool = self.tool_registry.get(name)
-        if tool is None:
-            return f"Error: Unknown tool '{name}'"
-
-        import time
-        verdict = self.risk_engine.evaluate(tool, args)
-        user_response = ""
-
-        if verdict.is_denied():
-            entry = make_entry(
-                session=self.session_id, tool=name, args=args,
-                risk=verdict.effective_risk, verdict="deny",
-                user_response="", outcome="denied",
-            )
-            append_entry(entry)
-            return f"[DENIED] {verdict.reason}"
-
-        if verdict.needs_confirm():
-            server_name = getattr(tool, "server_name", None)
-            result = await ask_user(
-                name, args, verdict.reason,
-                on_trust=self.permissions.set_session_trust,
-                on_deny=self.permissions.set_permanent_deny,
-                on_server_trust=(
-                    self.permissions.set_server_trust if server_name else None
-                ),
-                server_name=server_name,
-            )
-            user_response = result.raw
-            if result.response in (ConfirmResponse.NO, ConfirmResponse.NEVER):
-                entry = make_entry(
-                    session=self.session_id, tool=name, args=args,
-                    risk=verdict.effective_risk, verdict="confirm",
-                    user_response=user_response, outcome="cancelled",
-                )
-                append_entry(entry)
-                if result.response == ConfirmResponse.NEVER:
-                    save_permissions(self.permissions)
-                    return f"[NEVER] {name} permanently denied ({verdict.reason})"
-                return "[CANCELLED] User declined"
-            # YES / ALL / SERVER_TRUST → proceed (the callbacks already updated the state)
-
-        start = time.monotonic()
-        try:
-            result = await tool.execute(**args)
-            error = None
-            outcome = "success"
-        except Exception as e:
-            result = f"Error: {e}"
-            error = str(e)
-            outcome = "error"
-        duration_ms = int((time.monotonic() - start) * 1000)
-
-        entry = make_entry(
-            session=self.session_id, tool=name, args=args,
-            risk=verdict.effective_risk,
-            verdict="confirm" if verdict.needs_confirm() else "proceed",
-            user_response=user_response or "auto",
-            outcome=outcome, error=error, duration_ms=duration_ms,
-        )
-        append_entry(entry)
-        return result
 
     async def _handle_command(self, command: str):
         parts = command.split(maxsplit=1)
@@ -874,10 +338,12 @@ Session resume (/resume):
         elif cmd == "/memory":
             self._cmd_memory(args)
         elif cmd == "/resume":
-            self._cmd_resume(args)
+            await self._cmd_resume(args)
         elif cmd == "/history":
-            messages = self.short_memory.get_messages(last_n=20)
-            for msg in messages:
+            rows = self.engine.session_store.get_recent_messages(
+                self.session_id, limit=20,
+            ) if self.session_id else []
+            for msg in rows:
                 time_str = msg.timestamp.strftime("%H:%M")
                 role = "You" if msg.role == "user" else "FSAR"
                 print(f"  [{time_str}] {role}: {msg.content[:80]}")
@@ -886,7 +352,7 @@ Session resume (/resume):
             for r in results:
                 print(f"  [{r.timestamp:%Y-%m-%d %H:%M}] {r.role}: {r.content[:60]}")
         elif cmd == "/clear":
-            self.short_memory.clear()
+            self.engine.clear_short_context()
             print("Conversation context cleared")
         elif cmd == "/config":
             llm = self.config.get_llm_config("primary")
@@ -1213,8 +679,8 @@ Session resume (/resume):
             return
 
         if sub == "reset":
-            self.permissions = load_permissions()
-            self.risk_engine = RiskEngine(self.permissions)
+            self.engine.permissions = load_permissions()
+            self.engine.risk_engine = RiskEngine(self.engine.permissions)
             print(f"✓ Reloaded permissions.yaml")
             return
 
@@ -1628,13 +1094,18 @@ Session resume (/resume):
             return
         reason = parts[1] if len(parts) > 1 else ""
 
-        if self._last_assistant_msg_id is None:
+        # The engine owns the reply→row-id map; the newest entry is the reply
+        # the user is looking at.
+        last: int | None = None
+        for value in self.engine._msg_ids.values():
+            last = value
+        if last is None:
             print("No reply to rate yet (start a conversation first).")
             return
 
         try:
             self.feedback.add_or_update_rating(
-                message_id=self._last_assistant_msg_id,
+                message_id=last,
                 session_id=self.session_id,
                 rating=rating,
                 reason=reason,
@@ -1651,7 +1122,7 @@ Session resume (/resume):
                     self._save_rating_as_fact(reason, rating)
                 except Exception as e:
                     logger.debug(f"rate-reason→memory_chunk skipped: {e}")
-            render.ok(f"Rated msg#{self._last_assistant_msg_id} {rating}/5"
+            render.ok(f"Rated msg#{last} {rating}/5"
                       + (f" — {reason}" if reason else ""))
         except Exception as e:
             render.warn(f"Failed to record rating: {e}")
@@ -1826,7 +1297,7 @@ Session resume (/resume):
         fb = stats['feedback']
         print(f"  Ratings: {fb['total']} (avg={fb['avg']}, "
               f"high>=4: {fb['high_count']}, low<=2: {fb['low_count']})")
-        print(f"  Current session: {self.session_id} ({len(self.short_memory)} context messages)")
+        print(f"  Current session: {self.session_id} ({len(self.engine.short_context())} context messages)")
 
         if detailed:
             print("\n[Recent Sessions]")
@@ -1933,7 +1404,7 @@ Session resume (/resume):
             return None
         return matches[0]
 
-    def _cmd_resume(self, args: str) -> None:
+    async def _cmd_resume(self, args: str) -> None:
         """Selectively load a past session into current context."""
         loop = asyncio.get_event_loop()
         parts = args.split()
@@ -1972,17 +1443,14 @@ Session resume (/resume):
             if not sid:
                 return
 
-        # Load into short_memory + switch session_id
+        # Load into the engine's active conversation
         msgs = self.long_memory.get_session_messages(sid)
         if not msgs:
             print(f"Session {sid} is empty")
             return
 
-        self.short_memory.clear()
-        for m in msgs:
-            self.short_memory.add(m.role, m.content)
         old_sid = self.session_id
-        self.session_id = sid
+        await self.engine.switch_conversation(sid)
 
         print(f"\nResumed session {sid} ({len(msgs)} messages loaded into context)")
         print(f"  Previous session {old_sid} is paused; new messages will write to {sid}")

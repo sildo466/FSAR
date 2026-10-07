@@ -602,6 +602,24 @@ class ChatEngine:
         self._active_conv_id = row.id
         return row.id
 
+    def short_context(self, limit: int = 20) -> list[dict[str, Any]]:
+        """In-memory rolling window for the active conversation.
+
+        Headless front-ends read this to show what the model currently sees;
+        it is a cache of the tail of the session, not the session itself.
+        """
+        conv_id = self.active_conversation_id()
+        if not conv_id:
+            return []
+        window = self._short_cache.get(conv_id, ())
+        return [dict(m) for m in list(window)[-limit:]]
+
+    def clear_short_context(self) -> None:
+        """Drop the cached window so the next turn rebuilds it from the store."""
+        conv_id = self.active_conversation_id()
+        if conv_id:
+            self._short_cache.pop(conv_id, None)
+
     async def compact_conversation(
         self, conversation_id: str,
     ) -> tuple[int, int, bool]:
