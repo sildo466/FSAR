@@ -179,8 +179,7 @@ async def handle_user_agent_message_result(
     if client is None:
         raise RuntimeError("No active LLM provider is configured")
 
-    if conversation_id is None:
-        conversation_id = engine.session_store.create(kind="chat").session_id
+    conversation_id = engine.ensure_conversation(conversation_id)
 
     char_id = engine.session_store.get_character(conversation_id)
     character = engine.card_repo.get_character(char_id) if char_id else None

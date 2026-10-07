@@ -74,3 +74,40 @@ def test_main_exit_code_reflects_failure(monkeypatch) -> None:
 def test_main_requires_task() -> None:
     with pytest.raises(SystemExit):
         cli_run.main([])
+
+
+@pytest.mark.asyncio
+async def test_fresh_conversation_starts_and_binds_a_session(tmp_path, monkeypatch) -> None:
+    """Regression: `fsar run` without --conversation-id read `.session_id` off a
+    SessionRow, which only carries `.id`, so the turn died before it began."""
+    from src.core.agent_runtime import AgentLoopResult
+    from src.server import chat_engine
+    from src.server.chat_engine import ChatEngine
+    from src.server.risk_bridge import RiskBridge
+    from src.utils.fsar_config import FsarConfig
+
+    config = FsarConfig(tmp_path / "fsar.yaml")
+    config.patch("memory.sqlite_path", str(tmp_path / "memory.db"))
+    config.save()
+    engine = ChatEngine(config, RiskBridge())
+    engine.client_and_model = lambda: (object(), "fake-model", "fake-provider")
+    monkeypatch.setattr(chat_engine, "get_default_chat_engine", lambda: engine)
+
+    seen: dict[str, str] = {}
+
+    async def fake_run_agent(*, conv_id: str, **_: object) -> AgentLoopResult:
+        seen["conv_id"] = conv_id
+        return AgentLoopResult("read the room", "success")
+
+    engine._run_agent = fake_run_agent
+
+    conv_id, conclusion, outcome = await chat_engine.handle_user_agent_message_result(
+        None, "say hello",
+    )
+
+    assert conv_id
+    assert conclusion == "read the room"
+    assert outcome == "success"
+    assert seen["conv_id"] == conv_id
+    assert engine.session_store.get(conv_id) is not None
+    assert engine.workspace_repo.get_binding(conv_id) is not None
