@@ -132,12 +132,29 @@ class ChatInput(Input):
                 return
 
 
+# One (label, choice, css-class) per button. The choice is what the caller's
+# on_select receives; the class only drives colour.
+RISK_CONFIRM_OPTIONS = [
+    ("Approve", "approve", "approve"),
+    ("Deny", "deny", "deny"),
+    ("Trust this session", "trust", ""),
+    ("Permanently deny", "never", ""),
+]
+
+SANDBOX_ESCAPE_OPTIONS = [
+    ("Allow once", "allow_once", "approve"),
+    ("Deny", "deny", "deny"),
+    ("Allow for this session", "allow_session", ""),
+    ("Always allow this path", "allow_always", ""),
+]
+
+
 class ConfirmBar(Horizontal):
-    """Bottom-docked approval bar that covers the input while a risk
-    confirmation is pending. Choices are Buttons: arrow keys move the focus
-    left/right, Enter/Space activates the focused button, mouse clicks select
-    directly. The bar takes focus, so the Input underneath is not typable while
-    an approval is outstanding — this blocks the turn until the user decides."""
+    """Bottom-docked approval bar that covers the input while a decision is
+    pending. Choices are Buttons: arrow keys move the focus left/right,
+    Enter/Space activates the focused button, mouse clicks select directly. The
+    bar takes focus, so the Input underneath is not typable while a decision is
+    outstanding — this blocks the turn until the user decides."""
 
     DEFAULT_CSS = """
     ConfirmBar {
@@ -159,42 +176,41 @@ class ConfirmBar(Horizontal):
     """
 
     def __init__(self, tool: str, args: str, risk: str,
-                 on_select: Callable[[str], None], **kwargs) -> None:
+                 on_select: Callable[[str], None],
+                 options: list[tuple[str, str, str]] | None = None,
+                 label: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._tool = tool
         self._args = args
         self._risk = risk
         self._on_select = on_select
+        self._options = options or RISK_CONFIRM_OPTIONS
+        self._label = label
 
     def compose(self) -> ComposeResult:
-        label = (
+        label = self._label or (
             f"Requesting approval: [bold]{self._tool}[/] (risk={self._risk})\n"
             f"[dim]{self._args}[/]"
         )
         yield Static(label)
-        yield Button("Approve", classes="approve", id="cf-approve")
-        yield Button("Deny", classes="deny", id="cf-deny")
-        yield Button("Trust this session", id="cf-trust")
-        yield Button("Permanently deny", id="cf-never")
+        for text, choice, css in self._options:
+            yield Button(text, classes=css, id=f"cf-{choice}")
+
+    def _buttons(self) -> list[Button]:
+        return [self.query_one(f"#cf-{choice}", Button) for _, choice, _ in self._options]
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        choice = {
-            "cf-approve": "approve",
-            "cf-deny": "deny",
-            "cf-trust": "trust",
-            "cf-never": "never",
-        }.get(event.button.id)
-        if choice:
-            self._on_select(choice)
+        button_id = event.button.id or ""
+        if button_id.startswith("cf-"):
+            self._on_select(button_id[len("cf-"):])
 
     def on_mount(self) -> None:
-        self.query_one("#cf-approve", Button).focus()
+        self._buttons()[0].focus()
 
     def on_key(self, event) -> None:
         """Explicit left/right navigation between choices and Enter to activate,
         so arrow keys work regardless of Textual's default focus migration."""
-        buttons = [self.query_one("#cf-approve"), self.query_one("#cf-deny"),
-                   self.query_one("#cf-trust"), self.query_one("#cf-never")]
+        buttons = self._buttons()
         idx = next((i for i, b in enumerate(buttons) if b.has_focus), 0)
         if event.key == "left":
             buttons[(idx - 1) % len(buttons)].focus()

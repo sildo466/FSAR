@@ -57,6 +57,7 @@ class TerminalSink:
         self._delta = ""
         self._anim: dict[str, Any] = {}
         self._pending_confirm_meta: dict[str, Any] | None = None
+        self._pending_escape: str | None = None
 
     async def send(self, data: Any) -> None:
         """Raw-string path is unused by the engine."""
@@ -116,6 +117,10 @@ class TerminalSink:
 
         if _type == "chat.tool_call":
             await self._confirm_tool(payload)
+            return
+
+        if _type == "tool.sandbox.request_escape":
+            await self._confirm_escape(payload)
             return
 
         if _type == "chat.tool_result":
@@ -184,8 +189,38 @@ class TerminalSink:
         }
         self._post(self.app._show_confirm_bar, self._pending_confirm_meta)
 
+    async def _confirm_escape(self, payload: dict[str, Any]) -> None:
+        """A tool reached for a path outside the workspace. The engine is
+        blocked on sandbox_bridge.submit() until we answer, and it denies on
+        timeout — so an unanswered request silently costs 60s and then fails."""
+        from src.cli.tui_widgets import SANDBOX_ESCAPE_OPTIONS
+
+        request_id = payload.get("request_id")
+        if not request_id:
+            return
+        self._pending_escape = str(request_id)
+        tool = str(payload.get("tool") or "?")
+        operation = str(payload.get("operation") or "?")
+        target = str(payload.get("target_path") or "?")
+        reason = str(payload.get("reason") or "")
+        self._post(self.app._show_confirm_bar, {
+            "tool": tool,
+            "args": f"{target} — {reason}",
+            "risk": str(payload.get("risk_level") or "CRITICAL"),
+            "options": SANDBOX_ESCAPE_OPTIONS,
+            "label": (
+                f"[bold]Workspace escape[/] — {tool} wants to "
+                f"[bold]{operation}[/]\n[dim]{target}[/]\n{reason}"
+            ),
+        })
+
     def resolve_confirm(self, choice: str) -> None:
         """Called from the ConfirmBar when the user picks an action."""
+        if self._pending_escape is not None:
+            request_id, self._pending_escape = self._pending_escape, None
+            self._post(self.app._hide_confirm_bar)
+            self.app.engine.sandbox_bridge.respond(request_id, choice)
+            return
         if not self._pending_confirm_meta:
             return
         call_id = self._pending_confirm_meta["call_id"]
@@ -501,7 +536,10 @@ class ChatApp(App):
         self.query_one("#input", Input).display = False
         bar = ConfirmBar(
             meta["tool"], meta["args"], meta["risk"],
-            on_select=self.sink.resolve_confirm, id="confirm-bar",
+            on_select=self.sink.resolve_confirm,
+            options=meta.get("options"),
+            label=meta.get("label"),
+            id="confirm-bar",
         )
         self.mount(bar)
 

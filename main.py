@@ -39,8 +39,8 @@ class _ConsoleSink:
     stdout. Only ``send_json``/``send`` are part of the contract.
     """
 
-    def __init__(self, bridge: RiskBridge) -> None:
-        self.bridge = bridge
+    def __init__(self, engine: ChatEngine) -> None:
+        self.engine = engine
         self._delta = ""
 
     async def send(self, data) -> None:
@@ -64,6 +64,10 @@ class _ConsoleSink:
             # without approval as SAFE. Only the risky ones await the bridge.
             if (payload.get("risk") or "SAFE") != "SAFE":
                 asyncio.create_task(self._confirm(payload))
+            return
+
+        if kind == "tool.sandbox.request_escape":
+            asyncio.create_task(self._confirm_escape(payload))
             return
 
         if kind == "chat.tool_result":
@@ -122,7 +126,30 @@ class _ConsoleSink:
             payload.get("args") or {},
             f"risk={payload.get('risk')}",
         )
-        self.bridge.respond(call_id, result.response)
+        self.engine.bridge.respond(call_id, result.response)
+
+    async def _confirm_escape(self, payload: dict) -> None:
+        """A tool reached for a path outside the workspace. Scheduled off the
+        engine's await chain for the same reason as ``_confirm`` — and because
+        an unanswered request costs the full 60s timeout and then denies."""
+        request_id = payload.get("request_id")
+        if not request_id:
+            return
+        options = [str(o) for o in (payload.get("options") or [])] or ["deny"]
+        print()
+        print(f"[!] Workspace escape — {payload.get('tool')} wants to "
+              f"{payload.get('operation')}")
+        print(f"    Target: {payload.get('target_path')}")
+        print(f"    Reason: {payload.get('reason')}")
+        prompt = f"    {' / '.join(options)} (default {options[0]}) > "
+        choice = (
+            await asyncio.get_running_loop().run_in_executor(
+                None, lambda: input(prompt).strip().lower(),
+            )
+        ) or options[0]
+        self.engine.sandbox_bridge.respond(
+            str(request_id), choice if choice in options else options[0],
+        )
 
 
 class FSAR:
@@ -131,7 +158,7 @@ class FSAR:
     def __init__(self):
         self.config = get_config()
         self.engine = ChatEngine(self.config, RiskBridge())
-        self.sink = _ConsoleSink(self.engine.bridge)
+        self.sink = _ConsoleSink(self.engine)
         self.running = False
         # Rating prompt toggle (whether to ask for a rating after each reply)
         self._rating_prompt_enabled: bool = bool(

@@ -22,13 +22,19 @@ class StubEngine:
     delta -> done assistant turn with a short delay, like a real LLM reply."""
 
     def __init__(self, delay: float = 0.05, bridge: RiskBridge | None = None,
-                 confirm_every_call: bool = False, emit_safe_tool: bool = False) -> None:
+                 confirm_every_call: bool = False, emit_safe_tool: bool = False,
+                 emit_escape: bool = False) -> None:
+        from src.server.sandbox_bridge import SandboxBridge
+
         self.delay = delay
         self.bridge = bridge
         self.confirm_every_call = confirm_every_call
         self.emit_safe_tool = emit_safe_tool
+        self.emit_escape = emit_escape
         self.turns: list[str] = []
         self.confirmed: list[str] = []
+        self.escapes: list[str] = []
+        self.sandbox_bridge = SandboxBridge()
         self.done_after_confirm = 0
         self._session_model_override = None
         self._session_tier_override = None
@@ -86,6 +92,23 @@ class StubEngine:
                 "args": {"command": "ls"},
                 "risk": "SAFE",
             })
+
+        if self.emit_escape:
+            request_id = f"esc-{len(self.turns)}"
+            await sink.send_json({
+                "type": "tool.sandbox.request_escape",
+                "request_id": request_id,
+                "tool": "apply_edit",
+                "operation": "edit",
+                "target_path": "D:/outside/a.py",
+                "reason": "path is outside the active workspace",
+                "risk_level": "CRITICAL",
+                "options": ["deny", "allow_once", "allow_session", "allow_always"],
+            })
+            # Blocks until the UI resolves, like the engine's sandbox_bridge does.
+            self.escapes.append(
+                await self.sandbox_bridge.submit(request_id, timeout=30.0)
+            )
 
         self.done_after_confirm += 1
         await sink.send_json({"type": "chat.tool_result", "call_id": "x-1",
@@ -574,3 +597,38 @@ def test_context_tokens_persist_across_restart(tmp_path) -> None:
     used = engine2.session_store.get_context_tokens(conv)
 
     assert used >= 900, f"persisted context must survive restart, got {used}"
+
+
+@pytest.mark.asyncio
+async def test_sandbox_escape_prompts_and_unblocks() -> None:
+    """A tool reaching outside the workspace must surface a decision bar.
+
+    Nothing handled `tool.sandbox.request_escape`, so the engine sat out its
+    full 60s timeout and then denied — an out-of-workspace edit simply appeared
+    to hang and fail.
+    """
+    engine = StubEngine(delay=0.01, emit_escape=True)
+    app = ChatApp(engine, "agent", RiskBridge())
+    async with app.run_test() as pilot:
+        inp = app.screen.query_one("#input")
+        inp.value = "edit a file outside the workspace"
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+
+        bar = app.query_one("#confirm-bar")
+        assert bar is not None, "escape should raise a decision bar"
+        assert inp.display is False, "input should be hidden while deciding"
+
+        # 'Allow once' holds focus first; the escape vocabulary is its own, so
+        # the bar must not be the risk-confirm one.
+        assert app.focused.id == "cf-allow_once"
+        await pilot.press("right")
+        await pilot.pause(0.05)
+        assert app.focused.id == "cf-deny", "arrow right should move to Deny"
+        await pilot.press("left")
+        await pilot.pause(0.05)
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+
+        assert engine.escapes == ["allow_once"], engine.escapes
+        assert inp.display is True, "input should be restored after deciding"
