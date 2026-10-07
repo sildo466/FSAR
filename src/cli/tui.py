@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 # Re-wrap stdout/stderr as UTF-8 so glyphs render on Windows (GBK console) and
@@ -869,14 +870,32 @@ def _dispatch_subcommand(argv: list[str]) -> int | None:
     return int(module.main(argv[2:]))
 
 
+def _pin_project_root() -> Path:
+    """Put the project root and cwd on sys.path so data.* imports resolve
+    regardless of the launch directory — an editable install makes ``src``
+    importable without the project root itself ever being on the path."""
+    root = Path(__file__).resolve().parent.parent.parent
+    for candidate in (str(root), os.getcwd()):
+        if candidate not in sys.path:
+            sys.path.insert(0, candidate)
+    return root
+
+
 def main() -> None:
     """CLI/TUI entry point — build the shared ChatEngine and run the Textual app."""
+    # Must come before subcommand dispatch: `fsar run` / `fsar room` build an
+    # engine, whose SessionStore imports data.migrations.
+    _root = _pin_project_root()
+
+    from src.utils.migrate import run_migration
+
+    run_migration(_root)
+
     early = _dispatch_subcommand(sys.argv)
     if early is not None:
         raise SystemExit(early)
-    from src.utils.migrate import run_migration
+
     from src.utils.fsar_home import get_fsar_home
-    from pathlib import Path
 
     # Keep FSAR's loguru chatter out of the terminal; it still goes to a file.
     from loguru import logger as _fsar_logger
@@ -890,15 +909,6 @@ def main() -> None:
         level="DEBUG",
         encoding="utf-8",
     )
-
-    # Pin project root + cwd onto sys.path so data.* imports resolve regardless
-    # of the launch directory (a console script can start from anywhere).
-    _root = Path(__file__).resolve().parent.parent.parent
-    for _p in (str(_root), os.getcwd()):
-        if _p not in sys.path:
-            sys.path.insert(0, _p)
-
-    run_migration(_root)
 
     mode = "agent"
     args = [a for a in sys.argv[1:] if not a.startswith("-")]

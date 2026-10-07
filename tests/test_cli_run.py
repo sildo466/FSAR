@@ -149,3 +149,50 @@ def test_headless_engine_stands_alone_without_a_server(tmp_path, monkeypatch) ->
     monkeypatch.setattr(chat_engine, "get_default_config", lambda: config)
 
     assert isinstance(chat_engine.headless_chat_engine(), chat_engine.ChatEngine)
+
+
+def test_pin_project_root_makes_data_importable(monkeypatch) -> None:
+    """An editable install puts `src` on the path but not the project root, so
+    `data.migrations` only resolves once the root is pinned."""
+    import sys
+    from pathlib import Path
+
+    from src.cli import tui
+
+    root = str(Path(tui.__file__).resolve().parent.parent.parent)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != root])
+    assert root not in sys.path
+
+    assert tui._pin_project_root() == Path(root)
+    assert root in sys.path
+
+
+def test_main_pins_root_before_subcommand_dispatch(monkeypatch) -> None:
+    """Regression: `fsar run` and `fsar room` died with "No module named
+    'data'" because the project root was pinned only after subcommand
+    dispatch, and building an engine imports data.migrations."""
+    import sys
+    from pathlib import Path
+
+    from src.cli import tui
+    from src.utils import migrate
+
+    root = str(Path(tui.__file__).resolve().parent.parent.parent)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != root])
+    monkeypatch.setattr(sys, "argv", ["fsar", "run", "hi"])
+    monkeypatch.setattr(migrate, "run_migration", lambda project_root: None)
+
+    seen: dict[str, bool] = {}
+
+    def fake_dispatch(argv: list[str]) -> int:
+        seen["root_on_path"] = root in sys.path
+        return 0
+
+    monkeypatch.setattr(tui, "_dispatch_subcommand", fake_dispatch)
+
+    with pytest.raises(SystemExit):
+        tui.main()
+
+    assert seen.get("root_on_path") is True, (
+        "the project root must be on sys.path before the subcommand runs"
+    )
