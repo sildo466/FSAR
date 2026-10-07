@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,9 +16,8 @@ ELSEWHERE = "10.0.0.9"
 
 
 @pytest.fixture()
-def store() -> MemberTokenStore:
-    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-    return MemberTokenStore(Path(tmp.name) / "tokens.db")
+def store(tmp_path: Path) -> MemberTokenStore:
+    return MemberTokenStore(tmp_path / "tokens.db")
 
 
 def _issue(store: MemberTokenStore, **kwargs):
