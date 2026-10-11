@@ -32,6 +32,7 @@ from src.server import room_ingress
 from src.server.group_engine import GroupEngine
 from src.server.lan_supervisor import LanSupervisor
 from src.server.room_runner import RoomRunner
+from src.server.room_sandbox import room_sandbox_for
 from src.server.room_wiring import dispatch_item
 from src.server.room_app import RoomDeps
 from src.utils.logger import logger
@@ -109,6 +110,11 @@ conversation_handler.set_engine(_engine)
 # the GUI thread is committing, and a stalled loop is a refused connection.
 enable_wal(_config.memory_sqlite_path)
 _group_rooms = RoomStore(_config.memory_sqlite_path, _engine.session_store)
+# The resolver needs the RoomStore, which cannot exist before this engine, so
+# it is handed over here rather than passed to the constructor.
+_engine.set_room_sandbox_for(
+    room_sandbox_for(_group_rooms, _engine.workspace_repo, _config)
+)
 _agent_members = AgentMemberStore(_config.memory_sqlite_path)
 _member_tokens = MemberTokenStore(_config.memory_sqlite_path)
 _room_plans = RoomPlanStore(_config.memory_sqlite_path)

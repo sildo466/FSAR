@@ -3820,6 +3820,14 @@ class ChatEngine:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
         return prompt
 
+    def set_room_sandbox_for(self, resolver: Callable[[str], Any] | None) -> None:
+        """Attach the room-sandbox resolver after construction.
+
+        ws_server builds the RoomStore after this engine, so the resolver can
+        only be handed over once that store exists.
+        """
+        self._room_sandbox_for = resolver
+
     def room_sandbox(self, conv_id: str) -> Any | None:
         """The workspace a room's chat turn is confined to, or None when this
         conversation is not a room's. Callers read None as "not a room turn",

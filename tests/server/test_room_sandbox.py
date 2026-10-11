@@ -75,3 +75,17 @@ def test_resolve_falls_back_when_the_bound_workspace_is_gone(tmp_path):
 
     resolve = room_sandbox_for(rooms, workspaces, _config(str(output)))
     assert resolve(room.session_id).id == sandbox.id
+
+
+def test_ws_server_attaches_the_resolver_to_the_shared_engine():
+    """Without this the whole policy is inert: the engine would never learn a
+    conversation is a room's. Asserted against the source rather than by
+    importing ws_server, which builds a real engine against the developer's own
+    ~/.fsar and a real MCP manager as a side effect of import."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2] / "src/server/ws_server.py"
+    ).read_text(encoding="utf-8")
+    assert "room_sandbox_for(_group_rooms" in source, "the resolver has to be built here"
+    assert "_engine.set_room_sandbox_for(" in source, "and handed to the shared engine"
