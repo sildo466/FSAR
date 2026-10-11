@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends, FastAPI, HTTPException, Request, Response, WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -64,6 +67,7 @@ from src.server.handlers import tools as tools_handler
 from src.server.handlers import usage as usage_handler
 from src.server import handlers as handlers_pkg
 from src.server.risk_bridge import RiskBridge
+from src.security.admin_session import ADMIN_COOKIE, AdminSessions, is_loopback
 from src.security.ws_auth import WSAuthenticator, bearer_token, websocket_token
 from src.skills.keys import load_security_keys
 
@@ -91,6 +95,24 @@ ensure_config(_config._path, _CONFIG_TEMPLATE)
 _config.load()
 
 app = FastAPI()
+_admin_sessions = AdminSessions()
+
+
+def _peer_loopback(request: Request) -> bool:
+    """Who is actually at the other end, which is the one thing a caller
+    cannot write itself."""
+    return is_loopback(request.client.host if request.client else "")
+
+
+def _require_admin(request: Request) -> None:
+    """403 means "not this machine"; 401 means "no session". The split tells a
+    probe which one it is without either answer being useful."""
+    if not _peer_loopback(request):
+        raise HTTPException(status_code=403, detail="peer")
+    if not _admin_sessions.session_valid(request.cookies.get(ADMIN_COOKIE, "")):
+        raise HTTPException(status_code=401, detail="auth")
+
+
 app.include_router(handlers_pkg.router)
 _bridge = RiskBridge()
 _engine = ChatEngine(_config, _bridge)
@@ -631,6 +653,45 @@ def _request_metadata_allowed(request: Request) -> bool:
         allowed_origins=_allowed_origins(),
         fetch_site=request.headers.get("sec-fetch-site"),
         referer=request.headers.get("referer"),
+    )
+
+
+@app.post("/api/auth/bootstrap")
+async def auth_bootstrap(request: Request) -> JSONResponse:
+    if not _request_metadata_allowed(request):
+        raise HTTPException(status_code=403, detail="origin")
+    if not _peer_loopback(request):
+        raise HTTPException(status_code=403, detail="peer")
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad_request")
+    token = payload.get("token") if isinstance(payload, dict) else None
+    session = _admin_sessions.consume_bootstrap(
+        token if isinstance(token, str) else ""
+    )
+    if session is None:
+        raise HTTPException(status_code=403, detail="bootstrap")
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        ADMIN_COOKIE, session,
+        httponly=True, secure=True, samesite="strict", path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/api/auth/ws-ticket")
+async def auth_ws_ticket(request: Request) -> JSONResponse:
+    if not _request_metadata_allowed(request):
+        raise HTTPException(status_code=403, detail="origin")
+    _require_admin(request)
+    ticket = _admin_sessions.issue_ticket(request.cookies.get(ADMIN_COOKIE, ""))
+    if ticket is None:
+        raise HTTPException(status_code=401, detail="auth")
+    return JSONResponse(
+        {"ticket": ticket},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
 
 
