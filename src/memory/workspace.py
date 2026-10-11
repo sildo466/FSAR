@@ -129,6 +129,34 @@ class WorkspaceRepo:
         assert workspace is not None
         return workspace
 
+    def find_by_root(self, root_path: str) -> Workspace | None:
+        """The workspace whose root resolves to `root_path`, if there is one."""
+        wanted = str(Path(root_path).expanduser().resolve(strict=False))
+        for workspace in self.list():
+            if str(Path(workspace.root_path).resolve(strict=False)) == wanted:
+                return workspace
+        return None
+
+    def ensure_root(self, root_path: str, name: str = "") -> Workspace:
+        """Find the workspace at this root, creating the row when it is absent.
+
+        An install that still has the out-of-box seed gets that row back; one
+        where it was deleted gets a fresh row at the same path rather than a
+        second default for new conversations. `name` is only a hint — the table
+        constrains names to be unique, so a taken one is suffixed.
+        """
+        found = self.find_by_root(root_path)
+        if found is not None:
+            return found
+        base = (name or Path(root_path).name or "Sandbox").strip() or "Sandbox"
+        taken = {workspace.name for workspace in self.list()}
+        if base in taken:
+            index = 2
+            while f"{base} {index}" in taken:
+                index += 1
+            base = f"{base} {index}"
+        return self.create(name=base, root_path=root_path)
+
     def update(self, workspace_id: int, **fields: Any) -> Workspace:
         updates: list[str] = []
         values: list[Any] = []
