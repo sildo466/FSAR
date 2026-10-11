@@ -16,6 +16,7 @@ import { ElectionStrip } from "../components/group/ElectionStrip";
 import { PhaseStrip } from "../components/group/PhaseStrip";
 import { PlanBoard } from "../components/group/PlanBoard";
 import { PatchPanel } from "../components/group/PatchPanel";
+import { RoomSandboxPill } from "../components/group/RoomSandboxPill";
 import { GroupToolSteps } from "../components/group/GroupToolSteps";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { LanPanel } from "../components/group/LanPanel";
@@ -241,6 +242,12 @@ export function GroupRoom() {
             <Radio size={13} strokeWidth={1.6} />
             {t("lan.title")}
           </button>
+          {room && (
+            <RoomSandboxPill
+              roomId={room.id}
+              sandboxWorkspaceId={room.sandbox_workspace_id ?? null}
+            />
+          )}
           {gauge && gauge.window > 0 && (
             <span
               data-testid="group-token-meter"

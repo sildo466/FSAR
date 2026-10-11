@@ -99,8 +99,8 @@ export type ClientMsg =
   | { type: "sandbox_audit.list"; since?: string; conversation_id?: string; limit?: number }
   | { type: "tool.sandbox.escape_decision"; request_id: string; decision: "deny" | "allow_once" | "allow_session" | "allow_always" }
   | { type: "group.list" }
-  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
-  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean }
+  | { type: "group.create"; name: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; character_ids: number[]; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean; sandbox_workspace_id?: number | null }
+  | { type: "group.update"; room_id: number; name?: string; description?: string; scenario_prompt?: string; user_card_id?: number | null; pinned?: boolean; max_rounds?: number; agent_mode?: boolean; lan_enabled?: boolean; sandbox_workspace_id?: number | null }
   | { type: "group.delete"; room_id: number }
   | { type: "group.members.add"; room_id: number; character_ids: number[] }
   | { type: "group.members.remove"; room_id: number; character_id: number }
@@ -233,6 +233,10 @@ export interface RoomSummary {
   /** The project a working room is bound to. Null means the board has nothing
    *  to run against, so nothing gets dispatched. */
   workspace_id: number | null;
+  /** Where this room's chat turns may act. Null means the default sandbox
+   *  (`workspace.output_dir`). Distinct from workspace_id: a project has to be
+   *  a git repository, a sandbox need not be one. */
+  sandbox_workspace_id: number | null;
   goal: string;
   phase: RoomPhase;
 }
