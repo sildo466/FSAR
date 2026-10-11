@@ -44,11 +44,13 @@ def isolate_engine(monkeypatch):
         headers = dict(kwargs.pop("headers", {}) or {})
         headers.setdefault("origin", "http://127.0.0.1:8765")
         headers.setdefault("host", "127.0.0.1:8765")
-        protocols = subprotocols or ["fsar-v1", ws_mod._ws_auth.ensure_token()]
+        if subprotocols is None:
+            session = ws_mod._admin_sessions.create_session()
+            subprotocols = ["fsar-v1", ws_mod._admin_sessions.issue_ticket(session)]
         return original_connect(
             client,
             url,
-            subprotocols=protocols,
+            subprotocols=subprotocols,
             headers=headers,
             **kwargs,
         )

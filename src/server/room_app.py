@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.security.member_auth import AuthOutcome, authorize_member
 from src.security.rate_budget import RateBudget
 from src.security.visitor_screen import VisitorVerdict
-from src.security.ws_auth import bearer_token
+from src.security.browser_boundary import bearer_token
 
 # Budgets, as (limit, window_seconds, burst).
 READ_BUDGET = (120, 60.0, 10)

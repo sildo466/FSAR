@@ -68,7 +68,7 @@ from src.server.handlers import usage as usage_handler
 from src.server import handlers as handlers_pkg
 from src.server.risk_bridge import RiskBridge
 from src.security.admin_session import ADMIN_COOKIE, AdminSessions, is_loopback
-from src.security.ws_auth import WSAuthenticator, bearer_token, websocket_token
+from src.security.browser_boundary import BrowserBoundary, websocket_token
 from src.skills.keys import load_security_keys
 
 from src.server.chat_engine import ChatEngine
@@ -113,10 +113,10 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="auth")
 
 
-app.include_router(handlers_pkg.router)
+app.include_router(handlers_pkg.router, dependencies=[Depends(_require_admin)])
 _bridge = RiskBridge()
 _engine = ChatEngine(_config, _bridge)
-_ws_auth = WSAuthenticator()
+_ws_auth = BrowserBoundary()
 _ctx: dict[str, Any] = {
     "config": _config,
     "db_path": _config.memory_sqlite_path,
@@ -401,7 +401,7 @@ async def _startup() -> None:
     global _gui_loop
     _gui_loop = asyncio.get_running_loop()
     load_security_keys()
-    _ws_auth.rotate()
+    _admin_sessions.rotate_bootstrap()
     from src.server.chat_engine import set_default_chat_engine
     set_default_chat_engine(_engine)
     await _engine.start_mcp()
@@ -482,8 +482,7 @@ async def feishu_webhook(request: Request) -> Response:
 
 @app.get("/api/social/status")
 async def social_status(request: Request) -> dict[str, list[dict[str, Any]]]:
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    _require_admin(request)
     statuses = {
         name: {"platform": name, "state": "paused", "configured": False}
         for name in ("telegram", "feishu", "wechat")
@@ -495,8 +494,7 @@ async def social_status(request: Request) -> dict[str, list[dict[str, Any]]]:
 
 @app.post("/api/social/wechat/qr")
 async def wechat_qr(request: Request) -> dict[str, str]:
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    _require_admin(request)
     if _wechat_adapter is None:
         raise HTTPException(status_code=503, detail="wechat_disabled")
     try:
@@ -508,8 +506,7 @@ async def wechat_qr(request: Request) -> dict[str, str]:
 
 @app.post("/api/social/wechat/qr/reset")
 async def wechat_qr_reset(request: Request) -> dict[str, str]:
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    _require_admin(request)
     if _wechat_adapter is None:
         raise HTTPException(status_code=503, detail="wechat_disabled")
     try:
@@ -521,8 +518,7 @@ async def wechat_qr_reset(request: Request) -> dict[str, str]:
 
 @app.get("/api/social/wechat/qr/status")
 async def wechat_qr_status(request: Request) -> dict[str, str]:
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    _require_admin(request)
     if _wechat_adapter is None:
         raise HTTPException(status_code=503, detail="wechat_disabled")
     try:
@@ -535,6 +531,7 @@ async def wechat_qr_status(request: Request) -> dict[str, str]:
 @app.post("/api/card/{card_id}/avatar")
 async def upload_avatar(card_id: int, request: Request) -> dict[str, str]:
     """Persist avatar; body is raw bytes, X-FSAR-Avatar-Ext header has extension."""
+    _require_admin(request)
     from fastapi import HTTPException
     from PIL import UnidentifiedImageError
     from src.server.handlers.card import _get_card_repo
@@ -560,7 +557,8 @@ async def upload_avatar(card_id: int, request: Request) -> dict[str, str]:
 
 
 @app.get("/api/card/{card_id}/avatar")
-async def get_avatar(card_id: int):
+async def get_avatar(card_id: int, request: Request):
+    _require_admin(request)
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     from src.server.handlers.card import _get_card_repo
@@ -579,7 +577,8 @@ async def get_avatar(card_id: int):
 
 
 @app.get("/skin-assets/{skin_id}/{file_path:path}")
-async def get_skin_asset(skin_id: str, file_path: str):
+async def get_skin_asset(skin_id: str, file_path: str, request: Request):
+    _require_admin(request)
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     roots = [
@@ -601,7 +600,8 @@ _LIVE2D_SUFFIXES = (
 
 
 @app.get("/api/models")
-async def list_models():
+async def list_models(request: Request):
+    _require_admin(request)
     from src.utils.fsar_home import get_fsar_home
     root = get_fsar_home() / "data" / "models"
     if not root.exists():
@@ -617,7 +617,8 @@ async def list_models():
 
 
 @app.get("/api/models/{name:path}")
-async def get_model(name: str):
+async def get_model(name: str, request: Request):
+    _require_admin(request)
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     from src.utils.fsar_home import get_fsar_home
@@ -695,22 +696,11 @@ async def auth_ws_ticket(request: Request) -> JSONResponse:
     )
 
 
-@app.get("/api/auth/ws-token")
-async def ws_token(request: Request) -> JSONResponse:
-    if not _request_metadata_allowed(request):
-        raise HTTPException(status_code=403, detail="origin")
-    return JSONResponse(
-        {"token": _ws_auth.ensure_token()},
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
-
-
 @app.get("/api/fsar_yaml")
 async def fsar_yaml(request: Request) -> dict[str, str]:
     if not _request_metadata_allowed(request):
         raise HTTPException(status_code=403, detail="origin")
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="auth")
+    _require_admin(request)
     return {"yaml": yaml.safe_dump(_config._settings, allow_unicode=True, sort_keys=False)}
 
 
@@ -718,8 +708,7 @@ async def fsar_yaml(request: Request) -> dict[str, str]:
 async def install_skill(request: Request) -> dict[str, object]:
     if not _request_metadata_allowed(request):
         raise HTTPException(status_code=403, detail="origin")
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="auth")
+    _require_admin(request)
     try:
         payload = await request.json()
     except Exception:
@@ -752,8 +741,7 @@ async def upload_chat_files(request: Request) -> dict[str, object]:
     """Store chat attachments under <FSAR_HOME>/uploads; returns saved paths."""
     if not _request_metadata_allowed(request):
         raise HTTPException(status_code=403, detail="origin")
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="auth")
+    _require_admin(request)
     try:
         form = await request.form()
     except Exception:
@@ -788,8 +776,7 @@ async def install_skill_upload(request: Request) -> dict[str, object]:
     """Browser fallback for skill install: multipart folder upload."""
     if not _request_metadata_allowed(request):
         raise HTTPException(status_code=403, detail="origin")
-    if not _ws_auth.verify_token(bearer_token(request.headers.get("authorization"))):
-        raise HTTPException(status_code=401, detail="auth")
+    _require_admin(request)
     try:
         form = await request.form()
     except Exception:
@@ -836,6 +823,18 @@ async def install_skill_upload(request: Request) -> dict[str, object]:
 
 @app.websocket("/ws/scheduler")
 async def ws_scheduler(websocket: WebSocket) -> None:
+    client_id = websocket.client.host if websocket.client else "unknown"
+    allowed = _ws_auth.request_allowed(
+        host=websocket.headers.get("host", ""),
+        origin=websocket.headers.get("origin"),
+        allowed_origins=_allowed_origins(),
+        fetch_site=websocket.headers.get("sec-fetch-site"),
+        referer=websocket.headers.get("referer"),
+    )
+    ticket = websocket_token(websocket.headers.get("sec-websocket-protocol"))
+    if not allowed or not is_loopback(client_id) or not _admin_sessions.consume_ticket(ticket):
+        await websocket.close(code=1008, reason="auth")
+        return
     await websocket.accept()
     try:
         while True:
@@ -944,12 +943,8 @@ async def _run_birthday_letters(config: Any, ws: WebSocket) -> None:
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     client_id = ws.client.host if ws.client else "unknown"
-    _ws_headers = dict(ws.headers)
     if _ws_auth.is_rate_limited(client_id):
-        logger.warning(
-            "ws /ws rejected (rate_limit): client={} headers={}",
-            client_id, _ws_headers,
-        )
+        logger.warning("ws /ws rejected (rate_limit): client={}", client_id)
         await ws.close(code=1008, reason="rate_limit")
         return
     allowed = _ws_auth.request_allowed(
@@ -959,15 +954,12 @@ async def ws_endpoint(ws: WebSocket) -> None:
         fetch_site=ws.headers.get("sec-fetch-site"),
         referer=ws.headers.get("referer"),
     )
-    token = websocket_token(ws.headers.get("sec-websocket-protocol"))
-    if not allowed or not _ws_auth.verify_token(token):
+    ticket = websocket_token(ws.headers.get("sec-websocket-protocol"))
+    # Short-circuits before consuming: a refused peer must not burn a ticket.
+    if not allowed or not is_loopback(client_id) or not _admin_sessions.consume_ticket(ticket):
         logger.warning(
-            "ws /ws rejected (auth): client={} allowed={} token_present={} "
-            "host={} origin={} referer={} fetch_site={} subprotocol={}",
-            client_id, allowed, bool(token),
-            ws.headers.get("host"), ws.headers.get("origin"),
-            ws.headers.get("referer"), ws.headers.get("sec-fetch-site"),
-            ws.headers.get("sec-websocket-protocol"),
+            "ws /ws rejected (auth): client={} allowed={} ticket_present={}",
+            client_id, allowed, bool(ticket),
         )
         _ws_auth.record_failure(client_id)
         await ws.close(code=1008, reason="auth")
