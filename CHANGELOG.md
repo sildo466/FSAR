@@ -5,6 +5,70 @@ All notable changes to FSAR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-11
+
+Security release. The dashboard authenticated its callers with headers they
+could write themselves, a room inherited the owner's permanent path allowlist
+and trust settings, and nothing read what a room's agent was trying to do
+before it ran a command. All three are closed.
+
+### Added
+
+- **Session-based dashboard access** — the launcher opens the page with a
+  one-time token in the URL; the page trades it for a session cookie, the
+  token is wiped from the address bar, and the WebSocket handshake carries a
+  60-second single-use ticket instead of a process-lifetime password.
+- **A sandbox per room** — chosen when the room is created and editable from
+  the room itself. A room's agents are confined to that folder.
+- **A command classifier for rooms** — a model reads the intent a room's agent
+  declared next to the command it wants to run, and refuses the command when
+  the two do not line up. Trust mode, broad-access mode and the result-review
+  setting cannot exempt it. The switch lives in Settings → Permissions and is
+  on by default.
+- **Per-command intents** — `run_command` requires a `description`; `process`
+  requires one when it starts a command.
+
+### Changed
+
+- Sensitive-path reads, file listings, model listings and avatar uploads now
+  require the dashboard session, as the other endpoints already did.
+- A room turn no longer inherits `security.always_allow_paths`, trust mode,
+  `power_user_mode`, or the automatic result review.
+- Inside a room, a tool rated MEDIUM or above asks for confirmation even when
+  the path is inside the sandbox.
+- A sandbox escape approved from inside a room is granted once; "always allow"
+  is neither offered nor honoured there.
+
+### Fixed
+
+- A failed dashboard handshake no longer writes the credential it was given
+  into the log.
+- `/api/scheduler/*` answered without any authentication; it now requires the
+  session like everything else.
+
+### Not included
+
+- The classifier covers command tools only; file reads and edits inside a room
+  are still governed by the sandbox and the risk thresholds.
+- It applies to rooms only. Ordinary conversations, scheduled jobs and the
+  terminal client keep the gates they already had.
+- API keys remain in plain text on this machine, and the dashboard still hands
+  the whole configuration to its own page.
+
+### Notes
+
+- **Offline rooms cannot run commands.** The classifier refuses when it cannot
+  answer, so with no network a room's commands are refused until the switch is
+  turned off. That is deliberate: a room command either passes a judgement or
+  does not run.
+- With no judge endpoint configured the classifier uses the active chat model,
+  which adds a round trip per command.
+- A command whose declared intent honestly describes what it does can still be
+  steered by the conversation. The classifier checks that the intent and the
+  command agree; it cannot judge where the intent came from. That is the
+  boundary of this layer, and it is why the sandbox remains the load-bearing
+  one.
+
 ## [0.6.0] - 2026-10-06
 
 Minor release, and the largest one so far. It moves in three directions at

@@ -219,6 +219,15 @@ class ProcessTool(Tool):
                     "type": "string",
                     "description": "Command to run (for start action)",
                 },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "One sentence saying what this command is for. Required "
+                        "inside a room when starting a command: a command "
+                        "classifier reads it alongside the command, and a "
+                        "command without a stated intent is refused."
+                    ),
+                },
                 "process_id": {
                     "type": "string",
                     "description": "Process ID (for log/poll/kill actions)",

@@ -2,15 +2,11 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientMsg, ServerMsg } from "../lib/ws-client";
 import { initI18n } from "../lib/i18nSetup";
-import { fetchWSToken, useWS } from "../stores/ws";
+import { useWS } from "../stores/ws";
 import { Library } from "./Library";
 import { open } from "@tauri-apps/plugin-dialog";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
-vi.mock("../stores/ws", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../stores/ws")>();
-  return { ...actual, fetchWSToken: vi.fn() };
-});
 
 class FakeClient {
   readonly sent: ClientMsg[] = [];
@@ -32,7 +28,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-  vi.mocked(fetchWSToken).mockReset();
   vi.mocked(open).mockReset();
   useWS.setState({ client: new FakeClient() as never });
 });
@@ -54,12 +49,10 @@ describe("Library skill install", () => {
 
     await waitFor(() => expect(open).toHaveBeenCalled());
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(fetchWSToken).not.toHaveBeenCalled();
   });
 
-  it("posts the selected folder with bearer authentication", async () => {
+  it("posts the selected folder to the same-origin session", async () => {
     vi.mocked(open).mockResolvedValue("C:\\skills\\demo");
-    vi.mocked(fetchWSToken).mockResolvedValue("test-token");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -74,17 +67,13 @@ describe("Library skill install", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/skill/install", {
       method: "POST",
       credentials: "same-origin",
-      headers: {
-        Authorization: "Bearer test-token",
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder_path: "C:\\skills\\demo" }),
     });
   });
 
   it("shows server errors and re-enables the install button", async () => {
     vi.mocked(open).mockResolvedValue("C:\\skills\\bad");
-    vi.mocked(fetchWSToken).mockResolvedValue("test-token");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
       status: 400,

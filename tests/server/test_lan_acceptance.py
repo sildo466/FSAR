@@ -113,15 +113,16 @@ def test_a02_a_token_from_the_wrong_address_is_refused(tmp_path) -> None:
     assert "claude-laptop" not in response.text
 
 
-def test_a02_the_gui_token_does_not_open_the_room_api(tmp_path) -> None:
+def test_a02_the_gui_ticket_does_not_open_the_room_api(tmp_path) -> None:
     """The two credential kinds must never interchange."""
-    from src.security.ws_auth import WSAuthenticator
+    import src.server.ws_server as ws_mod
 
     wired = _wire(tmp_path)
-    gui_token = WSAuthenticator().ensure_token()
-    assert gui_token
+    session = ws_mod._admin_sessions.create_session()
+    gui_ticket = ws_mod._admin_sessions.issue_ticket(session)
+    assert gui_ticket
     assert wired.client.get(
-        "/room/index", headers=_auth(gui_token)
+        "/room/index", headers=_auth(gui_ticket)
     ).status_code == 401
 
 

@@ -33,6 +33,7 @@ function room(agentMembers: AgentMemberSummary[]): RoomSummary {
     agent_mode: true,
     lan_enabled: false,
     workspace_id: null,
+    sandbox_workspace_id: null,
     goal: "",
     phase: "chat",
     agent_members: agentMembers,

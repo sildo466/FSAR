@@ -66,7 +66,7 @@ class RiskEngine:
     def __init__(self, state: PermissionState):
         self.state = state
 
-    def evaluate(self, tool: Tool, args: dict) -> RiskVerdict:
+    def evaluate(self, tool: Tool, args: dict, room_turn: bool = False) -> RiskVerdict:
         name = tool.name
         # Optional server identity (MCPTool exposes this). None for builtin tools.
         server_name = getattr(tool, "server_name", None)
@@ -110,6 +110,22 @@ class RiskEngine:
         # SAFE always passes
         if effective_risk == SAFE:
             return RiskVerdict("proceed", "SAFE tool passes automatically", "safe_shortcut", SAFE)
+
+        # A room's chat turn is driven by whoever can reach the room, so its
+        # authority comes from the workspace root rather than the tool table:
+        # the per-tool `trust` shortcut does not apply. Risk level decides
+        # instead, and the owner can still opt out wholesale by choosing trust
+        # mode. This sits before the trust branch on purpose, and after the
+        # deny / blocked-pattern / path-rule checks, which still stop it.
+        if room_turn:
+            if self.state.mode == "trust":
+                return RiskVerdict("proceed", "Room turn: owner selected trust mode",
+                                   "room_trust_mode", effective_risk)
+            if _RISK_RANK.get(effective_risk, _RISK_RANK[MEDIUM]) >= _RISK_RANK[MEDIUM]:
+                return RiskVerdict("confirm", f"Room turn: risk {effective_risk} >= MEDIUM",
+                                   "room_risk", effective_risk)
+            return RiskVerdict("proceed", f"Room turn: risk {effective_risk} below MEDIUM",
+                               "room_risk_pass", effective_risk)
 
         # trust mode passes (unless session.mode = strict)
         if tool_mode == "trust" and self.state.mode != "strict":

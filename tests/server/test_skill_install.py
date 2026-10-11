@@ -65,29 +65,31 @@ def api(tmp_path, monkeypatch):
     return TestClient(ws_mod.app), ws_mod
 
 
-def _headers(ws_mod, *, token=True, origin="http://127.0.0.1:8765"):
-    headers = {"host": "127.0.0.1:8765", "origin": origin}
-    if token:
-        headers["authorization"] = f"Bearer {ws_mod._ws_auth.ensure_token()}"
-    return headers
+def _headers(*, origin="http://127.0.0.1:8765"):
+    return {"host": "127.0.0.1:8765", "origin": origin}
 
 
 def test_install_route_rejects_bad_body(api):
     client, ws_mod = api
 
-    assert client.post("/api/skill/install", headers=_headers(ws_mod), content="{").status_code == 400
-    response = client.post("/api/skill/install", headers=_headers(ws_mod), json={})
+    assert client.post("/api/skill/install", headers=_headers(), content="{").status_code == 400
+    response = client.post("/api/skill/install", headers=_headers(), json={})
     assert response.status_code == 400
     assert response.json() == {"detail": "bad_request"}
 
 
-def test_install_route_requires_origin_and_token(api):
+def test_install_route_requires_origin_and_session(api):
     client, ws_mod = api
 
-    assert client.post("/api/skill/install", headers=_headers(ws_mod, token=False), json={}).status_code == 401
+    anonymous = TestClient(
+        ws_mod.app, base_url="https://127.0.0.1:8765", cookies={},
+        client=("127.0.0.1", 40000),
+        headers={"origin": "http://127.0.0.1:8765"},
+    )
+    assert anonymous.post("/api/skill/install", json={}).status_code == 401
     response = client.post(
         "/api/skill/install",
-        headers=_headers(ws_mod, origin="https://example.com"),
+        headers=_headers(origin="https://example.com"),
         json={"folder_path": "C:/skill"},
     )
     assert response.status_code == 403
@@ -103,7 +105,7 @@ def test_install_route_persists_children_and_broadcasts(api, tmp_path):
         websocket.receive_json()
         response = client.post(
             "/api/skill/install",
-            headers=_headers(ws_mod),
+            headers=_headers(),
             json={"folder_path": str(folder)},
         )
         event = websocket.receive_json()
@@ -125,7 +127,7 @@ def test_install_route_returns_stable_folder_error(api, tmp_path):
 
     response = client.post(
         "/api/skill/install",
-        headers=_headers(ws_mod),
+        headers=_headers(),
         json={"folder_path": str(tmp_path)},
     )
 

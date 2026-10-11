@@ -39,12 +39,10 @@ REM 3. Kill any previous FSAR Backend window so port :8765 isn't held by an
 REM    old process running stale Python code (uvicorn has no --reload).
 taskkill /FI "WINDOWTITLE eq FSAR Backend*" /T /F >nul 2>&1
 
-REM 4. Start backend (which serves the GUI at the same origin).
+REM 4. Start backend (which serves the GUI at the same origin). It opens its
+REM    own browser window once it is listening, so the URL it needs is the one
+REM    it already knows.
 start "FSAR Backend" cmd /k "python -m src.server.ws_server"
-
-REM 5. Open browser after a short delay.
-timeout /t 3 /nobreak >nul
-start "" "http://127.0.0.1:8765"
 
 echo.
 echo [FSAR] Backend + GUI on http://127.0.0.1:8765

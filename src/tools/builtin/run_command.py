@@ -156,6 +156,15 @@ class RunCommandTool(Tool):
                     "type": "string",
                     "description": "The command to execute",
                 },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "One sentence saying what this command is for. Required "
+                        "inside a room: a command classifier reads it alongside "
+                        "the command, and a command without a stated intent is "
+                        "refused."
+                    ),
+                },
                 "shell": {
                     "type": "string",
                     "enum": sorted(_valid_shells()),
@@ -168,7 +177,7 @@ class RunCommandTool(Tool):
                     "description": "Timeout in seconds",
                 },
             },
-            "required": ["command"],
+            "required": ["command", "description"],
         }
 
     @property

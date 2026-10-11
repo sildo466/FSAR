@@ -1,16 +1,23 @@
+# SPDX-License-Identifier: MIT
+"""The browser-side checks that guard the dashboard's own endpoints.
+
+These answer "did a page the user opened send this", never "who is the user".
+A caller writes its own Host, Origin and Fetch-Metadata headers, so none of
+them can be an identity — what this still buys is the cross-origin boundary:
+a page on another site cannot make the browser issue a same-origin request.
+The socket peer is the part a caller does not control, and that check lives
+with the endpoints.
+
+The two credential-header parsers below live here too: both are shared by the
+GUI and the room API, and both only read what a caller sent — they decide
+nothing.
+"""
 from __future__ import annotations
 
-import hmac
-import secrets
 import threading
 import time
 from collections import defaultdict, deque
-from pathlib import Path
 from typing import Iterable
-
-from src.skills.atomic import atomic_write_text
-from src.utils.fsar_home import get_fsar_home
-
 
 DEFAULT_ORIGINS = {
     "http://127.0.0.1:8765",
@@ -19,33 +26,15 @@ DEFAULT_ORIGINS = {
 DEFAULT_HOSTS = {"127.0.0.1:8765", "localhost:8765"}
 
 
-class WSAuthenticator:
-    def __init__(self, path: Path | None = None) -> None:
-        self.path = path or get_fsar_home() / "security" / "ws_token"
-        self._token = ""
-        self._lock = threading.RLock()
+class BrowserBoundary:
+    def __init__(self) -> None:
         self._failures: dict[str, deque[float]] = defaultdict(deque)
-
-    def rotate(self) -> str:
-        with self._lock:
-            self._token = secrets.token_urlsafe(48)
-            atomic_write_text(self.path, self._token + "\n", mode=0o600)
-            self._failures.clear()
-            return self._token
-
-    def ensure_token(self) -> str:
-        with self._lock:
-            return self._token or self.rotate()
-
-    def verify_token(self, candidate: str) -> bool:
-        token = self.ensure_token()
-        return bool(candidate) and hmac.compare_digest(token, candidate)
 
     def request_allowed(
         self,
         *,
         host: str,
-        origin: str | None,
+        origin: str | None = None,
         allowed_origins: Iterable[str] = (),
         fetch_site: str | None = None,
         referer: str | None = None,
@@ -92,4 +81,3 @@ def websocket_token(protocol_header: str | None) -> str:
     if len(protocols) < 2 or protocols[0] != "fsar-v1":
         return ""
     return protocols[1]
-
