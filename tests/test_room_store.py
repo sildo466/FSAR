@@ -221,3 +221,22 @@ def test_prune_missing_members_without_card_table_is_noop() -> None:
     room = rooms.create(name="R", character_ids=[7])
     assert rooms.prune_missing_members() == 0
     assert rooms.members(room.id) == [7]
+
+
+def test_sandbox_workspace_id_round_trips_and_is_looked_up_by_session() -> None:
+    """The sandbox is a room's own column — rooms.workspace_id is its project
+    root, which must be a git repository; a sandbox need not be one."""
+    rooms = _store()
+
+    room = rooms.create(name="Island", character_ids=[], sandbox_workspace_id=7)
+    assert room.sandbox_workspace_id == 7
+    assert room.workspace_id is None, "the project column must stay untouched"
+
+    found = rooms.get_by_session(room.session_id)
+    assert found is not None and found.id == room.id
+
+    assert rooms.set_sandbox(room.id, 9).sandbox_workspace_id == 9
+    assert rooms.set_sandbox(room.id, None).sandbox_workspace_id is None
+
+    assert rooms.get_by_session("no-such-session") is None
+    assert rooms.get_by_session("") is None
