@@ -6,6 +6,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import mimetypes
+import os
+import threading
+import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -96,6 +99,23 @@ _config.load()
 
 app = FastAPI()
 _admin_sessions = AdminSessions()
+_BIND: tuple[str, int] = ("127.0.0.1", 8765)
+
+
+def _launch_url(bootstrap: str) -> str:
+    host, port = _BIND
+    if host in ("0.0.0.0", "::", ""):
+        host = "127.0.0.1"
+    return f"http://{host}:{port}/#bootstrap={bootstrap}"
+
+
+def _open_browser(url: str) -> None:
+    """A launcher would have to wait for readiness and only then build the URL,
+    which is one more thing that breaks only on a real machine. The server
+    knows both, so it opens its own page."""
+    if os.environ.get("FSAR_NO_BROWSER"):
+        return
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
 
 def _peer_loopback(request: Request) -> bool:
@@ -401,7 +421,7 @@ async def _startup() -> None:
     global _gui_loop
     _gui_loop = asyncio.get_running_loop()
     load_security_keys()
-    _admin_sessions.rotate_bootstrap()
+    _open_browser(_launch_url(_admin_sessions.rotate_bootstrap()))
     from src.server.chat_engine import set_default_chat_engine
     set_default_chat_engine(_engine)
     await _engine.start_mcp()
@@ -1130,6 +1150,8 @@ _mount_frontend(app)
 
 def start(host: str = "127.0.0.1", port: int = 8765) -> None:
     """Run the server (blocking)."""
+    global _BIND
+    _BIND = (host, port)
     import uvicorn
 
     config_path = _config._path
