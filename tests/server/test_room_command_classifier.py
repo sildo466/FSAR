@@ -189,3 +189,31 @@ def test_a_disabled_switch_lets_the_command_through(tmp_path, monkeypatch):
     result, _ = _guarded(item, {"command": "ls"})
 
     assert result == "EXECUTED"
+
+
+def _context_engine(tmp_path: Path, monkeypatch, *, power_user=False):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    item = object.__new__(ChatEngine)
+    item.workspace_repo = WorkspaceRepo(tmp_path / "memory.db")
+    item.config = Config()
+    if power_user:
+        item.config.values["security.power_user_mode"] = True
+        anchor = str(Path(tmp_path).anchor)
+        item._room_sandbox_for = lambda conv_id: SimpleNamespace(
+            id=1, name="full", root_path=anchor, allowed_paths=[],
+        )
+    else:
+        item._room_sandbox_for = lambda conv_id: None
+    return item
+
+
+def test_the_sandbox_context_asks_for_a_declared_intent(tmp_path, monkeypatch):
+    item = _context_engine(tmp_path, monkeypatch)
+    assert "description" in item._workspace_context("conv")
+
+
+def test_the_broad_access_context_asks_for_one_too(tmp_path, monkeypatch):
+    item = _context_engine(tmp_path, monkeypatch, power_user=True)
+    text = item._workspace_context("conv")
+    assert "full filesystem" in text, "the power-user branch was not the one taken"
+    assert "description" in text

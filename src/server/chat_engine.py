@@ -3931,6 +3931,7 @@ class ChatEngine:
                 "Rules:\n"
                 "- Hardline commands (disk destruction, system lifecycle, privilege escalation, fetch+execute) are unconditionally blocked - no exception, no confirmation.\n"
                 "- Sensitive paths (SSH keys, cloud credentials, browser password databases, etc.) always require user confirmation.\n"
+                "- Every run_command and every process start must carry `description`: one sentence saying what the command is for. Inside a room a classifier reads that intent alongside the command, and a command without one is refused.\n"
                 "- All other file and command operations proceed without per-call confirmation.\n"
                 f"- Save files you create (reports, webpages, images, scripts, exports) inside your output folder `{output_dir}` in a task-named subfolder. Do not default to the Desktop, Documents, or Downloads unless the user explicitly asks for a specific path. Always report the full path you saved to."
             )
@@ -3943,6 +3944,7 @@ class ChatEngine:
             "- File operations (file_ops, edit) outside this workspace require user confirmation via an in-app modal.\n"
             "- Commands (run_command) containing dangerous patterns are unconditionally blocked - no exception, no confirmation.\n"
             "- Commands referencing sensitive paths always require user confirmation.\n"
+            "- Every run_command and every process start must carry `description`: one sentence saying what the command is for. Inside a room a classifier reads that intent alongside the command, and a command without one is refused.\n"
             "- If a request needs another path, explain the sandbox boundary or call the tool so the user can approve it.\n"
             f"- Save files you create inside your output folder `{output_dir}` in a task-named subfolder; do not write output files to the Desktop, Documents, or Downloads.\n"
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."

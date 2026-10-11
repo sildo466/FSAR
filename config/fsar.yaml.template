@@ -64,6 +64,13 @@ security:
     enabled: true
     threshold: 0.62
     scan_on_startup: true
+  command_classifier:
+    # Reads the intent a room's agent declared alongside the command it wants
+    # to run, and refuses the command when the two do not line up. Applies to
+    # rooms only. A classifier that cannot answer refuses too, so an offline
+    # machine cannot run room commands until this is turned off.
+    enabled: true
+    threshold: 0.7
   visitor_screening:
     # Reads every line an outside room member sends, and bans that member's
     # credential when the line tries to steer the model, attacks someone,
