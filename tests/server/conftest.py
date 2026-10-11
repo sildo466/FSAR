@@ -25,11 +25,20 @@ class _EmptyStrategy:
 
 @pytest.fixture(autouse=True)
 def isolate_engine(monkeypatch):
-    """Keep server tests offline: no MCP subprocesses, no embedder HTTP calls."""
+    """Keep server tests offline: no MCP subprocesses, no embedder HTTP calls.
+
+    The GUI's endpoints want a loopback peer, a same-origin origin and a
+    session, so the default test client arrives as one. A test that wants to
+    observe a refusal says so explicitly: TestClient(..., cookies={}) for "no
+    session", TestClient(..., client=("203.0.113.7", 40000)) for "not this
+    machine".
+    """
     import src.server.ws_server as ws_mod
+    from src.security.admin_session import ADMIN_COOKIE
     from starlette.testclient import TestClient
 
     original_connect = TestClient.websocket_connect
+    original_init = TestClient.__init__
 
     def authenticated_connect(client, url, subprotocols=None, **kwargs):
         headers = dict(kwargs.pop("headers", {}) or {})
@@ -44,7 +53,20 @@ def isolate_engine(monkeypatch):
             **kwargs,
         )
 
+    def gui_client(self, app, **kwargs):
+        kwargs.setdefault("base_url", "https://127.0.0.1:8765")
+        kwargs.setdefault("client", ("127.0.0.1", 40000))
+        headers = {"origin": "http://127.0.0.1:8765"}
+        headers.update(kwargs.pop("headers", {}) or {})
+        kwargs["headers"] = headers
+        if "cookies" not in kwargs:
+            kwargs["cookies"] = {
+                ADMIN_COOKIE: ws_mod._admin_sessions.create_session()
+            }
+        original_init(self, app, **kwargs)
+
     monkeypatch.setattr(TestClient, "websocket_connect", authenticated_connect)
+    monkeypatch.setattr(TestClient, "__init__", gui_client)
     engine = ws_mod._engine
     from src.memory.cards import CharacterCard
     monkeypatch.setattr(
