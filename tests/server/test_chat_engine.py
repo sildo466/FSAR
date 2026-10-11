@@ -90,7 +90,7 @@ def test_chat_send_tool_call_routes_through_risk_bridge(monkeypatch):
         effective_risk="MEDIUM",
         reason="test confirm",
     )
-    monkeypatch.setattr(engine.risk_engine, "evaluate", lambda tool, args: verdict)
+    monkeypatch.setattr(engine.risk_engine, "evaluate", lambda tool, args, **kwargs: verdict)
 
     async def fake_execute(name, **kwargs):
         return "TOOL_OK"
