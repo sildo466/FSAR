@@ -37,6 +37,11 @@ def isolate_engine(monkeypatch):
     from src.security.admin_session import ADMIN_COOKIE
     from starlette.testclient import TestClient
 
+    # A refused handshake counts toward the per-address rate limit, which lives
+    # on the process-wide boundary object. Without this, the refusals a test
+    # makes lock out the next test connecting from the same address.
+    ws_mod._ws_auth._failures.clear()
+
     original_connect = TestClient.websocket_connect
     original_init = TestClient.__init__
 
