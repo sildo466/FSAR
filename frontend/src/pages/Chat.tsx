@@ -12,7 +12,6 @@ import { AgentActivity, type AgentStatus } from "../components/chat/AgentActivit
 import { BlackHole } from "../components/ui/BlackHole";
 import { Greeting } from "../components/ui/Greeting";
 import { useWS } from "../stores/ws";
-import { fetchWSToken } from "../stores/ws";
 import { useSessions } from "../stores/sessions";
 import { useWorkspace } from "../stores/workspace";
 import { useCardsStore } from "../stores/cards";
@@ -366,11 +365,9 @@ export function Chat() {
     try {
       const form = new FormData();
       for (const file of Array.from(files).slice(0, 8)) form.append("files", file);
-      const token = await fetchWSToken();
       const response = await fetch("/api/chat/upload", {
         method: "POST",
         credentials: "same-origin",
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       const payload = (await response.json().catch(() => ({}))) as {

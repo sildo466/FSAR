@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCardsStore } from "../../stores/cards";
+import { useWorkspace } from "../../stores/workspace";
+import { isRestrictedSandbox } from "./RoomSandboxPill";
 
 interface Props {
   open: boolean;
@@ -14,6 +16,7 @@ interface Props {
     character_ids: number[];
     agent_mode: boolean;
     lan_enabled: boolean;
+    sandbox_workspace_id: number | null;
   }) => void;
 }
 
@@ -28,6 +31,8 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [agentMode, setAgentMode] = useState(false);
   const [lanEnabled, setLanEnabled] = useState(false);
+  const [sandboxId, setSandboxId] = useState<number | null>(null);
+  const sandboxChoices = useWorkspace((s) => s.workspaces).filter(isRestrictedSandbox);
 
   if (!open) return null;
 
@@ -48,6 +53,7 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
       character_ids: selected,
       agent_mode: agentMode,
       lan_enabled: lanEnabled,
+      sandbox_workspace_id: sandboxId,
     });
     setName("");
     setDescription("");
@@ -55,6 +61,7 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
     setSelected([]);
     setAgentMode(false);
     setLanEnabled(false);
+    setSandboxId(null);
   };
 
   return (
@@ -178,6 +185,26 @@ export function CreateRoomModal({ open, onClose, onSubmit }: Props) {
                 {t("group.lanEnabledHint")}
               </span>
             </span>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-text">
+              {t("group.sandboxLabel")}
+            </span>
+            <select
+              data-testid="room-sandbox-select"
+              value={sandboxId ?? ""}
+              onChange={(e) =>
+                setSandboxId(e.target.value === "" ? null : Number(e.target.value))
+              }
+              className="w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-xs text-text"
+            >
+              <option value="">{t("group.sandboxDefault")}</option>
+              {sandboxChoices.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name} — {workspace.root_path}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 

@@ -80,3 +80,47 @@ def test_windows_relative_parent_and_env_are_extracted():
     assert "..\\secret.txt" in extract_path_tokens("type ..\\secret.txt", "cmd")
     assert "$env:USERPROFILE\\.ssh\\id_rsa" in extract_path_tokens("Get-Content $env:USERPROFILE\\.ssh\\id_rsa", "powershell")
     assert ".." in extract_path_tokens("cd ..; dir", "cmd")
+
+
+def test_room_turn_is_not_waved_through_by_the_permanent_allowlist(tmp_path: Path, monkeypatch):
+    """A room turn's boundary is its root alone. The allowlist is a convenience
+    for the owner's own conversations, not a licence for whoever can reach the
+    room — 15 of the 2026-10-10 incident's audit rows read "permanently
+    allowed"."""
+    gate, ws, _ = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    outside = str(tmp_path / "private" / "fsar.yaml")
+
+    assert gate.validate_path(outside, workspace_id=ws.id, operation="read").action == "proceed"
+
+    room = gate.validate_path(outside, workspace_id=ws.id, operation="read", room_turn=True)
+    assert room.action == "confirm_escape"
+    assert room.rule_matched == "outside_workspace"
+    assert "permanently" not in room.reason
+
+
+def test_room_turn_inside_the_root_still_proceeds(tmp_path: Path, monkeypatch):
+    gate, ws, root = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    assert gate.validate_path(
+        str(root / "a.txt"), workspace_id=ws.id, operation="read", room_turn=True,
+    ).action == "proceed"
+
+
+def test_room_command_verdicts_ignore_the_allowlist_too(tmp_path: Path, monkeypatch):
+    """The incident's run_command rows — a recursive scan of the owner's home
+    directory — were audited as "path is permanently allowed". They come
+    through command_verdicts, so the room rule has to reach it as well."""
+    gate, ws, _ = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    # command_verdicts skips absolute tokens that do not exist, so the scan
+    # target has to be a real directory for the token to be judged at all.
+    private = tmp_path / "private"
+    private.mkdir()
+    command = f'Get-ChildItem -Path "{private}" -Recurse'
+
+    own = gate.command_verdicts(command, workspace_id=ws.id, shell="powershell")
+    assert any("permanently" in v.reason for v in own), "the owner's turn still honours it"
+
+    room = gate.command_verdicts(
+        command, workspace_id=ws.id, shell="powershell", room_turn=True,
+    )
+    assert room, "the command's path token must still be judged"
+    assert all("permanently" not in v.reason for v in room)

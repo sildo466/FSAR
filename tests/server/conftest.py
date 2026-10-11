@@ -25,26 +25,55 @@ class _EmptyStrategy:
 
 @pytest.fixture(autouse=True)
 def isolate_engine(monkeypatch):
-    """Keep server tests offline: no MCP subprocesses, no embedder HTTP calls."""
+    """Keep server tests offline: no MCP subprocesses, no embedder HTTP calls.
+
+    The GUI's endpoints want a loopback peer, a same-origin origin and a
+    session, so the default test client arrives as one. A test that wants to
+    observe a refusal says so explicitly: TestClient(..., cookies={}) for "no
+    session", TestClient(..., client=("203.0.113.7", 40000)) for "not this
+    machine".
+    """
     import src.server.ws_server as ws_mod
+    from src.security.admin_session import ADMIN_COOKIE
     from starlette.testclient import TestClient
 
+    # A refused handshake counts toward the per-address rate limit, which lives
+    # on the process-wide boundary object. Without this, the refusals a test
+    # makes lock out the next test connecting from the same address.
+    ws_mod._ws_auth._failures.clear()
+
     original_connect = TestClient.websocket_connect
+    original_init = TestClient.__init__
 
     def authenticated_connect(client, url, subprotocols=None, **kwargs):
         headers = dict(kwargs.pop("headers", {}) or {})
         headers.setdefault("origin", "http://127.0.0.1:8765")
         headers.setdefault("host", "127.0.0.1:8765")
-        protocols = subprotocols or ["fsar-v1", ws_mod._ws_auth.ensure_token()]
+        if subprotocols is None:
+            session = ws_mod._admin_sessions.create_session()
+            subprotocols = ["fsar-v1", ws_mod._admin_sessions.issue_ticket(session)]
         return original_connect(
             client,
             url,
-            subprotocols=protocols,
+            subprotocols=subprotocols,
             headers=headers,
             **kwargs,
         )
 
+    def gui_client(self, app, **kwargs):
+        kwargs.setdefault("base_url", "https://127.0.0.1:8765")
+        kwargs.setdefault("client", ("127.0.0.1", 40000))
+        headers = {"origin": "http://127.0.0.1:8765"}
+        headers.update(kwargs.pop("headers", {}) or {})
+        kwargs["headers"] = headers
+        if "cookies" not in kwargs:
+            kwargs["cookies"] = {
+                ADMIN_COOKIE: ws_mod._admin_sessions.create_session()
+            }
+        original_init(self, app, **kwargs)
+
     monkeypatch.setattr(TestClient, "websocket_connect", authenticated_connect)
+    monkeypatch.setattr(TestClient, "__init__", gui_client)
     engine = ws_mod._engine
     from src.memory.cards import CharacterCard
     monkeypatch.setattr(

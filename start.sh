@@ -49,18 +49,5 @@ while [ "$i" -le 30 ]; do
     i=$((i + 1))
 done
 
-URL="http://127.0.0.1:8765"
-if [ "$(uname -s)" = "Darwin" ]; then
-    if ! open "$URL"; then
-        echo "[FSAR] Browser did not open. Visit $URL manually."
-    fi
-elif command -v xdg-open >/dev/null 2>&1; then
-    if ! xdg-open "$URL"; then
-        echo "[FSAR] Browser did not open. Visit $URL manually."
-    fi
-else
-    echo "[FSAR] xdg-open not found. Visit $URL manually."
-fi
-
-echo "[FSAR] Backend + GUI on $URL"
+echo "[FSAR] Backend + GUI on http://127.0.0.1:8765"
 echo "[FSAR] Edit code and re-run ./start.sh to pick up changes."

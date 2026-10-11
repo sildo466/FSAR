@@ -24,6 +24,9 @@ class Room:
     agent_mode: bool = False
     lan_enabled: bool = False
     workspace_id: int | None = None
+    # Where this room's chat turns may act. NOT the project root — that is
+    # workspace_id, which has to be a git repository; a sandbox need not be.
+    sandbox_workspace_id: int | None = None
     goal: str = ""
     phase: str = "chat"
     created_at: str = ""
@@ -42,6 +45,7 @@ class Room:
             "agent_mode": self.agent_mode,
             "lan_enabled": self.lan_enabled,
             "workspace_id": self.workspace_id,
+            "sandbox_workspace_id": self.sandbox_workspace_id,
             "goal": self.goal,
             "phase": self.phase,
             "created_at": self.created_at,
@@ -116,6 +120,8 @@ class RoomStore:
             )
         if "workspace_id" not in cols:
             conn.execute("ALTER TABLE rooms ADD COLUMN workspace_id INTEGER")
+        if "sandbox_workspace_id" not in cols:
+            conn.execute("ALTER TABLE rooms ADD COLUMN sandbox_workspace_id INTEGER")
         if "goal" not in cols:
             conn.execute("ALTER TABLE rooms ADD COLUMN goal TEXT NOT NULL DEFAULT ''")
         if "phase" not in cols:
@@ -138,6 +144,7 @@ class RoomStore:
             agent_mode=bool(r["agent_mode"]),
             lan_enabled=bool(r["lan_enabled"]),
             workspace_id=r["workspace_id"],
+            sandbox_workspace_id=r["sandbox_workspace_id"],
             goal=r["goal"] or "",
             phase=r["phase"] or "chat",
             created_at=r["created_at"],
@@ -155,6 +162,7 @@ class RoomStore:
         max_rounds: int = 0,
         agent_mode: bool = False,
         lan_enabled: bool = False,
+        sandbox_workspace_id: int | None = None,
     ) -> Room:
         now = datetime.now().isoformat()
         session = self.session_store.create(kind="group")
@@ -162,11 +170,13 @@ class RoomStore:
             cur = conn.execute(
                 "INSERT INTO rooms "
                 "(name, description, scenario_prompt, session_id, user_card_id, "
-                "pinned, max_rounds, agent_mode, lan_enabled, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
+                "pinned, max_rounds, agent_mode, lan_enabled, sandbox_workspace_id, "
+                "created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
                 (name, description, scenario_prompt, session.id,
                  user_card_id, max(0, int(max_rounds)),
-                 int(bool(agent_mode)), int(bool(lan_enabled)), now, now),
+                 int(bool(agent_mode)), int(bool(lan_enabled)),
+                 sandbox_workspace_id, now, now),
             )
             room_id = cur.lastrowid
             for cid in character_ids:
@@ -248,6 +258,30 @@ class RoomStore:
             conn.execute(
                 "UPDATE rooms SET workspace_id = NULL, updated_at = ? WHERE id = ?",
                 (datetime.now().isoformat(), room_id),
+            )
+            conn.commit()
+        return self.get(room_id)
+
+    def get_by_session(self, session_id: str) -> Room | None:
+        """The room a conversation belongs to, or None when it is not a room's."""
+        if not session_id:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM rooms WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return self._row_to_room(row) if row else None
+
+    def set_sandbox(self, room_id: int, workspace_id: int | None) -> Room | None:
+        """Point this room's chat turns at a workspace, or at nothing.
+
+        Its own door for the same reason clear_workspace has one: update()
+        reads None as leave-alone, so a caller that passes nothing cannot clear
+        the sandbox by accident."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE rooms SET sandbox_workspace_id = ?, updated_at = ? WHERE id = ?",
+                (workspace_id, datetime.now().isoformat(), room_id),
             )
             conn.commit()
         return self.get(room_id)

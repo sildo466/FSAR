@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Bot, Globe, Radio, Users } from "lucide-react";
 import { useGroup } from "../stores/group";
 import { useCardsStore } from "../stores/cards";
-import { fetchWSToken, useWS } from "../stores/ws";
+import { useWS } from "../stores/ws";
 import { MessageList, type ChatMessage } from "../components/chat/MessageList";
 import {
   ChatComposer,
@@ -16,6 +16,7 @@ import { ElectionStrip } from "../components/group/ElectionStrip";
 import { PhaseStrip } from "../components/group/PhaseStrip";
 import { PlanBoard } from "../components/group/PlanBoard";
 import { PatchPanel } from "../components/group/PatchPanel";
+import { RoomSandboxPill } from "../components/group/RoomSandboxPill";
 import { GroupToolSteps } from "../components/group/GroupToolSteps";
 import { AgentMemberPanel } from "../components/group/AgentMemberPanel";
 import { LanPanel } from "../components/group/LanPanel";
@@ -114,11 +115,9 @@ export function GroupRoom() {
     try {
       const form = new FormData();
       for (const file of Array.from(files).slice(0, 8)) form.append("files", file);
-      const token = await fetchWSToken();
       const response = await fetch("/api/chat/upload", {
         method: "POST",
         credentials: "same-origin",
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       const payload = (await response.json().catch(() => ({}))) as {
@@ -241,6 +240,12 @@ export function GroupRoom() {
             <Radio size={13} strokeWidth={1.6} />
             {t("lan.title")}
           </button>
+          {room && (
+            <RoomSandboxPill
+              roomId={room.id}
+              sandboxWorkspaceId={room.sandbox_workspace_id ?? null}
+            />
+          )}
           {gauge && gauge.window > 0 && (
             <span
               data-testid="group-token-meter"

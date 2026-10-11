@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Credentials for room members that are not the local user.
 
-Deliberately separate from src/security/ws_auth.py: that one keeps the GUI
-token in plaintext on disk (fine for a loopback-only secret) and the two
-must never be interchangeable. Here the plaintext is returned exactly once
-at issue time and only its sha256 is persisted. The token is 48 bytes of
-randomness, not a low-entropy password, so an unsalted digest is a sound
-lookup key — do not copy this pattern for user passwords.
+Deliberately separate from the GUI's own credentials
+(src/security/admin_session.py): the two must never be interchangeable. Here
+the plaintext is returned exactly once at issue time and only its sha256 is
+persisted. The token is 48 bytes of randomness, not a low-entropy password, so
+an unsalted digest is a sound lookup key — do not copy this pattern for user
+passwords.
 """
 
 from __future__ import annotations

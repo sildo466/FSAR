@@ -88,6 +88,9 @@ interface GroupState {
     max_rounds?: number;
     agent_mode?: boolean;
     lan_enabled?: boolean;
+    /** Where the room's chat turns may act. Omitted or null means the default
+     * sandbox (workspace.output_dir). */
+    sandbox_workspace_id?: number | null;
   }) => void;
   updateRoom: (
     roomId: number,
@@ -99,6 +102,8 @@ interface GroupState {
       pinned?: boolean;
       /** 0 clears the cap, so the room debates until it settles. */
       max_rounds?: number;
+      /** null clears it back to the default sandbox; omitting leaves it alone. */
+      sandbox_workspace_id?: number | null;
     }
   ) => void;
   deleteRoom: (roomId: number) => void;

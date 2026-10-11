@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from src.security.ws_auth import bearer_token
+from src.security.browser_boundary import bearer_token
 
 router = APIRouter()
 

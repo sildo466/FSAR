@@ -54,6 +54,7 @@ from src.security import (
     make_entry,
     save_permissions,
 )
+from src.security.command_classifier import CommandClassifier
 from src.security.confirmation import ConfirmResponse
 from src.server.risk_bridge import RiskBridge
 from src.server.sandbox_bridge import SandboxBridge
@@ -488,9 +489,14 @@ def _plan_write_schema(sink: Any) -> dict[str, Any]:
 class ChatEngine:
     """One per server process. Owns the same subsystem instances the CLI builds."""
 
-    def __init__(self, config: FsarConfig, bridge: RiskBridge) -> None:
+    def __init__(self, config: FsarConfig, bridge: RiskBridge,
+                 room_sandbox_for: Callable[[str], Any] | None = None) -> None:
         self.config = config
         self.bridge = bridge
+        # Resolves a conversation id to the sandbox its room is confined to, or
+        # None when the conversation is not a room's. None means "no room
+        # policy", so an unwired engine behaves exactly as it did before.
+        self._room_sandbox_for = room_sandbox_for
         self.registry: ToolRegistry = create_default_registry(config)
         self._cleanse_cache: dict[str, set[str]] = {}
         self.mcp = MCPManager(
@@ -2951,7 +2957,21 @@ class ChatEngine:
             await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": sandbox_result, "latency_ms": 0})
             return sandbox_result
 
-        verdict = self.risk_engine.evaluate(tool, args)
+        classified = await self._classify_room_command(
+            name, args, conv_id, workspace_override,
+        )
+        if classified is not None:
+            await ws.send_json({
+                "type": "chat.tool_call", "message_id": message_id,
+                "conversation_id": conv_id,
+                "call_id": call_id, "tool": name, "args": args, "risk": "SAFE",
+            })
+            await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": classified, "latency_ms": 0})
+            return classified
+
+        verdict = self.risk_engine.evaluate(
+            tool, args, room_turn=self.room_sandbox(conv_id) is not None,
+        )
         needs_confirm = verdict.needs_confirm() and not verdict.is_denied()
         await ws.send_json({
             "type": "chat.tool_call",
@@ -3082,6 +3102,9 @@ class ChatEngine:
                                  workspace_override: Any = None) -> str | None:
         if name not in {"file_ops", "edit", "run_command", "process"}:
             return None
+        # A room's chat turn carries its own policy: the workspace root is the
+        # boundary, so the owner's permanent allowlist does not apply.
+        room_turn = self.room_sandbox(conv_id) is not None
         workspace = self._turn_workspace(conv_id, workspace_override)
         operation = str(args.get("operation") or ("edit" if name == "edit" else "execute"))
         is_command = name in {"run_command", "process"}
@@ -3099,19 +3122,19 @@ class ChatEngine:
             args["shell"] = shell
             verdicts = self.workspace_gate.command_verdicts(
                 command or "", workspace_id=workspace.id, shell=shell,
-                session_id=conv_id, conversation_id=conv_id,
+                session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
             )
         else:
             raw_path = str(args.get("path") if name == "file_ops" else args.get("file_path", ""))
             verdict = self.workspace_gate.validate_path(
                 raw_path, workspace_id=workspace.id, operation=operation,
-                session_id=conv_id, conversation_id=conv_id,
+                session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
             )
             verdicts = [verdict]
             if name == "file_ops" and operation == "move" and args.get("destination"):
                 verdicts.append(self.workspace_gate.validate_path(
                     str(args["destination"]), workspace_id=workspace.id, operation="move",
-                    session_id=conv_id, conversation_id=conv_id,
+                    session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
                 ))
         if not verdicts:
             self._audit_sandbox(workspace.id, conv_id, name, operation, None, command, "proceed", "command passed sandbox policy")
@@ -3132,9 +3155,18 @@ class ChatEngine:
                 "risk_level": "CRITICAL",
                 "context": {"workspace_id": workspace.id, "workspace_root": workspace.root_path,
                             "matched_rule": verdict.rule_matched, "is_sensitive": verdict.is_sensitive},
-                "options": ["deny", "allow_once", "allow_session", "allow_always"],
+                "options": (
+                    ["deny", "allow_once", "allow_session"] if room_turn
+                    else ["deny", "allow_once", "allow_session", "allow_always"]
+                ),
             })
             decision = await self.sandbox_bridge.submit(request_id, timeout=60.0)
+            if room_turn and decision == "allow_always":
+                # Hiding the option is a courtesy; this is the enforcement. A
+                # room must not be able to append to the global allowlist,
+                # because that would re-install the very door this turn ignores
+                # — for every future room as well.
+                decision = "allow_once"
             if decision == "deny":
                 self._audit_sandbox(workspace.id, conv_id, name, operation, verdict.resolved_path, command, "denied", verdict.reason)
                 return f"Error: sandbox escape denied - {verdict.reason}"
@@ -3154,6 +3186,54 @@ class ChatEngine:
             for verdict in verdicts:
                 self._audit_sandbox(workspace.id, conv_id, name, operation, verdict.resolved_path, command, "proceed", verdict.reason)
         return None
+
+    async def _classify_room_command(self, name: str, args: dict, conv_id: str,
+                                     workspace_override: Any = None) -> str | None:
+        """A room's command must pass a semantic judgement, or it does not run.
+
+        `None` means let it through. Rooms only: the owner's own conversations
+        keep the gates they already had.
+        """
+        if name not in {"run_command", "process"}:
+            return None
+        if self.room_sandbox(conv_id) is None:
+            return None
+        command = str(args.get("command", "") or "")
+        if not command:
+            return None
+        classifier = CommandClassifier(self.config)
+        if not classifier.enabled:
+            return None
+        workspace = self._turn_workspace(conv_id, workspace_override)
+        intent = str(args.get("description", "") or "")
+        if not intent.strip():
+            self._audit_sandbox(
+                workspace.id, conv_id, name, "execute", None, command,
+                "classifier_blocked", "the command stated no intent",
+            )
+            return "[BLOCKED: command classifier - the command stated no intent]"
+        verdict = await classifier.judge(
+            tool=name,
+            command=command,
+            intent=intent,
+            boundary=str(workspace.root_path),
+        )
+        if not verdict.dangerous:
+            return None
+        self._audit_sandbox(
+            workspace.id, conv_id, name, "execute", None, command,
+            "classifier_unavailable" if verdict.unavailable else "classifier_blocked",
+            verdict.reason or "no reason given",
+        )
+        if verdict.unavailable:
+            return (
+                "[BLOCKED: command classifier unavailable - "
+                "the command was not run]"
+            )
+        return (
+            "[BLOCKED: command classifier - "
+            f"{verdict.reason or 'the command did not match its stated intent'}]"
+        )
 
     def _audit_sandbox(self, workspace_id: int, conv_id: str, tool: str, operation: str,
                        target_path: str | None, command: str | None, verdict: str, reason: str) -> None:
@@ -3831,14 +3911,40 @@ class ChatEngine:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
         return prompt
 
+    def set_room_sandbox_for(self, resolver: Callable[[str], Any] | None) -> None:
+        """Attach the room-sandbox resolver after construction.
+
+        ws_server builds the RoomStore after this engine, so the resolver can
+        only be handed over once that store exists.
+        """
+        self._room_sandbox_for = resolver
+
+    def room_sandbox(self, conv_id: str) -> Any | None:
+        """The workspace a room's chat turn is confined to, or None when this
+        conversation is not a room's. Callers read None as "not a room turn",
+        which is what leaves the owner's own conversations alone.
+
+        Read defensively, like active_conversation_id: instances are also built
+        by hand in tests, and an unwired engine must degrade to "no room
+        policy" rather than raise.
+        """
+        resolver = getattr(self, "_room_sandbox_for", None)
+        if resolver is None or not conv_id:
+            return None
+        return resolver(conv_id)
+
     def _turn_workspace(self, conv_id: str, override: Any = None) -> Any:
         """The workspace this turn runs in.
 
-        A room hands each member its own staging; everything else keeps the
+        A room hands each member its own staging for a work turn, and confines
+        every other turn to the room's sandbox. Everything else keeps the
         conversation's binding, which is what this resolved before.
         """
         if override is not None:
             return override
+        sandbox = self.room_sandbox(conv_id)
+        if sandbox is not None:
+            return sandbox
         return self.workspace_repo.get_or_create_binding(conv_id)
 
     def _workspace_context(self, conv_id: str, workspace_override: Any = None) -> str:
@@ -3855,6 +3961,7 @@ class ChatEngine:
                 "Rules:\n"
                 "- Hardline commands (disk destruction, system lifecycle, privilege escalation, fetch+execute) are unconditionally blocked - no exception, no confirmation.\n"
                 "- Sensitive paths (SSH keys, cloud credentials, browser password databases, etc.) always require user confirmation.\n"
+                "- Every run_command and every process start must carry `description`: one sentence saying what the command is for. Inside a room a classifier reads that intent alongside the command, and a command without one is refused.\n"
                 "- All other file and command operations proceed without per-call confirmation.\n"
                 f"- Save files you create (reports, webpages, images, scripts, exports) inside your output folder `{output_dir}` in a task-named subfolder. Do not default to the Desktop, Documents, or Downloads unless the user explicitly asks for a specific path. Always report the full path you saved to."
             )
@@ -3867,6 +3974,7 @@ class ChatEngine:
             "- File operations (file_ops, edit) outside this workspace require user confirmation via an in-app modal.\n"
             "- Commands (run_command) containing dangerous patterns are unconditionally blocked - no exception, no confirmation.\n"
             "- Commands referencing sensitive paths always require user confirmation.\n"
+            "- Every run_command and every process start must carry `description`: one sentence saying what the command is for. Inside a room a classifier reads that intent alongside the command, and a command without one is refused.\n"
             "- If a request needs another path, explain the sandbox boundary or call the tool so the user can approve it.\n"
             f"- Save files you create inside your output folder `{output_dir}` in a task-named subfolder; do not write output files to the Desktop, Documents, or Downloads.\n"
             "Do NOT attempt to bypass the sandbox by encoding paths, using environment variables, or shell tricks."

@@ -51,7 +51,7 @@ def test_ws_risk_decline_cancels_tool(monkeypatch):
         effective_risk="HIGH",
         reason="test",
     )
-    monkeypatch.setattr(engine.risk_engine, "evaluate", lambda tool, args: verdict)
+    monkeypatch.setattr(engine.risk_engine, "evaluate", lambda tool, args, **kwargs: verdict)
 
     client = TestClient(app)
     with client.websocket_connect("/ws") as ws:
