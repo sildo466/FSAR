@@ -23,12 +23,14 @@ def _engine(**over) -> SimpleNamespace:
         ),
         "config": SimpleNamespace(get=lambda key, default=None: default),
         "_session_cwd_hint": "",
+        "_room_sandbox_for": None,
     }
     base.update(over)
     engine = SimpleNamespace(**base)
-    # The real engine always has this; binding the real method keeps the stub
-    # honest rather than growing a second copy of the rule inside the test.
+    # The real engine always has these; binding the real methods keeps the stub
+    # honest rather than growing a second copy of the rules inside the test.
     engine._turn_workspace = types.MethodType(ce.ChatEngine._turn_workspace, engine)
+    engine.room_sandbox = types.MethodType(ce.ChatEngine.room_sandbox, engine)
     return engine
 
 
@@ -80,3 +82,30 @@ def test_the_guarded_paths_accept_the_override() -> None:
         params = inspect.signature(getattr(ce.ChatEngine, name)).parameters
         assert "workspace_override" in params, name
         assert params["workspace_override"].default is None, name
+
+
+def test_a_room_conversation_uses_the_room_sandbox() -> None:
+    """A room's chat turn is confined to the room's sandbox; an ordinary
+    conversation keeps its own binding. This is the whole incident fix: the
+    room used to inherit `default_for_new`, which on the affected install was
+    `C:\`."""
+    room_ws = _ws("the-room-sandbox")
+    engine = _engine(
+        _room_sandbox_for=lambda cid: room_ws if cid == "room-conv" else None,
+    )
+
+    assert ce.ChatEngine._turn_workspace(engine, "room-conv").name == "the-room-sandbox"
+    assert ce.ChatEngine._turn_workspace(engine, "own-conv").name == "the-conversation-default"
+
+    explicit = _ws("explicit")
+    assert ce.ChatEngine._turn_workspace(engine, "room-conv", explicit) is explicit, (
+        "an explicit override (work-turn staging) still wins over the sandbox"
+    )
+
+
+def test_room_sandbox_is_none_without_a_resolver() -> None:
+    """The engine must degrade to no-room-policy, not to a crash, when nothing
+    wired a resolver (tests, headless callers)."""
+    engine = _engine()
+    assert ce.ChatEngine.room_sandbox(engine, "anything") is None
+    assert ce.ChatEngine.room_sandbox(engine, "") is None

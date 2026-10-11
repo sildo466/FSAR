@@ -476,9 +476,14 @@ def _plan_write_schema(sink: Any) -> dict[str, Any]:
 class ChatEngine:
     """One per server process. Owns the same subsystem instances the CLI builds."""
 
-    def __init__(self, config: FsarConfig, bridge: RiskBridge) -> None:
+    def __init__(self, config: FsarConfig, bridge: RiskBridge,
+                 room_sandbox_for: Callable[[str], Any] | None = None) -> None:
         self.config = config
         self.bridge = bridge
+        # Resolves a conversation id to the sandbox its room is confined to, or
+        # None when the conversation is not a room's. None means "no room
+        # policy", so an unwired engine behaves exactly as it did before.
+        self._room_sandbox_for = room_sandbox_for
         self.registry: ToolRegistry = create_default_registry(config)
         self._cleanse_cache: dict[str, set[str]] = {}
         self.mcp = MCPManager(
@@ -2921,7 +2926,9 @@ class ChatEngine:
             await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": sandbox_result, "latency_ms": 0})
             return sandbox_result
 
-        verdict = self.risk_engine.evaluate(tool, args)
+        verdict = self.risk_engine.evaluate(
+            tool, args, room_turn=self.room_sandbox(conv_id) is not None,
+        )
         needs_confirm = verdict.needs_confirm() and not verdict.is_denied()
         await ws.send_json({
             "type": "chat.tool_call",
@@ -3052,6 +3059,9 @@ class ChatEngine:
                                  workspace_override: Any = None) -> str | None:
         if name not in {"file_ops", "edit", "run_command", "process"}:
             return None
+        # A room's chat turn carries its own policy: the workspace root is the
+        # boundary, so the owner's permanent allowlist does not apply.
+        room_turn = self.room_sandbox(conv_id) is not None
         workspace = self._turn_workspace(conv_id, workspace_override)
         operation = str(args.get("operation") or ("edit" if name == "edit" else "execute"))
         is_command = name in {"run_command", "process"}
@@ -3069,19 +3079,19 @@ class ChatEngine:
             args["shell"] = shell
             verdicts = self.workspace_gate.command_verdicts(
                 command or "", workspace_id=workspace.id, shell=shell,
-                session_id=conv_id, conversation_id=conv_id,
+                session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
             )
         else:
             raw_path = str(args.get("path") if name == "file_ops" else args.get("file_path", ""))
             verdict = self.workspace_gate.validate_path(
                 raw_path, workspace_id=workspace.id, operation=operation,
-                session_id=conv_id, conversation_id=conv_id,
+                session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
             )
             verdicts = [verdict]
             if name == "file_ops" and operation == "move" and args.get("destination"):
                 verdicts.append(self.workspace_gate.validate_path(
                     str(args["destination"]), workspace_id=workspace.id, operation="move",
-                    session_id=conv_id, conversation_id=conv_id,
+                    session_id=conv_id, conversation_id=conv_id, room_turn=room_turn,
                 ))
         if not verdicts:
             self._audit_sandbox(workspace.id, conv_id, name, operation, None, command, "proceed", "command passed sandbox policy")
@@ -3102,9 +3112,18 @@ class ChatEngine:
                 "risk_level": "CRITICAL",
                 "context": {"workspace_id": workspace.id, "workspace_root": workspace.root_path,
                             "matched_rule": verdict.rule_matched, "is_sensitive": verdict.is_sensitive},
-                "options": ["deny", "allow_once", "allow_session", "allow_always"],
+                "options": (
+                    ["deny", "allow_once", "allow_session"] if room_turn
+                    else ["deny", "allow_once", "allow_session", "allow_always"]
+                ),
             })
             decision = await self.sandbox_bridge.submit(request_id, timeout=60.0)
+            if room_turn and decision == "allow_always":
+                # Hiding the option is a courtesy; this is the enforcement. A
+                # room must not be able to append to the global allowlist,
+                # because that would re-install the very door this turn ignores
+                # — for every future room as well.
+                decision = "allow_once"
             if decision == "deny":
                 self._audit_sandbox(workspace.id, conv_id, name, operation, verdict.resolved_path, command, "denied", verdict.reason)
                 return f"Error: sandbox escape denied - {verdict.reason}"
@@ -3801,14 +3820,32 @@ class ChatEngine:
             prompt = f"{prompt}\n\n{self._session_cwd_hint}"
         return prompt
 
+    def room_sandbox(self, conv_id: str) -> Any | None:
+        """The workspace a room's chat turn is confined to, or None when this
+        conversation is not a room's. Callers read None as "not a room turn",
+        which is what leaves the owner's own conversations alone.
+
+        Read defensively, like active_conversation_id: instances are also built
+        by hand in tests, and an unwired engine must degrade to "no room
+        policy" rather than raise.
+        """
+        resolver = getattr(self, "_room_sandbox_for", None)
+        if resolver is None or not conv_id:
+            return None
+        return resolver(conv_id)
+
     def _turn_workspace(self, conv_id: str, override: Any = None) -> Any:
         """The workspace this turn runs in.
 
-        A room hands each member its own staging; everything else keeps the
+        A room hands each member its own staging for a work turn, and confines
+        every other turn to the room's sandbox. Everything else keeps the
         conversation's binding, which is what this resolved before.
         """
         if override is not None:
             return override
+        sandbox = self.room_sandbox(conv_id)
+        if sandbox is not None:
+            return sandbox
         return self.workspace_repo.get_or_create_binding(conv_id)
 
     def _workspace_context(self, conv_id: str, workspace_override: Any = None) -> str:

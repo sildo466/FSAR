@@ -67,7 +67,7 @@ def real_engine(tmp_path: Path, monkeypatch):
     item.sandbox_bridge = Bridge("deny")
     item.config = Config()
     item.permissions = SimpleNamespace(no_trust_mode=False)
-    item.risk_engine = SimpleNamespace(evaluate=lambda tool, args: SimpleNamespace(
+    item.risk_engine = SimpleNamespace(evaluate=lambda tool, args, **kwargs: SimpleNamespace(
         needs_confirm=lambda: False,
         is_denied=lambda: False,
         effective_risk="SAFE",
@@ -169,3 +169,44 @@ def test_denial_is_audited(tmp_path: Path, monkeypatch):
     item = engine(tmp_path, monkeypatch, verdict, "deny")
     assert "escape denied" in run(item, WS())
     assert item.workspace_repo.list_audit(conversation_id="conv")[0]["verdict"] == "denied"
+
+
+def test_room_escape_offer_omits_allow_always(tmp_path: Path, monkeypatch):
+    """`allow_always` appends to the global allowlist. Offering it inside a
+    room would re-install the very door the room turn ignores — for every
+    future room as well."""
+    verdict = PathVerdict("confirm_escape", "outside", "outside_workspace", "x", "root")
+    item = engine(tmp_path, monkeypatch, verdict)
+    item._room_sandbox_for = lambda cid: item.workspace_repo.list()[0]
+
+    ws = WS()
+    run(item, ws, "file_ops", {"operation": "read", "path": "x"})
+
+    request = next(m for m in ws.messages if m.get("type") == "tool.sandbox.request_escape")
+    assert request["options"] == ["deny", "allow_once", "allow_session"]
+
+
+def test_own_escape_offer_still_has_allow_always(tmp_path: Path, monkeypatch):
+    """The owner's own conversation keeps all four choices."""
+    verdict = PathVerdict("confirm_escape", "outside", "outside_workspace", "x", "root")
+    item = engine(tmp_path, monkeypatch, verdict)
+
+    ws = WS()
+    run(item, ws, "file_ops", {"operation": "read", "path": "x"})
+
+    request = next(m for m in ws.messages if m.get("type") == "tool.sandbox.request_escape")
+    assert request["options"] == ["deny", "allow_once", "allow_session", "allow_always"]
+
+
+def test_room_turn_cannot_persist_an_always_allow(tmp_path: Path, monkeypatch):
+    """Hiding the option is a courtesy; the server is what enforces it. A
+    client that sends allow_always from a room must get a single-use grant and
+    leave the global allowlist alone."""
+    target = str(tmp_path / "outside.txt")
+    verdict = PathVerdict("confirm_escape", "outside", "outside_workspace", target, "root")
+    item = engine(tmp_path, monkeypatch, verdict, "allow_always")
+    item._room_sandbox_for = lambda cid: item.workspace_repo.list()[0]
+
+    assert run(item, WS()) is None
+    assert target not in item.config.get("security.always_allow_paths")
+    assert item.workspace_repo.list_audit(conversation_id="conv")[0]["verdict"] == "escape_once"

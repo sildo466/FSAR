@@ -150,6 +150,7 @@ class WorkspaceGate:
     def command_verdicts(
         self, command: str, *, workspace_id: int, shell: str,
         session_id: str | None = None, conversation_id: str | None = None,
+        room_turn: bool = False,
     ) -> list[PathVerdict]:
         workspace = self.workspace_repo.get(workspace_id)
         root = workspace.root_path if workspace else ""
@@ -163,6 +164,7 @@ class WorkspaceGate:
             verdict = self.validate_path(
                 token, workspace_id=workspace_id, operation="execute",
                 session_id=session_id, conversation_id=conversation_id,
+                room_turn=room_turn,
             )
             verdicts.append(verdict)
         return verdicts

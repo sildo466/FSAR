@@ -103,3 +103,24 @@ def test_room_turn_inside_the_root_still_proceeds(tmp_path: Path, monkeypatch):
     assert gate.validate_path(
         str(root / "a.txt"), workspace_id=ws.id, operation="read", room_turn=True,
     ).action == "proceed"
+
+
+def test_room_command_verdicts_ignore_the_allowlist_too(tmp_path: Path, monkeypatch):
+    """The incident's run_command rows — a recursive scan of the owner's home
+    directory — were audited as "path is permanently allowed". They come
+    through command_verdicts, so the room rule has to reach it as well."""
+    gate, ws, _ = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    # command_verdicts skips absolute tokens that do not exist, so the scan
+    # target has to be a real directory for the token to be judged at all.
+    private = tmp_path / "private"
+    private.mkdir()
+    command = f'Get-ChildItem -Path "{private}" -Recurse'
+
+    own = gate.command_verdicts(command, workspace_id=ws.id, shell="powershell")
+    assert any("permanently" in v.reason for v in own), "the owner's turn still honours it"
+
+    room = gate.command_verdicts(
+        command, workspace_id=ws.id, shell="powershell", room_turn=True,
+    )
+    assert room, "the command's path token must still be judged"
+    assert all("permanently" not in v.reason for v in room)
