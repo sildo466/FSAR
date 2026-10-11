@@ -80,3 +80,26 @@ def test_windows_relative_parent_and_env_are_extracted():
     assert "..\\secret.txt" in extract_path_tokens("type ..\\secret.txt", "cmd")
     assert "$env:USERPROFILE\\.ssh\\id_rsa" in extract_path_tokens("Get-Content $env:USERPROFILE\\.ssh\\id_rsa", "powershell")
     assert ".." in extract_path_tokens("cd ..; dir", "cmd")
+
+
+def test_room_turn_is_not_waved_through_by_the_permanent_allowlist(tmp_path: Path, monkeypatch):
+    """A room turn's boundary is its root alone. The allowlist is a convenience
+    for the owner's own conversations, not a licence for whoever can reach the
+    room — 15 of the 2026-10-10 incident's audit rows read "permanently
+    allowed"."""
+    gate, ws, _ = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    outside = str(tmp_path / "private" / "fsar.yaml")
+
+    assert gate.validate_path(outside, workspace_id=ws.id, operation="read").action == "proceed"
+
+    room = gate.validate_path(outside, workspace_id=ws.id, operation="read", room_turn=True)
+    assert room.action == "confirm_escape"
+    assert room.rule_matched == "outside_workspace"
+    assert "permanently" not in room.reason
+
+
+def test_room_turn_inside_the_root_still_proceeds(tmp_path: Path, monkeypatch):
+    gate, ws, root = build(tmp_path, monkeypatch, always_allow_paths=[str(tmp_path / "**")])
+    assert gate.validate_path(
+        str(root / "a.txt"), workspace_id=ws.id, operation="read", room_turn=True,
+    ).action == "proceed"

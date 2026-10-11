@@ -71,6 +71,7 @@ class WorkspaceGate:
     def validate_path(
         self, raw_path: str, *, workspace_id: int, operation: str,
         session_id: str | None = None, conversation_id: str | None = None,
+        room_turn: bool = False,
     ) -> PathVerdict:
         workspace = self.workspace_repo.get(workspace_id)
         if workspace is None:
@@ -82,7 +83,10 @@ class WorkspaceGate:
         sensitive_match, sensitive_reason = sensitive.match(
             resolved, custom_patterns=list(self._value(self._custom_sensitive_paths)),
         )
-        always_allowed = self._is_always_allowed(resolved)
+        # A room's chat turn is bounded by its workspace root and nothing else:
+        # the permanent allowlist is a convenience for the owner's own
+        # conversations, not a licence for whoever can reach the room.
+        always_allowed = False if room_turn else self._is_always_allowed(resolved)
         if sensitive_match and not always_allowed:
             return self._escape_or_proceed(
                 "sensitive_path", sensitive_reason, path_text, str(root), session_id, True,
