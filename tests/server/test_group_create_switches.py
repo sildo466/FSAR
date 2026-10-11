@@ -77,3 +77,83 @@ def test_update_can_flip_the_lan_switch() -> None:
     }))
     assert captured["lan_enabled"] is True
     assert "agent_mode" not in captured
+
+
+def test_create_carries_a_sandbox_workspace() -> None:
+    captured = _wire()
+    asyncio.run(group_handler.dispatch(FakeWebSocket(), {
+        "type": "group.create", "name": "Work", "character_ids": [7],
+        "sandbox_workspace_id": 5,
+    }))
+    assert captured["sandbox_workspace_id"] == 5
+
+
+def test_create_without_a_sandbox_passes_none() -> None:
+    captured = _wire()
+    asyncio.run(group_handler.dispatch(FakeWebSocket(), {
+        "type": "group.create", "name": "Work", "character_ids": [7],
+    }))
+    assert captured["sandbox_workspace_id"] is None
+
+
+def _wire_with_sandbox() -> list[tuple]:
+    calls: list[tuple] = []
+
+    def update(room_id, **kwargs):
+        return SimpleNamespace(
+            id=room_id, to_dict=lambda: {"id": room_id}, members=[7],
+        )
+
+    def set_sandbox(room_id, workspace_id):
+        calls.append((room_id, workspace_id))
+        return SimpleNamespace(
+            id=room_id, members=[7],
+            to_dict=lambda: {"id": room_id, "sandbox_workspace_id": workspace_id},
+        )
+
+    rooms = SimpleNamespace(
+        update=update, set_sandbox=set_sandbox,
+        get=lambda room_id: SimpleNamespace(id=room_id), members=lambda room_id: [7],
+    )
+    group_handler.set_engine(SimpleNamespace(chat=SimpleNamespace()), rooms)
+    return calls
+
+
+def test_update_moves_the_sandbox_through_its_own_door() -> None:
+    """update() reads None as leave-alone, so clearing the sandbox has to go
+    through set_sandbox — the same reason clear_workspace exists."""
+    calls = _wire_with_sandbox()
+    ws = FakeWebSocket()
+
+    asyncio.run(group_handler.dispatch(ws, {
+        "type": "group.update", "room_id": 3, "sandbox_workspace_id": 5,
+    }))
+    assert calls == [(3, 5)]
+    assert ws.messages[-1]["type"] == "group.updated"
+    assert ws.messages[-1]["room"]["sandbox_workspace_id"] == 5
+
+    asyncio.run(group_handler.dispatch(ws, {
+        "type": "group.update", "room_id": 3, "sandbox_workspace_id": None,
+    }))
+    assert calls == [(3, 5), (3, None)], "null must clear it, not be ignored"
+
+
+def test_update_without_the_key_never_touches_the_sandbox() -> None:
+    """The field is optional, so a rooms stub without set_sandbox still works."""
+    captured: dict = {}
+
+    def update(room_id, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            id=room_id, to_dict=lambda: {"id": room_id}, members=[7],
+        )
+
+    rooms = SimpleNamespace(
+        update=update, get=lambda room_id: SimpleNamespace(id=room_id),
+        members=lambda room_id: [7],
+    )
+    group_handler.set_engine(SimpleNamespace(chat=SimpleNamespace()), rooms)
+    asyncio.run(group_handler.dispatch(FakeWebSocket(), {
+        "type": "group.update", "room_id": 1, "lan_enabled": True,
+    }))
+    assert captured["lan_enabled"] is True

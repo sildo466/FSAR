@@ -299,6 +299,10 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 max_rounds=int(msg.get("max_rounds") or 0),
                 agent_mode=bool(msg.get("agent_mode")),
                 lan_enabled=bool(msg.get("lan_enabled")),
+                sandbox_workspace_id=(
+                    int(msg["sandbox_workspace_id"])
+                    if msg.get("sandbox_workspace_id") is not None else None
+                ),
             )
             _sync_lan()
             await ws.send_json({
@@ -334,6 +338,12 @@ async def dispatch(ws: WebSocket, msg: dict[str, Any]) -> bool:
                 ),
                 lan_enabled=msg.get("lan_enabled"),
             )
+            if room is not None and "sandbox_workspace_id" in msg:
+                # Its own door: update() reads None as leave-alone, so clearing
+                # the sandbox would otherwise be impossible to ask for.
+                room = rooms.set_sandbox(
+                    int(msg["room_id"]), msg.get("sandbox_workspace_id"),
+                )
             if room is not None:
                 _sync_lan()
                 await ws.send_json({
