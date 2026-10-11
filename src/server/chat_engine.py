@@ -54,6 +54,7 @@ from src.security import (
     make_entry,
     save_permissions,
 )
+from src.security.command_classifier import CommandClassifier
 from src.security.confirmation import ConfirmResponse
 from src.server.risk_bridge import RiskBridge
 from src.server.sandbox_bridge import SandboxBridge
@@ -2926,6 +2927,18 @@ class ChatEngine:
             await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": sandbox_result, "latency_ms": 0})
             return sandbox_result
 
+        classified = await self._classify_room_command(
+            name, args, conv_id, workspace_override,
+        )
+        if classified is not None:
+            await ws.send_json({
+                "type": "chat.tool_call", "message_id": message_id,
+                "conversation_id": conv_id,
+                "call_id": call_id, "tool": name, "args": args, "risk": "SAFE",
+            })
+            await ws.send_json({"type": "chat.tool_result", "call_id": call_id, "conversation_id": conv_id, "result": classified, "latency_ms": 0})
+            return classified
+
         verdict = self.risk_engine.evaluate(
             tool, args, room_turn=self.room_sandbox(conv_id) is not None,
         )
@@ -3143,6 +3156,54 @@ class ChatEngine:
             for verdict in verdicts:
                 self._audit_sandbox(workspace.id, conv_id, name, operation, verdict.resolved_path, command, "proceed", verdict.reason)
         return None
+
+    async def _classify_room_command(self, name: str, args: dict, conv_id: str,
+                                     workspace_override: Any = None) -> str | None:
+        """A room's command must pass a semantic judgement, or it does not run.
+
+        `None` means let it through. Rooms only: the owner's own conversations
+        keep the gates they already had.
+        """
+        if name not in {"run_command", "process"}:
+            return None
+        if self.room_sandbox(conv_id) is None:
+            return None
+        command = str(args.get("command", "") or "")
+        if not command:
+            return None
+        classifier = CommandClassifier(self.config)
+        if not classifier.enabled:
+            return None
+        workspace = self._turn_workspace(conv_id, workspace_override)
+        intent = str(args.get("description", "") or "")
+        if not intent.strip():
+            self._audit_sandbox(
+                workspace.id, conv_id, name, "execute", None, command,
+                "classifier_blocked", "the command stated no intent",
+            )
+            return "[BLOCKED: command classifier - the command stated no intent]"
+        verdict = await classifier.judge(
+            tool=name,
+            command=command,
+            intent=intent,
+            boundary=str(workspace.root_path),
+        )
+        if not verdict.dangerous:
+            return None
+        self._audit_sandbox(
+            workspace.id, conv_id, name, "execute", None, command,
+            "classifier_unavailable" if verdict.unavailable else "classifier_blocked",
+            verdict.reason or "no reason given",
+        )
+        if verdict.unavailable:
+            return (
+                "[BLOCKED: command classifier unavailable - "
+                "the command was not run]"
+            )
+        return (
+            "[BLOCKED: command classifier - "
+            f"{verdict.reason or 'the command did not match its stated intent'}]"
+        )
 
     def _audit_sandbox(self, workspace_id: int, conv_id: str, tool: str, operation: str,
                        target_path: str | None, command: str | None, verdict: str, reason: str) -> None:
