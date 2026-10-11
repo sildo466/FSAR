@@ -1,4 +1,4 @@
-import { fetchWSToken, useWS } from "../stores/ws";
+import { useWS } from "../stores/ws";
 
 export type PlatformStatus = {
   platform: "telegram" | "feishu" | "wechat";
@@ -9,11 +9,7 @@ export type PlatformStatus = {
 };
 
 async function authenticatedFetch(path: string, init?: RequestInit) {
-  const token = await fetchWSToken();
-  const response = await fetch(path, {
-    ...init,
-    headers: { ...init?.headers, Authorization: `Bearer ${token}` },
-  });
+  const response = await fetch(path, { ...init, credentials: "same-origin" });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { detail?: string };
     throw new Error(payload.detail || `Request failed (${response.status})`);

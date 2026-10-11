@@ -27,17 +27,59 @@ interface WSStore {
 const wsUrl = `ws://${window.location.hostname || "127.0.0.1"}:8765/ws`;
 let initPromise: Promise<void> | null = null;
 
-export async function fetchWSToken(): Promise<string> {
-  const response = await fetch("/api/auth/ws-token", {
+const BOOTSTRAP_FRAGMENT = "bootstrap";
+
+function readBootstrapToken(): string {
+  const raw = window.location.hash.replace(/^#/, "");
+  if (!raw) return "";
+  return new URLSearchParams(raw).get(BOOTSTRAP_FRAGMENT) ?? "";
+}
+
+function clearBootstrapToken(): void {
+  // The token must not sit in the address bar or in history: it is single-use,
+  // but a screenshot of the URL would hand it over anyway.
+  window.history.replaceState(
+    null,
+    "",
+    window.location.pathname + window.location.search,
+  );
+}
+
+async function postBootstrap(token: string): Promise<void> {
+  const response = await fetch("/api/auth/bootstrap", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) throw new Error(`bootstrap failed (${response.status})`);
+}
+
+/** Establish the session the launcher opened this page for.
+ *
+ * A token that no longer works is not an error: the page may have been reloaded
+ * after the session was already established from it, in which case the cookie
+ * is what carries us.
+ */
+export async function ensureAdminSession(): Promise<void> {
+  const token = readBootstrapToken();
+  if (!token) return;
+  await postBootstrap(token).catch(() => undefined);
+  clearBootstrapToken();
+}
+
+export async function fetchWSTicket(): Promise<string> {
+  const response = await fetch("/api/auth/ws-ticket", {
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("ws_token fetch failed");
-  const payload = (await response.json()) as { token?: unknown };
-  if (typeof payload.token !== "string" || !payload.token) {
-    throw new Error("ws_token response invalid");
+  if (!response.ok) throw new Error("ws_ticket fetch failed");
+  const payload = (await response.json()) as { ticket?: unknown };
+  if (typeof payload.ticket !== "string" || !payload.ticket) {
+    throw new Error("ws_ticket response invalid");
   }
-  return payload.token;
+  return payload.ticket;
 }
 
 function applyDotPatch(
@@ -70,9 +112,10 @@ export const useWS = create<WSStore>((set, get) => ({
     if (get().client || initPromise) return;
     initPromise = (async () => {
       try {
-        const token = await fetchWSToken();
+        await ensureAdminSession();
+        const ticket = await fetchWSTicket();
         if (get().client) return;
-        const client = new WSClient(wsUrl, token, fetchWSToken);
+        const client = new WSClient(wsUrl, ticket, fetchWSTicket);
     client.on((msg: ServerMsg) => {
       if (msg.type === "snapshot") {
         const nextConfig = { ...msg.config } as Record<string, unknown>;

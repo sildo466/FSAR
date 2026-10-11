@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { fetchWSToken, useWS } from "../stores/ws";
+import { useWS } from "../stores/ws";
 
 interface Experience {
   id?: number;
@@ -104,14 +104,10 @@ export function Library() {
     try {
       const folderPath = await open({ directory: true, multiple: false, title: t("library.installSkill") });
       if (typeof folderPath !== "string") return;
-      const token = await fetchWSToken();
       const response = await fetch("/api/skill/install", {
         method: "POST",
         credentials: "same-origin",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder_path: folderPath }),
       });
       await reportInstall(response);
@@ -136,11 +132,9 @@ export function Library() {
           (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
         form.append("files", file, rel);
       }
-      const token = await fetchWSToken();
       const response = await fetch("/api/skill/install/upload", {
         method: "POST",
         credentials: "same-origin",
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       await reportInstall(response);

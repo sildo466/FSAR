@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { useEffect, useState } from "react";
 import { AlertTriangle, FileCode2 } from "lucide-react";
-import { fetchWSToken, useWS } from "../../stores/ws";
+import { useWS } from "../../stores/ws";
 import { useWizardState } from "../../stores/onboarding";
 import { useTranslation } from "react-i18next";
 import { InjectionSection } from "./InjectionSection";
@@ -139,11 +139,9 @@ export function AdvancedTab() {
 }
 
 async function fetchRawYaml(): Promise<string> {
-  const token = await fetchWSToken();
   const res = await fetch("/api/fsar_yaml", {
     credentials: "same-origin",
     cache: "no-store",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();

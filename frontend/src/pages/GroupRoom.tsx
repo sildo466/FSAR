@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Bot, Globe, Radio, Users } from "lucide-react";
 import { useGroup } from "../stores/group";
 import { useCardsStore } from "../stores/cards";
-import { fetchWSToken, useWS } from "../stores/ws";
+import { useWS } from "../stores/ws";
 import { MessageList, type ChatMessage } from "../components/chat/MessageList";
 import {
   ChatComposer,
@@ -115,11 +115,9 @@ export function GroupRoom() {
     try {
       const form = new FormData();
       for (const file of Array.from(files).slice(0, 8)) form.append("files", file);
-      const token = await fetchWSToken();
       const response = await fetch("/api/chat/upload", {
         method: "POST",
         credentials: "same-origin",
-        headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
       const payload = (await response.json().catch(() => ({}))) as {
