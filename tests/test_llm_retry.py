@@ -47,6 +47,9 @@ class _Cfg:
     def get_active_provider(self):
         return {}
 
+    def get(self, key, default=None):
+        return default
+
 
 @pytest.fixture(autouse=True)
 def _stub_dispatch(monkeypatch):
@@ -116,3 +119,67 @@ def test_responses_fallback_retries_only_once(monkeypatch):
 
     assert client.create.calls == 4
     assert sleeps == [1.0, 2.0, 4.0]
+
+
+def test_anthropic_helper_retries_status_errors(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(lf.time, "sleep", sleeps.append)
+    create = _Create([_StatusError(429) for _ in range(4)])
+    fake_client = SimpleNamespace(
+        messages=SimpleNamespace(create=create),
+    )
+    monkeypatch.setattr(lf, "get_config", lambda: _Cfg())
+    monkeypatch.setattr(lf, "make_anthropic_client", lambda provider_id: fake_client)
+
+    result = lf.chat_completion_anthropic(
+        messages=[{"role": "user", "content": "x"}],
+        model="m",
+        cache_retention="none",
+    )
+
+    assert create.calls == 4
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert result.choices[0].message.content.startswith("(Anthropic call failed")
+
+
+def test_gemini_helper_retries_status_errors(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(lf.time, "sleep", sleeps.append)
+    create = _Create([_StatusError(429) for _ in range(4)])
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=create),
+    )
+    monkeypatch.setattr(lf, "get_config", lambda: _Cfg())
+    monkeypatch.setattr(lf, "make_gemini_client", lambda provider_id: fake_client)
+
+    result = lf.chat_completion_gemini(
+        messages=[{"role": "user", "content": "x"}],
+        model="m",
+        cache_retention="none",
+    )
+
+    assert create.calls == 4
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert result.choices[0].message.content.startswith("(Gemini call failed")
+
+
+def test_responses_primary_retries_status_errors(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(lf.time, "sleep", sleeps.append)
+    create = _Create([_StatusError(429) for _ in range(4)])
+    fake_client = SimpleNamespace(
+        base_url="https://example.invalid/v1",
+        responses=SimpleNamespace(create=create),
+    )
+    monkeypatch.setattr(lf, "get_config", lambda: _Cfg())
+
+    result = lf.chat_completion_responses(
+        fake_client,
+        model="m",
+        messages=[{"role": "user", "content": "x"}],
+        cache_retention="none",
+    )
+
+    assert create.calls == 4
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert result.choices[0].message.content.startswith("(Responses API call failed")

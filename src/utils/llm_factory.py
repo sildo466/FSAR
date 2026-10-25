@@ -596,10 +596,12 @@ def chat_completion_gemini(
             except Exception:
                 pass
         cfg_obj = types.GenerateContentConfig(**gen_config) if gen_config else None
-        response = client.models.generate_content(
-            model=model if model.startswith("models/") else f"models/{model}",
-            contents=contents,
-            config=cfg_obj,
+        response = _call_with_status_retry(
+            lambda: client.models.generate_content(
+                model=model if model.startswith("models/") else f"models/{model}",
+                contents=contents,
+                config=cfg_obj,
+            )
         )
     except Exception as e:
         logger.warning(f"Gemini generate_content failed: {e}")
@@ -816,7 +818,9 @@ def chat_completion_anthropic(
         call_kwargs["temperature"] = float(temperature)
 
     try:
-        response = client.messages.create(**call_kwargs)
+        response = _call_with_status_retry(
+            lambda: client.messages.create(**call_kwargs)
+        )
     except Exception as e:
         logger.warning(f"Anthropic messages.create failed: {e}")
         return _rehydrate_response({
@@ -920,7 +924,9 @@ def chat_completion_responses(
     )
 
     try:
-        response = client.responses.create(**responses_kwargs)
+        response = _call_with_status_retry(
+            lambda: client.responses.create(**responses_kwargs)
+        )
     except Exception as e:
         status = getattr(e, "status_code", None)
         request_url = ""
