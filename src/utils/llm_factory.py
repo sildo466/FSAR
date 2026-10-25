@@ -28,6 +28,7 @@ import copy
 import hashlib
 import json
 import ssl
+import time
 from typing import Any, Optional
 
 import httpx
@@ -308,7 +309,56 @@ def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> 
         return client
 
 
+_RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
+_RETRY_DELAYS = (1.0, 2.0, 4.0)
+
+
+def _status_code_of(exc: BaseException) -> int | None:
+    for attr in ("status_code", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    response = getattr(exc, "response", None)
+    value = getattr(response, "status_code", None)
+    return value if isinstance(value, int) else None
+
+
+def _call_with_status_retry(call: Any) -> Any:
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            return call()
+        except Exception as exc:
+            status = _status_code_of(exc)
+            if status not in _RETRYABLE_STATUS or attempt == len(_RETRY_DELAYS):
+                raise
+            delay = _RETRY_DELAYS[attempt]
+            logger.warning(
+                f"llm request failed with status {status}; retrying in {delay:.0f}s"
+            )
+            time.sleep(delay)
+
+
 def chat_completion(
+    client: OpenAI,
+    *,
+    provider_id: Optional[str] = None,
+    format_override: Optional[str] = None,
+    cache_retention: str = "",
+    usage_recording: bool = True,
+    **kwargs: Any,
+) -> Any:
+    """Dispatch one completion, retrying retryable status errors."""
+    return _call_with_status_retry(lambda: _chat_completion_once(
+        client,
+        provider_id=provider_id,
+        format_override=format_override,
+        cache_retention=cache_retention,
+        usage_recording=usage_recording,
+        **kwargs,
+    ))
+
+
+def _chat_completion_once(
     client: OpenAI,
     *,
     provider_id: Optional[str] = None,
