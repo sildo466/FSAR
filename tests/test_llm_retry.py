@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 import src.utils.llm_factory as lf
@@ -183,3 +184,16 @@ def test_responses_primary_retries_status_errors(monkeypatch):
     assert create.calls == 4
     assert sleeps == [1.0, 2.0, 4.0]
     assert result.choices[0].message.content.startswith("(Responses API call failed")
+
+
+def test_retries_transport_errors(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(lf.time, "sleep", sleeps.append)
+    client = _Client([httpx.ConnectError("boom"), "ok"])
+    result = lf.chat_completion(
+        client, model="m", messages=[{"role": "user", "content": "x"}],
+        usage_recording=False,
+    )
+    assert result == "ok"
+    assert client.create.calls == 2
+    assert sleeps == [1.0]

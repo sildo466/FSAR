@@ -297,6 +297,7 @@ def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> 
                 base_url=resolved_base_url,
                 http_client=httpx.Client(verify=ctx, timeout=HTTP_TIMEOUT),
                 timeout=HTTP_TIMEOUT,
+                max_retries=0,
             )
         except TypeError:
             # OpenAI SDK < 1.0 or custom subclasses: fall back without http_client.
@@ -304,6 +305,7 @@ def make_llm_client(provider_id: str, base_url: str = "", api_key: str = "") -> 
                 api_key=resolved_api_key,
                 base_url=resolved_base_url,
                 timeout=HTTP_TIMEOUT,
+                max_retries=0,
             )
         _CLIENTS[client_key] = client
         return client
@@ -323,13 +325,22 @@ def _status_code_of(exc: BaseException) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _is_transport_error(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True
+    return type(exc).__name__ in {"APIConnectionError", "APITimeoutError"}
+
+
 def _call_with_status_retry(call: Any) -> Any:
     for attempt in range(len(_RETRY_DELAYS) + 1):
         try:
             return call()
         except Exception as exc:
             status = _status_code_of(exc)
-            if status not in _RETRYABLE_STATUS or attempt == len(_RETRY_DELAYS):
+            retryable = status in _RETRYABLE_STATUS or (
+                status is None and _is_transport_error(exc)
+            )
+            if not retryable or attempt == len(_RETRY_DELAYS):
                 raise
             delay = _RETRY_DELAYS[attempt]
             logger.warning(
@@ -721,7 +732,10 @@ def make_anthropic_client(provider_id: str):
         try:
             import anthropic  # type: ignore
 
-            kwargs: dict[str, Any] = {"api_key": cfg.get("api_key", "")}
+            kwargs: dict[str, Any] = {
+                "api_key": cfg.get("api_key", ""),
+                "max_retries": 0,
+            }
             base_url = cfg.get("base_url", "")
             if base_url:
                 kwargs["base_url"] = base_url
