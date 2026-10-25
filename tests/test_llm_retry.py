@@ -38,6 +38,8 @@ class _Client:
 
 class _Cfg:
     llm_cache_retention = "none"
+    llm_cache_db_path = ""
+    llm_cache_session_id = "test-session"
 
     def get_llm_config(self, provider_id):
         return {}
@@ -99,3 +101,18 @@ def test_gives_up_after_three_retries(monkeypatch):
         )
 
     assert client.create.calls == 4
+
+
+def test_responses_fallback_retries_only_once(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr(lf.time, "sleep", sleeps.append)
+    client = _Client([_StatusError(429) for _ in range(4)] + ["ok"])
+
+    with pytest.raises(_StatusError):
+        lf.chat_completion(
+            client, model="m", messages=[{"role": "user", "content": "x"}],
+            format_override="responses", usage_recording=False,
+        )
+
+    assert client.create.calls == 4
+    assert sleeps == [1.0, 2.0, 4.0]

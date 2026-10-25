@@ -909,7 +909,7 @@ def chat_completion_responses(
         )
         fallback_kwargs = {k: v for k, v in kwargs.items() if k != "session_id"}
         fallback_kwargs["_skip_responses_dispatch"] = True
-        return chat_completion(client, **fallback_kwargs)
+        return _chat_completion_once(client, **fallback_kwargs)
 
     responses_kwargs = build_responses_kwargs(
         payload=payload,
