@@ -1,3 +1,4 @@
+import pathlib
 from pathlib import Path
 
 from src.memory.workspace import WorkspaceRepo
@@ -126,19 +127,24 @@ def test_room_command_verdicts_ignore_the_allowlist_too(tmp_path: Path, monkeypa
     assert all("permanently" not in v.reason for v in room)
 
 
-import os
+def _raise_relative_to(self, other):
+    raise ValueError(f"{self!r} is not in the subpath of {other!r}")
 
-import pytest
 
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows path comparison is case-insensitive")
-def test_case_mismatch_does_not_raise(tmp_path: Path, monkeypatch):
+def test_relative_to_failure_falls_back_to_relpath(tmp_path: Path, monkeypatch):
     gate, ws, root = build(tmp_path, monkeypatch)
-    # Force the Windows branch: is_inside says yes, relative_to still rejects
-    # because the path case differs from the root's case.
-    monkeypatch.setattr(
-        "src.sandbox.workspace_gate.is_inside", lambda path, base: True,
-    )
-    target = str(root).swapcase() + os.sep + "inside.txt"
-    verdict = gate.validate_path(target, workspace_id=ws.id, operation="read")
+    with monkeypatch.context() as patch:
+        patch.setattr("src.sandbox.workspace_gate.is_inside", lambda path, base: True)
+        patch.setattr(pathlib.Path, "relative_to", _raise_relative_to)
+        verdict = gate.validate_path(str(root / "inside.txt"), workspace_id=ws.id, operation="read")
     assert verdict.action == "proceed"
+
+
+def test_relative_to_failure_denies_escaping_path(tmp_path: Path, monkeypatch):
+    gate, ws, _ = build(tmp_path, monkeypatch)
+    with monkeypatch.context() as patch:
+        patch.setattr("src.sandbox.workspace_gate.is_inside", lambda path, base: True)
+        patch.setattr(pathlib.Path, "relative_to", _raise_relative_to)
+        verdict = gate.validate_path(str(tmp_path / "outside.txt"), workspace_id=ws.id, operation="read")
+    assert verdict.action == "deny"
+    assert verdict.rule_matched == "outside_workspace"
