@@ -101,7 +101,19 @@ class WorkspaceGate:
                 path_text, str(root), session_id, sensitive_match,
             )
 
-        relative = resolved.relative_to(root).as_posix()
+        try:
+            relative = resolved.relative_to(root).as_posix()
+        except ValueError:
+            relative = Path(os.path.relpath(resolved, root)).as_posix()
+            if relative == ".." or relative.startswith("../"):
+                return PathVerdict(
+                    "deny",
+                    "path could not be resolved inside the workspace",
+                    "outside_workspace",
+                    path_text,
+                    str(root),
+                    sensitive_match,
+                )
         for pattern in workspace.blocked_patterns:
             if fnmatch.fnmatch(relative, pattern):
                 return PathVerdict("deny", f"blocked by workspace pattern: {pattern}", "blocked_pattern", path_text, str(root), sensitive_match)

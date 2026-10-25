@@ -124,3 +124,21 @@ def test_room_command_verdicts_ignore_the_allowlist_too(tmp_path: Path, monkeypa
     )
     assert room, "the command's path token must still be judged"
     assert all("permanently" not in v.reason for v in room)
+
+
+import os
+
+import pytest
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path comparison is case-insensitive")
+def test_case_mismatch_does_not_raise(tmp_path: Path, monkeypatch):
+    gate, ws, root = build(tmp_path, monkeypatch)
+    # Force the Windows branch: is_inside says yes, relative_to still rejects
+    # because the path case differs from the root's case.
+    monkeypatch.setattr(
+        "src.sandbox.workspace_gate.is_inside", lambda path, base: True,
+    )
+    target = str(root).swapcase() + os.sep + "inside.txt"
+    verdict = gate.validate_path(target, workspace_id=ws.id, operation="read")
+    assert verdict.action == "proceed"
