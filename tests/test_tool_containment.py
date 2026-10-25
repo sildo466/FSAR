@@ -81,3 +81,100 @@ async def test_execute_guarded_does_not_duplicate_existing_tool_call(monkeypatch
     assert result.startswith("Error: edit could not find the path")
     assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
     assert len([e for e in ws.events if e["type"] == "chat.tool_call"]) == 1
+
+
+import asyncio
+from types import SimpleNamespace
+
+
+def _runtime(parallel_tools: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
+        profile=SimpleNamespace(parallel_tools=parallel_tools),
+        tool_steps=[],
+        serial_tool_lock=asyncio.Lock(),
+    )
+
+
+def _call(call_id: str, name: str) -> dict:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": "{}"},
+    }
+
+
+async def test_execute_tool_calls_contains_a_raising_tool(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+    monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: False)
+
+    async def _execute(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(engine, "_execute_runtime_tool", _execute)
+    ws = _WS()
+
+    results = await engine._execute_tool_calls(
+        ws=ws,
+        message_id="msg-1",
+        conv_id="conv-1",
+        client=None,
+        model="",
+        provider_id="",
+        runtime=_runtime(),
+        agent_id="agent-1",
+        depth=0,
+        tool_calls=[_call("call-1", "run_command")],
+    )
+
+    assert results[0][0] == "call-1"
+    assert results[0][2].startswith("Error: run_command failed (RuntimeError): boom")
+    assert results[0][3] is True
+    assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
+    assert ws.events[0]["call_id"] == "call-1"
+    assert ws.events[1]["call_id"] == "call-1"
+    assert ws.events[1]["result"] == results[0][2]
+
+
+async def test_parallel_batch_survives_one_raising_tool(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+    monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: True)
+
+    async def _execute(**kwargs):
+        if kwargs["name"] == "bad":
+            raise RuntimeError("boom")
+        return "ok"
+
+    monkeypatch.setattr(engine, "_execute_runtime_tool", _execute)
+    ws = _WS()
+
+    results = await engine._execute_tool_calls(
+        ws=ws,
+        message_id="msg-1",
+        conv_id="conv-1",
+        client=None,
+        model="",
+        provider_id="",
+        runtime=_runtime(parallel_tools=True),
+        agent_id="agent-1",
+        depth=0,
+        tool_calls=[_call("call-1", "bad"), _call("call-2", "good")],
+    )
+
+    by_id = {item[0]: item for item in results}
+    assert by_id["call-1"][3] is True
+    assert by_id["call-1"][2].startswith("Error: bad failed")
+    assert by_id["call-2"][2] == "ok"
+    assert by_id["call-2"][3] is False
+
+
+def test_can_parallel_tool_swallows_risk_engine_failure(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+    engine.registry = SimpleNamespace(
+        get=lambda name: SimpleNamespace(server_name="srv"),
+    )
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError("risk engine down")
+
+    engine.risk_engine = SimpleNamespace(evaluate=_explode)
+    assert engine._can_parallel_tool("some_mcp_tool", {}) is False

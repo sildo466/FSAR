@@ -2452,26 +2452,12 @@ class ChatEngine:
             item: tuple[Any, str, dict[str, Any]],
         ) -> tuple[str, str, str, bool]:
             tool_call, name, args = item
-            parallel_safe = self._can_parallel_tool(name, args)
-            if parallel_safe:
-                output = await self._execute_runtime_tool(
-                    ws=ws,
-                    message_id=message_id,
-                    conv_id=conv_id,
-                    client=client,
-                    model=model,
-                    provider_id=provider_id,
-                    runtime=runtime,
-                    agent_id=agent_id,
-                    depth=depth,
-                    call_id=tool_call.id,
-                    name=name,
-                    args=args,
-                )
-            else:
-                async with runtime.serial_tool_lock:
+            recorder = _ToolCallRecorder(ws)
+            try:
+                parallel_safe = self._can_parallel_tool(name, args)
+                if parallel_safe:
                     output = await self._execute_runtime_tool(
-                        ws=ws,
+                        ws=recorder,
                         message_id=message_id,
                         conv_id=conv_id,
                         client=client,
@@ -2484,11 +2470,54 @@ class ChatEngine:
                         name=name,
                         args=args,
                     )
-            is_error = self._tool_result_is_error(output)
-            runtime.tool_steps.append({
-                "callId": tool_call.id, "tool": name, "args": args,
-            })
-            return tool_call.id, name, output, is_error
+                else:
+                    async with runtime.serial_tool_lock:
+                        output = await self._execute_runtime_tool(
+                            ws=recorder,
+                            message_id=message_id,
+                            conv_id=conv_id,
+                            client=client,
+                            model=model,
+                            provider_id=provider_id,
+                            runtime=runtime,
+                            agent_id=agent_id,
+                            depth=depth,
+                            call_id=tool_call.id,
+                            name=name,
+                            args=args,
+                        )
+                is_error = self._tool_result_is_error(output)
+                runtime.tool_steps.append({
+                    "callId": tool_call.id, "tool": name, "args": args,
+                })
+                return tool_call.id, name, output, is_error
+            except Exception as exc:
+                logger.error(
+                    f"tool {name} escaped the execution boundary:\n"
+                    f"{traceback.format_exc()}"
+                )
+                text = _tool_error_text(name, exc)
+                try:
+                    if not recorder.saw_tool_call:
+                        await recorder.send_json({
+                            "type": "chat.tool_call",
+                            "message_id": message_id,
+                            "conversation_id": conv_id,
+                            "call_id": tool_call.id,
+                            "tool": name,
+                            "args": args,
+                            "risk": "SAFE",
+                        })
+                    await recorder.send_json({
+                        "type": "chat.tool_result",
+                        "call_id": tool_call.id,
+                        "conversation_id": conv_id,
+                        "result": text,
+                        "latency_ms": 0,
+                    })
+                except Exception:
+                    logger.debug("could not emit contained tool error (socket closed?)")
+                return tool_call.id, name, text, True
 
         parallel = (
             runtime.profile.parallel_tools
@@ -2503,19 +2532,26 @@ class ChatEngine:
         return results
 
     def _can_parallel_tool(self, name: str, args: dict[str, Any]) -> bool:
-        if name in {"dispatch_subagent", "blackboard_post"}:
-            return True
-        if name not in PARALLEL_READ_ONLY_TOOLS:
+        try:
+            if name in {"dispatch_subagent", "blackboard_post"}:
+                return True
+            if name not in PARALLEL_READ_ONLY_TOOLS:
+                tool = self.registry.get(name)
+                if tool is None or not getattr(tool, "server_name", None):
+                    return False
+                verdict = self.risk_engine.evaluate(tool, args)
+                return verdict.action == "proceed" and verdict.effective_risk == "SAFE"
             tool = self.registry.get(name)
-            if tool is None or not getattr(tool, "server_name", None):
+            if tool is None:
                 return False
             verdict = self.risk_engine.evaluate(tool, args)
             return verdict.action == "proceed" and verdict.effective_risk == "SAFE"
-        tool = self.registry.get(name)
-        if tool is None:
+        except Exception:
+            logger.debug(
+                f"parallel check failed for {name}; running serially\n"
+                f"{traceback.format_exc()}"
+            )
             return False
-        verdict = self.risk_engine.evaluate(tool, args)
-        return verdict.action == "proceed" and verdict.effective_risk == "SAFE"
 
     async def _execute_runtime_tool(
         self,
