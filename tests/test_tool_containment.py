@@ -178,3 +178,41 @@ def test_can_parallel_tool_swallows_risk_engine_failure(monkeypatch):
 
     engine.risk_engine = SimpleNamespace(evaluate=_explode)
     assert engine._can_parallel_tool("some_mcp_tool", {}) is False
+
+
+async def test_l2_dedupe_does_not_repeat_a_call_the_tool_emitted(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+    monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: False)
+
+    async def _emit_then_raise(**kwargs):
+        await kwargs["ws"].send_json({
+            "type": "chat.tool_call",
+            "message_id": "msg-1",
+            "conversation_id": "conv-1",
+            "call_id": kwargs["call_id"],
+            "tool": "run_command",
+            "args": {},
+            "risk": "SAFE",
+        })
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(engine, "_execute_runtime_tool", _emit_then_raise)
+    ws = _WS()
+
+    results = await engine._execute_tool_calls(
+        ws=ws,
+        message_id="msg-1",
+        conv_id="conv-1",
+        client=None,
+        model="",
+        provider_id="",
+        runtime=_runtime(),
+        agent_id="agent-1",
+        depth=0,
+        tool_calls=[_call("call-1", "run_command")],
+    )
+
+    assert results[0][3] is True
+    assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
+    assert ws.events[0]["call_id"] == "call-1"
+    assert ws.events[1]["call_id"] == "call-1"
