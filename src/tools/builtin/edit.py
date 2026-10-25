@@ -65,7 +65,12 @@ class EditTool(Tool):
             if not path.exists():
                 return f"Error: File not found: {file_path}"
 
-            content = path.read_text(encoding="utf-8", errors="replace")
+            with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+                raw_content = f.read()
+            crlf = "\r\n" in raw_content
+            content = raw_content.replace("\r\n", "\n")
+            old_text = old_text.replace("\r\n", "\n")
+            new_text = new_text.replace("\r\n", "\n")
 
             count = content.count(old_text)
             if count == 0:
@@ -86,7 +91,10 @@ class EditTool(Tool):
             else:
                 new_content = content.replace(old_text, new_text, 1)
 
-            path.write_text(new_content, encoding="utf-8")
+            if crlf:
+                new_content = new_content.replace("\n", "\r\n")
+            with path.open("w", encoding="utf-8", newline="") as f:
+                f.write(new_content)
 
             replaced = count if replace_all else 1
             logger.info(f"Edited {file_path}: replaced {replaced} occurrence(s)")
