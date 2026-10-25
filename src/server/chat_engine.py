@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import time
+import traceback
 import uuid
 from collections import OrderedDict, deque
 from datetime import datetime
@@ -484,6 +485,35 @@ def _plan_write_schema(sink: Any) -> dict[str, Any]:
             f" <one of: {choices}>}}."
         )
     return schema
+
+
+def _tool_error_text(name: str, exc: BaseException) -> str:
+    """Turn a contained tool exception into a result the model can act on."""
+    detail = str(exc) or exc.__class__.__name__
+    if isinstance(exc, FileNotFoundError):
+        return (
+            f"Error: {name} could not find the path: {detail}. "
+            "List the directory, then retry with an existing path."
+        )
+    if isinstance(exc, PermissionError):
+        return (
+            f"Error: {name} was denied by the OS: {detail}. "
+            "Choose a path you can write, then retry."
+        )
+    if isinstance(exc, IsADirectoryError):
+        return (
+            f"Error: {name} expected a file but got a directory: {detail}. "
+            "Use the list operation, then retry with a file path."
+        )
+    if isinstance(exc, ValueError) and "is not in the subpath" in detail:
+        return (
+            f"Error: {name} could not resolve the path: {detail}. "
+            "Use an absolute path inside the workspace, then retry."
+        )
+    return (
+        f"Error: {name} failed ({exc.__class__.__name__}): {detail}. "
+        "Fix the arguments, then retry."
+    )
 
 
 class ChatEngine:
@@ -1483,7 +1513,7 @@ class ChatEngine:
             )
             raise
         except Exception as e:
-            logger.error(f"Agent loop error: {e}")
+            logger.error(f"Agent loop error: {e}\n{traceback.format_exc()}")
             result = AgentLoopResult(f"Tool execution failed: {e}", "failure")
             await self._emit_agent_status(
                 ws, runtime, task_id, "failed", str(e),
@@ -2922,6 +2952,30 @@ class ChatEngine:
     async def _execute_guarded(self, ws: WebSocket, message_id: str, call_id: str,
                                name: str, args: dict, conv_id: str,
                                workspace_override: Any = None) -> str:
+        try:
+            return await self._execute_guarded_inner(
+                ws, message_id, call_id, name, args, conv_id, workspace_override,
+            )
+        except Exception as exc:
+            logger.error(
+                f"tool {name} raised before returning a result:\n{traceback.format_exc()}"
+            )
+            text = _tool_error_text(name, exc)
+            try:
+                await ws.send_json({
+                    "type": "chat.tool_result",
+                    "call_id": call_id,
+                    "conversation_id": conv_id,
+                    "result": text,
+                    "latency_ms": 0,
+                })
+            except Exception:
+                logger.debug("could not emit contained tool error (socket closed?)")
+            return text
+
+    async def _execute_guarded_inner(self, ws: WebSocket, message_id: str, call_id: str,
+                                     name: str, args: dict, conv_id: str,
+                                     workspace_override: Any = None) -> str:
         self.permissions.no_trust_mode = bool(
             self.config.get("security.session.no_trust_mode", False)
         )
@@ -3083,7 +3137,8 @@ class ChatEngine:
             error = None
             tool_outcome = "success"
         except Exception as e:
-            result = f"Error: {e}"
+            logger.error(f"tool {name} failed:\n{traceback.format_exc()}")
+            result = _tool_error_text(name, e)
             error = str(e)
             tool_outcome = "error"
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -3377,7 +3432,7 @@ class ChatEngine:
             )
             raise
         except Exception as e:
-            logger.error(f"Character run error: {e}")
+            logger.error(f"Character run error: {e}\n{traceback.format_exc()}")
             result = AgentLoopResult(f"Tool execution failed: {e}", "failure")
             await self._emit_agent_status(
                 ws, runtime, task_id, "failed", str(e),
