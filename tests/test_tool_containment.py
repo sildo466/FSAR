@@ -34,6 +34,7 @@ def test_error_text_falls_back_to_generic():
 
 async def test_execute_guarded_contains_inner_exception(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
 
     async def _raise(*args, **kwargs):
         raise FileNotFoundError("missing.txt")
@@ -58,6 +59,7 @@ async def test_execute_guarded_contains_inner_exception(monkeypatch):
 
 async def test_execute_guarded_does_not_duplicate_existing_tool_call(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
 
     async def _call_then_raise(socket, *args, **kwargs):
         await socket.send_json({
@@ -105,6 +107,7 @@ def _call(call_id: str, name: str) -> dict:
 
 async def test_execute_tool_calls_contains_a_raising_tool(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
     monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: False)
 
     async def _execute(**kwargs):
@@ -137,6 +140,7 @@ async def test_execute_tool_calls_contains_a_raising_tool(monkeypatch):
 
 async def test_parallel_batch_survives_one_raising_tool(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
     monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: True)
 
     async def _execute(**kwargs):
@@ -169,6 +173,7 @@ async def test_parallel_batch_survives_one_raising_tool(monkeypatch):
 
 def test_can_parallel_tool_swallows_risk_engine_failure(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
     engine.registry = SimpleNamespace(
         get=lambda name: SimpleNamespace(server_name="srv"),
     )
@@ -182,6 +187,7 @@ def test_can_parallel_tool_swallows_risk_engine_failure(monkeypatch):
 
 async def test_l2_dedupe_does_not_repeat_a_call_the_tool_emitted(monkeypatch):
     engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
     monkeypatch.setattr(engine, "_can_parallel_tool", lambda name, args: False)
 
     async def _emit_then_raise(**kwargs):
@@ -216,3 +222,20 @@ async def test_l2_dedupe_does_not_repeat_a_call_the_tool_emitted(monkeypatch):
     assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
     assert ws.events[0]["call_id"] == "call-1"
     assert ws.events[1]["call_id"] == "call-1"
+
+
+async def test_contained_error_text_is_redacted(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+    engine.config = {}
+
+    async def _raise(*args, **kwargs):
+        raise RuntimeError("leaked sk-abcdefghijklmnopqrstuvwxyz123456")
+
+    monkeypatch.setattr(engine, "_execute_guarded_inner", _raise)
+
+    result = await engine._execute_guarded(
+        _WS(), "msg-1", "call-1", "run_command", {}, "conv-1",
+    )
+
+    assert "[REDACTED:api_key_pattern]" in result
+    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in result

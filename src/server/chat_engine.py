@@ -2496,7 +2496,8 @@ class ChatEngine:
                     f"tool {name} escaped the execution boundary:\n"
                     f"{traceback.format_exc()}"
                 )
-                text = _tool_error_text(name, exc)
+                from src.skills.redaction import redact
+                text = redact(_tool_error_text(name, exc), self.config)
                 try:
                     if not recorder.saw_tool_call:
                         await recorder.send_json({
@@ -3013,7 +3014,8 @@ class ChatEngine:
             logger.error(
                 f"tool {name} raised before returning a result:\n{traceback.format_exc()}"
             )
-            text = _tool_error_text(name, exc)
+            from src.skills.redaction import redact
+            text = redact(_tool_error_text(name, exc), self.config)
             try:
                 if not proxy.saw_tool_call:
                     await ws.send_json({
