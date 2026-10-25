@@ -108,7 +108,8 @@ class FileOpsTool(Tool):
         if b"\x00" in sample:
             return f"Error: {path} appears to be a binary file ({len(sample)}-byte sample contains null bytes)."
 
-        content = path.read_text(encoding="utf-8", errors="replace")
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+            content = f.read()
         return content if content else "(empty file)"
 
     async def _write(self, path: Path, content: str) -> str:

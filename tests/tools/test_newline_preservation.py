@@ -35,3 +35,12 @@ async def test_file_ops_write_keeps_lf(tmp_path):
     )
     assert result.startswith("Successfully wrote")
     assert path.read_bytes() == b"a\nb\n"
+
+
+async def test_file_ops_read_preserves_crlf(tmp_path):
+    path = tmp_path / "a.txt"
+    path.write_bytes(b"a\r\nb\r\n")
+    result = await FileOpsTool().execute(
+        operation="read", path=str(path), _sandbox_prevalidated=True,
+    )
+    assert result == "a\r\nb\r\n"
