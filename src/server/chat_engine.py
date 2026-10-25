@@ -516,6 +516,22 @@ def _tool_error_text(name: str, exc: BaseException) -> str:
     )
 
 
+class _ToolCallRecorder:
+    """Delegates to the real socket while noting whether a tool call was shown."""
+
+    def __init__(self, ws: WebSocket) -> None:
+        self._ws = ws
+        self.saw_tool_call = False
+
+    async def send_json(self, payload: dict) -> None:
+        if payload.get("type") == "chat.tool_call":
+            self.saw_tool_call = True
+        await self._ws.send_json(payload)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._ws, name)
+
+
 class ChatEngine:
     """One per server process. Owns the same subsystem instances the CLI builds."""
 
@@ -2952,9 +2968,10 @@ class ChatEngine:
     async def _execute_guarded(self, ws: WebSocket, message_id: str, call_id: str,
                                name: str, args: dict, conv_id: str,
                                workspace_override: Any = None) -> str:
+        proxy = _ToolCallRecorder(ws)
         try:
             return await self._execute_guarded_inner(
-                ws, message_id, call_id, name, args, conv_id, workspace_override,
+                proxy, message_id, call_id, name, args, conv_id, workspace_override,
             )
         except Exception as exc:
             logger.error(
@@ -2962,6 +2979,12 @@ class ChatEngine:
             )
             text = _tool_error_text(name, exc)
             try:
+                if not proxy.saw_tool_call:
+                    await ws.send_json({
+                        "type": "chat.tool_call", "message_id": message_id,
+                        "conversation_id": conv_id,
+                        "call_id": call_id, "tool": name, "args": args, "risk": "SAFE",
+                    })
                 await ws.send_json({
                     "type": "chat.tool_result",
                     "call_id": call_id,

@@ -46,7 +46,38 @@ async def test_execute_guarded_contains_inner_exception(monkeypatch):
     )
 
     assert result.startswith("Error: edit could not find the path")
+    assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
+    assert ws.events[0]["call_id"] == "call-1"
+    assert ws.events[0]["tool"] == "edit"
+    assert ws.events[0]["args"] == {"file_path": "missing.txt"}
     results = [e for e in ws.events if e["type"] == "chat.tool_result"]
     assert len(results) == 1
     assert results[0]["call_id"] == "call-1"
     assert results[0]["result"] == result
+
+
+async def test_execute_guarded_does_not_duplicate_existing_tool_call(monkeypatch):
+    engine = ChatEngine.__new__(ChatEngine)
+
+    async def _call_then_raise(socket, *args, **kwargs):
+        await socket.send_json({
+            "type": "chat.tool_call",
+            "message_id": "msg-1",
+            "conversation_id": "conv-1",
+            "call_id": "call-1",
+            "tool": "edit",
+            "args": {"file_path": "missing.txt"},
+            "risk": "SAFE",
+        })
+        raise FileNotFoundError("missing.txt")
+
+    monkeypatch.setattr(engine, "_execute_guarded_inner", _call_then_raise)
+    ws = _WS()
+
+    result = await engine._execute_guarded(
+        ws, "msg-1", "call-1", "edit", {"file_path": "missing.txt"}, "conv-1",
+    )
+
+    assert result.startswith("Error: edit could not find the path")
+    assert [e["type"] for e in ws.events] == ["chat.tool_call", "chat.tool_result"]
+    assert len([e for e in ws.events if e["type"] == "chat.tool_call"]) == 1
