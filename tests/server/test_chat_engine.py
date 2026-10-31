@@ -116,6 +116,65 @@ def test_chat_send_tool_call_routes_through_risk_bridge(monkeypatch):
     assert "".join(m["content"] for m in msgs if m["type"] == "chat.delta") == "all done"
 
 
+def test_runtime_context_stays_out_of_the_system_message(monkeypatch):
+    engine = ws_mod._engine
+    monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
+    monkeypatch.setattr(engine, "client_and_model", lambda: (object(), "model-x", "prov"))
+    monkeypatch.setattr(engine, "_save_user", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "_save_assistant", lambda *a, **k: None)
+    monkeypatch.setattr(engine, "_reflect", lambda *a, **k: None)
+    monkeypatch.setattr(
+        engine, "_dynamic_agent_context", lambda **kwargs: "DYNAMIC-CTX-MARKER",
+    )
+
+    captured: list[list] = []
+    calls = iter([
+        _resp(tool_calls=[_tool_call("c1", "file_ops", {"action": "list", "path": "."})]),
+        _resp(content="all done"),
+    ])
+
+    def fake_completion(*args, **kwargs):
+        captured.append([
+            dict(message) if isinstance(message, dict) else message
+            for message in kwargs["messages"]
+        ])
+        return next(calls)
+
+    monkeypatch.setattr(ce, "chat_completion", fake_completion)
+
+    async def fake_execute(*args, **kwargs):
+        return [("c1", "file_ops", "TOOL_OK", False)]
+
+    monkeypatch.setattr(engine, "_execute_tool_calls", fake_execute)
+
+    client = TestClient(ws_mod.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat.send", "content": "do it", "mode": "agent"})
+        _collect_until_done(ws)
+
+    assert len(captured) == 2
+    for sent in captured:
+        runtime = [
+            message for message in sent
+            if isinstance(message, dict)
+            and message.get("name") == "fsar_runtime_context"
+        ]
+        assert len(runtime) == 1
+        assert sent[-1] is not None
+        assert sent[-1].get("name") == "fsar_runtime_context"
+        assert sent[-1]["content"] == "DYNAMIC-CTX-MARKER"
+        assert "DYNAMIC-CTX-MARKER" not in str(sent[0]["content"])
+
+    # The system message stays byte-stable across turns so the provider can
+    # cache the prefix.
+    assert captured[0][0]["content"] == captured[1][0]["content"]
+    # Only the transient runtime block is replaced; the prior tool result stays.
+    assert any(
+        message.get("role") == "tool" for message in captured[1]
+    )
+
+
 def test_chat_send_agent_streams_reasoning_chunks(monkeypatch):
     monkeypatch.setattr(ce, "get_tier_profile", lambda name: get_tier_profile("low"))
     monkeypatch.setattr(ws_mod._engine, "client_and_model", lambda: (object(), "model-x", "prov"))

@@ -246,6 +246,11 @@ DEFAULT_MAX_OUTPUT_TOKENS = 12800
 # pump would never enqueue "done" and the loop would hang with no error).
 STREAM_STALL_TIMEOUT = 120.0
 
+# The per-step runtime context rides as a replaceable tail message instead of
+# being spliced into messages[0], so the system prefix stays byte-stable and
+# provider prefix caching survives across steps.
+RUNTIME_CONTEXT_NAME = "fsar_runtime_context"
+
 TODO_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -1654,14 +1659,7 @@ class ChatEngine:
                 self._track_context(conv_id, messages)
                 await self._emit_context(ws, conv_id)
 
-            dynamic = self._dynamic_agent_context(
-                runtime=runtime,
-                agent_id=agent_id,
-                is_subagent=is_subagent,
-            )
-            messages[0]["content"] = (
-                f"{base_system_prompt}\n\n{dynamic}" if dynamic else base_system_prompt
-            )
+            self._drop_runtime_context(messages)
             before_tokens = context_cost(messages)
             messages, compacted = await compact_context(
                 messages,
@@ -1689,6 +1687,14 @@ class ChatEngine:
                 messages = self._fit_agent_messages(
                     messages, context_window, max_output,
                 )
+            dynamic = self._dynamic_agent_context(
+                runtime=runtime,
+                agent_id=agent_id,
+                is_subagent=is_subagent,
+            )
+            self._append_runtime_context(
+                messages, dynamic, self._active_provider_family(),
+            )
 
             tools = self._tools_for_agent(
                 profile=profile,
@@ -2214,6 +2220,30 @@ class ChatEngine:
         if profile.debate_enabled and not runtime.force_convergence:
             tools.append(BLACKBOARD_POST_SCHEMA)
         return _append_plan_tool(tools, runtime.plan_sink)
+
+    def _drop_runtime_context(self, messages: list[Any]) -> None:
+        for index in range(len(messages) - 1, 0, -1):
+            message = messages[index]
+            if (
+                isinstance(message, dict)
+                and message.get("name") == RUNTIME_CONTEXT_NAME
+            ):
+                del messages[index]
+                return
+
+    def _append_runtime_context(
+        self, messages: list[Any], dynamic: str, family: str,
+    ) -> None:
+        if not dynamic:
+            return
+        # Anthropic and Gemini lift system messages into their system param,
+        # where a trailing user turn would violate strict role alternation.
+        role = "system" if family in {"anthropic", "google"} else "user"
+        messages.append({
+            "role": role,
+            "name": RUNTIME_CONTEXT_NAME,
+            "content": dynamic,
+        })
 
     def _dynamic_agent_context(
         self,
